@@ -165,6 +165,14 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                         # Add Localized Orbitals
                         loc = orb_manifest['localized']
                         
+                        def _sort_bonds(bonds):
+                            return sorted(bonds, key=lambda x: (min(x['atoms']), max(x['atoms'])))
+                            
+                        if 'sigma' in loc: loc['sigma'] = _sort_bonds(loc['sigma'])
+                        if 'sigma_star' in loc: loc['sigma_star'] = _sort_bonds(loc['sigma_star'])
+                        if 'pi' in loc: loc['pi'] = _sort_bonds(loc['pi'])
+                        if 'pi_star' in loc: loc['pi_star'] = _sort_bonds(loc['pi_star'])
+                        
                         if loc.get('sigma'):
                             sigma_group = {'name': 'σ Bonds', 'items': []}
                             for info in loc['sigma']:
