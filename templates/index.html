@@ -90,6 +90,24 @@
     <!-- Status bar -->
     <div id="status-bar" class="status-bar">Ready</div>
 
+    <!-- Export Bundle Modal -->
+    <div id="export-modal" class="modal" style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.7);">
+        <div class="modal-content" style="background-color:#1e1e2d; margin:10% auto; padding:20px; border:1px solid #444; width:400px; border-radius:8px; display:flex; flex-direction:column; max-height:80vh;">
+            <h2 style="margin-top:0;">Export Bundle</h2>
+            <p style="color:#aaa; font-size:13px; margin-bottom:15px;">Select which orbitals to save in the `.rxnbundle` archive:</p>
+            <div id="export-orbital-list" style="flex:1; overflow-y:auto; margin-bottom:15px; border:1px solid #333; padding:10px; background:#161622;">
+                <!-- Checkboxes injected here -->
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <label style="font-size:12px; cursor:pointer;"><input type="checkbox" id="export-select-all" onclick="WB.toggleExportSelectAll(this)" checked> Select All</label>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn" onclick="document.getElementById('export-modal').style.display='none'">Cancel</button>
+                    <button class="btn btn-primary" onclick="WB.confirmDownloadBundle()">Download</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/app.js"></script>
 </body>
 

@@ -82,7 +82,8 @@ class CubeConverter:
             absvals = np.abs(vol.ravel())
             absvals = absvals[absvals > 1e-8]  # ignore near-zero
             if len(absvals) > 0:
-                isoval = float(max(0.02, np.max(absvals) * 0.12))
+                # Increase minimum isovalue from 0.02 to 0.045 to hide IBO tails visually
+                isoval = float(max(0.045, np.max(absvals) * 0.15))
             else:
                 isoval = 0.05
         
@@ -103,3 +104,62 @@ class CubeConverter:
             extracted += 1
             
         return extracted > 0
+
+if __name__ == '__main__':
+    import sys
+    import argparse
+    import glob
+
+    parser = argparse.ArgumentParser(description="Interactively select and convert .cube files to .json meshes.")
+    parser.add_argument("path", help="Directory containing .cube files, or a specific .cube file")
+    parser.add_argument("--adaptive", action="store_true", help="Use adaptive isovalue")
+    parser.add_argument("--isoval", type=float, default=0.025, help="Isovalue for mesh extraction")
+    args = parser.parse_args()
+
+    if os.path.isdir(args.path):
+        cube_files = sorted(glob.glob(os.path.join(args.path, "*.cube")))
+    elif args.path.endswith('.cube') and os.path.exists(args.path):
+        cube_files = [args.path]
+    else:
+        print(f"Error: {args.path} is not a valid directory or .cube file.")
+        sys.exit(1)
+
+    if not cube_files:
+        print("No .cube files found.")
+        sys.exit(0)
+
+    print("Found the following orbitals (cube files):")
+    for i, cf in enumerate(cube_files, 1):
+        print(f"  [{i}] {os.path.basename(cf)}")
+    
+    print("\nWhich ones do you want to save? (Enter comma-separated numbers, e.g. '1, 3, 4', or 'all')")
+    try:
+        selection = input("> ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\nCancelled.")
+        sys.exit(0)
+    
+    if selection.lower() == 'all':
+        selected_files = cube_files
+    else:
+        selected_files = []
+        try:
+            indices = [int(x.strip()) for x in selection.split(',') if x.strip()]
+            for idx in indices:
+                if 1 <= idx <= len(cube_files):
+                    selected_files.append(cube_files[idx - 1])
+                else:
+                    print(f"Warning: Index {idx} is out of range.")
+        except ValueError:
+            print("Invalid input. Please enter numbers separated by commas.")
+            sys.exit(1)
+            
+    if not selected_files:
+        print("No files selected to process.")
+        sys.exit(0)
+        
+    print(f"\nProcessing {len(selected_files)} files...")
+    for cf in selected_files:
+        print(f"  -> Converting {os.path.basename(cf)}...")
+        CubeConverter.process_cube(cf, isoval=args.isoval, adaptive=args.adaptive)
+    print("Done!")

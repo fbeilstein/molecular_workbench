@@ -98,6 +98,12 @@ const WB = (() => {
     }
 
     
+    function toggleExportSelectAll(checkbox) {
+        const listDiv = document.getElementById('export-orbital-list');
+        const chks = listDiv.querySelectorAll('input[type="checkbox"]');
+        chks.forEach(chk => chk.checked = checkbox.checked);
+    }
+
     async function downloadCustomBundle() {
         const name = document.getElementById('job-name').value;
         if (!name) {
@@ -105,28 +111,98 @@ const WB = (() => {
             return;
         }
         
+        const listDiv = document.getElementById('export-orbital-list');
+        listDiv.innerHTML = '';
+        
         const sidebar = document.getElementById('orbital-toggles');
-        const keepFiles = [];
         if (sidebar) {
-            const chks = sidebar.querySelectorAll('input[type="checkbox"]:checked');
-            chks.forEach(chk => {
-                const label = chk.closest('label');
-                const fileAttr = label.getAttribute('data-orb-file');
+            const inputs = sidebar.querySelectorAll('input[data-orb-file], input[data-orb-key]');
+            inputs.forEach(inp => {
+                const fileAttr = inp.getAttribute('data-orb-file');
+                const keyAttr = inp.getAttribute('data-orb-key');
+                const text = inp.closest('label').innerText.trim();
+                
+                const div = document.createElement('div');
+                div.style.marginBottom = '5px';
+                
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
                 if (fileAttr) {
-                    if (fileAttr.endsWith('.json') && !fileAttr.endsWith('_esp.json')) {
-                        keepFiles.push(fileAttr.replace('.json', '_pos.json'));
-                        keepFiles.push(fileAttr.replace('.json', '_neg.json'));
-                        keepFiles.push(fileAttr);
-                    } else {
-                        keepFiles.push(fileAttr);
-                    }
+                    cb.value = fileAttr;
+                } else if (keyAttr) {
+                    // For trajectory orbitals, they are stored in orbitals/ folder
+                    cb.value = 'orb_key:' + keyAttr;
                 }
+                cb.checked = document.getElementById('export-select-all').checked;
+                cb.id = 'export_cb_' + Math.random().toString(36).substring(7);
+                
+                const cl = document.createElement('label');
+                cl.htmlFor = cb.id;
+                cl.innerText = text;
+                cl.style.marginLeft = '8px';
+                cl.style.fontSize = '12px';
+                
+                div.appendChild(cb);
+                div.appendChild(cl);
+                listDiv.appendChild(div);
             });
-            const espCb = document.getElementById('toggle-esp');
-            if (espCb && espCb.checked) {
-                keepFiles.push(`molecules/${name}_esp.json`);
+            
+            // Handle ESP separately if present
+            const espCb = sidebar.querySelector('input[data-esp]');
+            if (espCb) {
+                const text = espCb.closest('label').innerText.trim();
+                const div = document.createElement('div');
+                div.style.marginBottom = '5px';
+                
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.value = `molecules/${name}_esp.json`;
+                cb.checked = document.getElementById('export-select-all').checked;
+                cb.id = 'export_cb_esp';
+                
+                const cl = document.createElement('label');
+                cl.htmlFor = cb.id;
+                cl.innerText = text || "ESP Surface";
+                cl.style.marginLeft = '8px';
+                cl.style.fontSize = '12px';
+                
+                div.appendChild(cb);
+                div.appendChild(cl);
+                listDiv.appendChild(div);
             }
         }
+        
+        if (listDiv.children.length === 0) {
+            listDiv.innerHTML = '<div style="color:#888; font-size:12px;">No orbitals found to export.</div>';
+        }
+        
+        document.getElementById('export-modal').style.display = 'block';
+    }
+
+    async function confirmDownloadBundle() {
+        document.getElementById('export-modal').style.display = 'none';
+        const name = document.getElementById('job-name').value;
+        
+        const keepFiles = [];
+        const chks = document.getElementById('export-orbital-list').querySelectorAll('input[type="checkbox"]:checked');
+        chks.forEach(chk => {
+            const fileAttr = chk.value;
+            if (fileAttr) {
+                if (fileAttr.startsWith('orb_key:')) {
+                    const key = fileAttr.replace('orb_key:', '');
+                    // For trajectory orbitals, they are stored per-frame in the bundle, e.g. orbitals/name_mep_key_pos.json
+                    // Wait, we don't know the exact filenames here for trajectories, but bundle_exporter put them in orbitals/
+                    // Let's just pass the key prefix and handle it in server.py, or we can just pass the generic pattern.
+                    keepFiles.push('trajectory_key:' + key);
+                } else if (fileAttr.endsWith('.json') && !fileAttr.endsWith('_esp.json')) {
+                    keepFiles.push(fileAttr.replace('.json', '_pos.json'));
+                    keepFiles.push(fileAttr.replace('.json', '_neg.json'));
+                    keepFiles.push(fileAttr);
+                } else {
+                    keepFiles.push(fileAttr);
+                }
+            }
+        });
         
         try {
             status('Packaging bundle for download...');
@@ -850,6 +926,7 @@ const WB = (() => {
         generateComputeScript, verifyBundle, stopCompute,
         loadChemical, loadRun, toggleLog,
         setFrame,
-        openEditor, switchEditorTab, submitTrim, submitMerge, downloadCustomBundle
+        openEditor, switchEditorTab, submitTrim, submitMerge, downloadCustomBundle,
+        toggleExportSelectAll, confirmDownloadBundle
     };
 })();

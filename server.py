@@ -302,6 +302,8 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         import zipfile
         name = body.get('name')
         keep_files = set(body.get('keep_files', []))
+        trajectory_keys = [k.replace('trajectory_key:', '') for k in keep_files if k.startswith('trajectory_key:')]
+        keep_files = {k for k in keep_files if not k.startswith('trajectory_key:')}
         
         zip_path = os.path.join(OUTPUT_DIR, name, f'{name}.rxnbundle.zip')
         if not os.path.exists(zip_path):
@@ -311,11 +313,21 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         custom_zip_path = os.path.join(OUTPUT_DIR, name, f'{name}_custom.rxnbundle.zip')
         with zipfile.ZipFile(zip_path, 'r') as zin, zipfile.ZipFile(custom_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
-                if item.filename == 'manifest.json' or item.filename.endswith('.xyz') or item.filename in keep_files or item.filename.endswith('.json'): 
-                    # Actually if we keep ALL json it defeats the purpose for orbitals.
-                    # Wait, manifest is .json. Orbitals are _pos.json, _neg.json.
-                    pass
-                if item.filename == 'manifest.json' or item.filename.endswith('.xyz') or item.filename in keep_files:
+                is_metadata = item.filename == 'manifest.json' or item.filename.endswith('.xyz')
+                # Keep molecule manifests and trajectory data
+                if item.filename.endswith('.json') and not item.filename.endswith('_pos.json') and not item.filename.endswith('_neg.json'):
+                    is_metadata = True
+                
+                keep_item = is_metadata or item.filename in keep_files
+                
+                # Check trajectory orbitals
+                if not keep_item and item.filename.startswith('orbitals/'):
+                    for tk in trajectory_keys:
+                        if f'_{tk}_' in item.filename or f'_{tk}.' in item.filename:
+                            keep_item = True
+                            break
+                            
+                if keep_item:
                     zout.writestr(item, zin.read(item.filename))
         
         self._json_response({'download_url': f'/output/{name}/{name}_custom.rxnbundle.zip'})
