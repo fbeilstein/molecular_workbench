@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""
+mol_prep — SMILES to optimized 3D geometry
+
+Converts a SMILES string into an optimized 3D structure with multiple
+output formats suitable for slides and further computation.
+
+Outputs:
+    {name}.xyz   — XYZ coordinates (for PySCF, ORCA, viewers)
+    {name}.sdf   — SDF with 3D coords (for OpenBabel/ChemDraw)
+    {name}.mol   — MDL Molfile (for ChemDraw)
+    {name}.svg   — 2D depiction (for slides)
+
+Usage:
+    python mol_prep.py "CCO" --name ethanol -o output/
+    python mol_prep.py "CC(=O)Oc1ccccc1C(=O)O" --name aspirin
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+# ── RDKit imports ────────────────────────────────────────────────────────────
+
+def _get_rdkit():
+    """Import RDKit lazily so CLI --help works without it."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem, Draw, rdmolfiles
+    return Chem, AllChem, Draw, rdmolfiles
+
+
+# ── xTB path discovery ──────────────────────────────────────────────────────
+
+def _find_xtb():
+    """Find xTB binary."""
+    # Primary: xtb bundled alongside this module in workbench/tools/xtb/
+    _here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(_here, 'xtb', 'bin', 'xtb'),
+        'xtb',  # system PATH
+    ]
+    for c in candidates:
+        c = os.path.abspath(c) if c != 'xtb' else c
+        if c != 'xtb' and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+        elif c == 'xtb':
+            import shutil
+            if shutil.which('xtb'):
+                return 'xtb'
+    return None
+
+
+# ── Core pipeline ────────────────────────────────────────────────────────────
+
+def smiles_to_3d(smiles, name, out_dir, charge=0, skip_xtb=False):
+    """
+    Full pipeline: SMILES → RDKit 3D → xTB optimization → output files.
+
+    Returns dict with paths to generated files and metadata.
+    """
+    Chem, AllChem, Draw, rdmolfiles = _get_rdkit()
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    # 1. Parse SMILES
+    params = Chem.SmilesParserParams()
+    params.removeHs = False
+    mol = Chem.MolFromSmiles(smiles, params)
+    if mol is None:
+        raise ValueError(f"Invalid SMILES: {smiles}")
+
+    # Store canonical SMILES (with explicit Hs if mapped)
+    canon = Chem.MolToSmiles(mol)
+
+    # 2. Add hydrogens and generate 3D
+    mol_h = Chem.AddHs(mol)
+    result = AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3())
+    if result == -1:
+        # Retry with random coords
+        result = AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3(),
+                                       useRandomCoords=True)
+        if result == -1:
+            raise RuntimeError(f"Failed to embed 3D coordinates for {smiles}")
+
+    # 3. MMFF94 force-field optimization
+    try:
+        AllChem.MMFFOptimizeMolecule(mol_h, maxIters=500)
+        print(f"  Optimized {name} with MMFF94")
+    except Exception:
+        print(f"  Warning: MMFF94 optimization failed for {name}, using raw embed")
+
+    # 4. Compute formula
+    formula = Chem.rdMolDescriptors.CalcMolFormula(mol_h)
+    n_atoms = mol_h.GetNumAtoms()
+    n_heavy = mol_h.GetNumHeavyAtoms()
+
+    # 5. Write SDF (has 3D coords, good for OpenBabel)
+    sdf_path = os.path.join(out_dir, f"{name}.sdf")
+    writer = rdmolfiles.SDWriter(sdf_path)
+    writer.write(mol_h)
+    writer.close()
+
+    # 6. Write MOL file (for ChemDraw conversion)
+    mol_path = os.path.join(out_dir, f"{name}.mol")
+    mol_block = Chem.MolToMolBlock(mol_h)
+    with open(mol_path, 'w') as f:
+        f.write(mol_block)
+
+    # 7. Write initial XYZ
+    xyz_path = os.path.join(out_dir, f"{name}.xyz")
+    _write_xyz(mol_h, xyz_path)
+
+    # 8. xTB geometry optimization
+    xtb_bin = _find_xtb()
+    if xtb_bin and not skip_xtb:
+        print(f"  Optimizing {name} with xTB...")
+        xyz_path = _run_xtb_opt(xtb_bin, xyz_path, out_dir, charge)
+
+    # 9. Generate 2D SVG depiction
+    svg_path = os.path.join(out_dir, f"{name}.svg")
+    _write_svg(smiles, svg_path)
+    print(f"  Generated {name}.svg")
+
+    # 10. Save SMILES file
+    smi_path = os.path.join(out_dir, f"{name}.smi")
+    with open(smi_path, 'w') as f:
+        f.write(canon)
+
+    result = {
+        'name': name,
+        'smiles': canon,
+        'formula': formula,
+        'n_atoms': n_atoms,
+        'n_heavy': n_heavy,
+        'charge': charge,
+        'files': {
+            'xyz': f"{name}.xyz",
+            'sdf': f"{name}.sdf",
+            'mol': f"{name}.mol",
+            'svg': f"{name}.svg",
+            'smi': f"{name}.smi",
+        }
+    }
+
+    print(f"  {name}: {formula}, {n_atoms} atoms ({n_heavy} heavy)")
+    print(f"  Written: {xyz_path}")
+
+    return result
+
+
+# ── Helper functions ─────────────────────────────────────────────────────────
+
+def _write_xyz(mol, filepath):
+    """Write RDKit molecule to XYZ format."""
+    Chem, _, _, _ = _get_rdkit()
+    conf = mol.GetConformer()
+    n = mol.GetNumAtoms()
+    lines = [str(n), f"Generated by mol_prep"]
+    for i in range(n):
+        atom = mol.GetAtomWithIdx(i)
+        pos = conf.GetAtomPosition(i)
+        lines.append(f"{atom.GetSymbol():2s}  {pos.x:12.6f}  {pos.y:12.6f}  {pos.z:12.6f}")
+    with open(filepath, 'w') as f:
+        f.write('\n'.join(lines) + '\n')
+
+
+def _write_svg(smiles, filepath, width=400, height=300):
+    """Generate a 2D SVG depiction without background."""
+    Chem, _, Draw, _ = _get_rdkit()
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return
+    try:
+        drawer = Draw.MolDraw2DSVG(width, height)
+        opts = drawer.drawOptions()
+        opts.addAtomIndices = False
+        opts.clearBackground = False  # No white rectangle
+        drawer.DrawMolecule(mol)
+        drawer.FinishDrawing()
+        svg = drawer.GetDrawingText()
+        # Also strip any remaining rect fills just in case
+        import re
+        svg = re.sub(r"<rect[^>]*style='[^']*fill:[^']*white[^']*'[^/]*/?>", '', svg)
+        svg = re.sub(r"<rect[^>]*fill='[^']*white[^']*'[^/]*/?>", '', svg)
+        with open(filepath, 'w') as f:
+            f.write(svg)
+    except Exception as e:
+        print(f"  Warning: SVG generation failed: {e}")
+
+
+def _run_xtb_opt(xtb_bin, xyz_path, out_dir, charge=0):
+    """Run xTB geometry optimization, return path to optimized XYZ."""
+    try:
+        cmd = [xtb_bin, xyz_path, '--opt', '--chrg', str(charge)]
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                cwd=out_dir, timeout=120)
+
+        opt_xyz = os.path.join(out_dir, 'xtbopt.xyz')
+        if os.path.exists(opt_xyz):
+            # Replace the original with optimized geometry
+            import shutil
+            shutil.move(opt_xyz, xyz_path)
+            print(f"  xTB optimization converged")
+        else:
+            print(f"  Warning: xTB did not produce optimized geometry")
+
+    except subprocess.TimeoutExpired:
+        print(f"  Warning: xTB timed out after 120s, using MMFF geometry")
+    except Exception as e:
+        print(f"  Warning: xTB failed: {e}")
+
+    return xyz_path
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Convert SMILES to optimized 3D geometry with multiple output formats',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s "CCO" --name ethanol -o output/
+  %(prog)s "CC(=O)Oc1ccccc1C(=O)O" --name aspirin
+  %(prog)s "[Cl-]" --name chloride --charge -1
+        """
+    )
+    parser.add_argument('smiles', help='SMILES string')
+    parser.add_argument('--name', '-n', required=True, help='Base name for output files')
+    parser.add_argument('-o', '--output-dir', default='.', help='Output directory')
+    parser.add_argument('--charge', type=int, default=0, help='Molecular charge')
+    parser.add_argument('--skip-xtb', action='store_true', help='Skip xTB optimization')
+    parser.add_argument('--json', action='store_true', help='Print result as JSON')
+
+    args = parser.parse_args()
+
+    result = smiles_to_3d(args.smiles, args.name, args.output_dir,
+                          charge=args.charge, skip_xtb=args.skip_xtb)
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+
+
+if __name__ == '__main__':
+    main()

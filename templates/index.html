@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Molecular Workbench</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+</head>
+
+<body>
+
+    <!-- Top Toolbar -->
+    <header class="toolbar">
+        <h1>⚗️ <span>Molecular</span> Workbench</h1>
+        <div class="toolbar-controls">
+            <div class="field-group">
+                <label>Name:</label>
+                <input type="text" id="job-name" value="" placeholder="auto" style="width:100px;">
+            </div>
+            <div class="field-group">
+                <label>Load Job:</label>
+                <select id="run-chooser" onchange="WB.loadRun()" style="width:120px;">
+                    <option value="">-- select --</option>
+                </select>
+            </div>
+            <div class="field-group">
+                <label>Charge:</label>
+                <input type="number" id="mol-charge" value="0" style="width:50px;">
+            </div>
+
+                                <button class="btn btn-primary" onclick="WB.generateComputeScript()">🚀 Compute</button>
+                    <button class="btn btn-danger" id="btn-stop" onclick="WB.stopCompute()" style="display:none; background:#e74c3c;">🛑 Stop</button>
+            
+            
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="main-area">
+
+        <!-- Left: Ketcher -->
+        <div class="panel ketcher-panel">
+            <iframe id="ketcher-frame" src="/ketcher/index.html"></iframe>
+        </div>
+
+        <div class="resizer" id="dragMe"></div>
+
+        <!-- Right: 3D Viewer + Orbital Sidebar -->
+        <div class="panel viewer-panel">
+            <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+                <div class="viz-controls">
+                    <div id="chemical-chooser-wrap" style="display:none;">
+                        <label>Chemical:</label>
+                        <select id="chemical-chooser" onchange="WB.loadChemical()"></select>
+                    </div>
+                </div>
+                <div style="flex:1; position:relative;">
+                    <div id="viewer-3d" style="width:100%;height:100%;position:absolute;"></div>
+                    <div id="viewer-info" class="viewer-info">Draw a molecule in Ketcher, then click 🚀 Compute
+                    </div>
+                </div>
+            </div>
+
+            <!-- Orbital Sidebar -->
+            <div class="viz-sidebar" id="orbital-sidebar">
+                <div class="viz-sidebar-header">
+                    <span>Orbitals</span>
+                </div>
+                <div id="orbital-toggles"></div>
+                <div style="padding: 10px;">
+                    <button class="btn btn-primary" style="width:100%; font-size:11px;" onclick="WB.downloadCustomBundle()">📦 Download Bundle</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Panel (bottom drawer) -->
+    <div id="log-drawer" class="log-drawer">
+        <div class="log-resizer" id="logDragMe"></div>
+        <div class="log-header" onclick="WB.toggleLog()">
+            <span>📋 Job Log</span>
+            <span id="log-status"></span>
+            <span class="log-toggle">▲</span>
+        </div>
+        <pre id="log-content" class="log-content"></pre>
+    </div>
+
+    <!-- Status bar -->
+    <div id="status-bar" class="status-bar">Ready</div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

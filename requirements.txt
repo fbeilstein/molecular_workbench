@@ -1,0 +1,6 @@
+rdkit
+numpy
+scipy
+pyscf
+scikit-image
+trimesh

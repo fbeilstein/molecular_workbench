@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Project output / data
+output/
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# Local configuration
+.env
+*.rxnbundle
+*.rxnbundle.zip
+*.cube
+tools/xtb/
+tools/gsm/
