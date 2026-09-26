@@ -11,7 +11,7 @@ A comprehensive suite for exploring molecular structures, orbitals, reaction pat
 
 ## Installation
 
-This repository includes a `setup.sh` script that automates the installation of dependencies, including downloading necessary binaries like `xtb` and DE-GSM.
+This repository uses a clean installation philosophy that respects your preferred Python environment (e.g., conda, venv, poetry).
 
 1. **Clone the repository**:
    ```bash
@@ -19,16 +19,18 @@ This repository includes a `setup.sh` script that automates the installation of 
    cd molecular_workbench
    ```
 
-2. **Run the Setup Script**:
+2. **Activate your preferred Python environment**:
+   ```bash
+   # Example using venv:
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. **Run the Setup Script**:
    ```bash
    bash setup.sh
    ```
-   *This will create a `.venv` directory, install all pip requirements (`requirements.txt`), and download custom binaries (XTB, GSM) into `tools/`.*
-
-3. **Activate the Virtual Environment**:
-   ```bash
-   source .venv/bin/activate
-   ```
+   *This script simply runs `pip install -r requirements.txt` into your active environment and downloads the required `xtb` engine binary into the `tools/` folder. It does not bloat your system with unnecessary defaults.*
 
 ## Usage
 

@@ -17,6 +17,9 @@ data/
 .vscode/
 .idea/
 
+# Ketcher
+.ketcher/
+
 # Local configuration
 .env
 *.rxnbundle
