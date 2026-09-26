@@ -277,7 +277,7 @@ def compute_localized(mol, mf, atom_labels, name, out_dir, grid_points=50):
                 lp_counts[a_id] = lp_counts.get(a_id, 0) + 1
                 cube_path = os.path.join(out_dir, cube_name)
                 cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                lone_pairs.append({'atom': a_id, 'file': cube_name})
+                lone_pairs.append({'atom': a_id, 'index': lp_counts[a_id], 'file': cube_name})
                 print(f"  ✓ LP({a_id} #{lp_counts[a_id]}) → {cube_name}")
             elif info['type'] == 'sigma':
                 a1, a2 = info['atoms']
