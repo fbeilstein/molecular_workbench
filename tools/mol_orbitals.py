@@ -419,9 +419,9 @@ def compute_localized(mol, mf, atom_labels, name, out_dir, grid_points=50):
     n_virt_to_loc = len(sigma) + len(pi)
     if n_virt_to_loc > 0 and n_occ + n_virt_to_loc <= mo_coeff.shape[1]:
         virt_coeff = mo_coeff[:, n_occ : n_occ + n_virt_to_loc]
-        print(f"  Localizing {virt_coeff.shape[1]} lowest virtual MOs (Canonical)...")
+        print(f"  Localizing {virt_coeff.shape[1]} lowest virtual MOs (Boys)...")
         try:
-            virt_loc = virt_coeff
+            virt_loc = lo.Boys(mol, virt_coeff).kernel()
             for i in range(virt_loc.shape[1]):
                 mo = virt_loc[:, i]
                 pop = _atom_populations(mol, mo, ovlp)
@@ -492,7 +492,15 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
 
     # Lone pair fallback
     if len(major) == 1:
-        return {'type': 'lone_pair', 'atom': atom_ids[major[0][0]]}
+        idx = major[0][0]
+        if atom_labels[idx] == 'H':
+            import numpy as np
+            coords = mol.atom_coords()
+            dists = np.linalg.norm(coords - coords[idx], axis=1)
+            dists[idx] = 999.9
+            closest_idx = np.argmin(dists)
+            return {'type': 'sigma', 'atoms': [atom_ids[closest_idx], atom_ids[idx]]}
+        return {'type': 'lone_pair', 'atom': atom_ids[idx]}
 
     return {'type': 'sigma', 'atoms': ['?', '?']}
 
