@@ -207,7 +207,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             'EOF',
             '',
             '# Export data-only archive + clean intermediates',
-            f'$PYTHON $TOOLS/rxn_export.py $OUT --clean',
+            f'$PYTHON $TOOLS/bundle_exporter.py $OUT --clean',
             '',
             'echo "DONE"'
         ]
