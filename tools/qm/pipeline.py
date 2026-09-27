@@ -56,16 +56,15 @@ class QuantumPipeline:
                 energy_ev=energy_ev, canonical_label=f"π* ({lbl})"
             ))
 
-        # 3. Valence Localizer
+        # 3. Valence Localizer (and Sigma Star projection)
+        from pyscf.data.elements import chemcore
+        n_core = chemcore(self.mol)
         n_occ = self.mol.nelectron // 2
-        non_pi_occ = [i for i in range(n_occ) if i not in pi_occ]
-        valence_loc = ValenceLocalizer(self.mol, self.mf.mo_coeff)
-        self.orbitals.extend(valence_loc.localize(non_pi_occ))
-
-        # 4. Virtual Localizer
+        non_pi_occ = [i for i in range(n_core, n_occ) if i not in pi_occ]
         non_pi_virt = [i for i in range(n_occ, self.mf.mo_coeff.shape[1]) if i not in pi_virt]
-        virtual_loc = VirtualLocalizer(self.mol, self.mf.mo_coeff)
-        self.orbitals.extend(virtual_loc.localize(non_pi_virt))
+        
+        valence_loc = ValenceLocalizer(self.mol, self.mf.mo_coeff)
+        self.orbitals.extend(valence_loc.localize(non_pi_occ, non_pi_virt))
 
         # 5. Render
         renderer = Renderer(self.mol, self.name, self.out_dir, self.grid_points)

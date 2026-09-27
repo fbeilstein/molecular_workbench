@@ -369,7 +369,8 @@ const WB = (() => {
 
         status(`Loading bundle: ${name}...`);
         try {
-            const res = await fetch(`/api/bundle/${name}/manifest.json`);
+            // Add cache buster to bypass stale browser cache on old bundles
+            const res = await fetch(`/api/bundle/${name}/manifest.json?t=${Date.now()}`);
             if (!res.ok) {
                 status(`Error: No bundle found for "${name}". Run the compute script first.`);
                 return;
@@ -448,13 +449,14 @@ const WB = (() => {
         const bundleName = parts[1];
         const type = parts[2];
         const base = `/api/bundle/${bundleName}`;
+        const cacheBuster = `?t=${Date.now()}`;
 
         // Clear bundle trajectory state when switching to molecule
         if (type === 'mol') window._bundleTraj = null;
 
         if (type === 'mol') {
             const key = parts[3];
-            const mol = await (await fetch(`${base}/molecules/${key}.json`)).json();
+            const mol = await (await fetch(`${base}/molecules/${key}.json${cacheBuster}`)).json();
 
             viewer.removeAllModels();
             viewer.removeAllShapes();

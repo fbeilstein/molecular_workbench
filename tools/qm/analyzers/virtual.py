@@ -14,7 +14,7 @@ class VirtualLocalizer:
     def localize(self, cols_to_localize: list):
         """
         Localize the virtual space and return filtered sigma_star orbitals.
-        Uses Boys localization to minimize spatial extent.
+        Uses Pipek-Mezey localization to prevent diffuse function mixing.
         """
         orbitals = []
         if not cols_to_localize:
@@ -23,9 +23,9 @@ class VirtualLocalizer:
         virt_coeff = self.mo_coeff[:, cols_to_localize]
         
         try:
-            boys = lo.Boys(self.mol, virt_coeff)
-            boys.init_guess = 'random'
-            virt_loc = boys.kernel()
+            pm = lo.PipekMezey(self.mol, virt_coeff)
+            pm.init_guess = 'random'
+            virt_loc = pm.kernel()
             
             best_sigmastar = {}
             for i in range(virt_loc.shape[1]):

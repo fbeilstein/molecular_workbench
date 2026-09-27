@@ -409,14 +409,18 @@ def compute_localized(mol, mf, atom_labels, name, out_dir, grid_points=50):
     # ── Step 5: Localize σ* virtual MOs (excluding π*) ──
     n_sigma_bonds = len(sigma)
     if n_sigma_bonds > 0:
-        # Take ALL virtual MOs excluding the π* ones to avoid basis truncation artifacts
-        non_pi_virt_cols = [i for i in range(n_occ, mo_coeff.shape[1]) if i not in pi_virt_indices]
+        # Determine number of valence virtual orbitals
+        n_min_basis = sum(5 if mol.atom_symbol(i) != 'H' else 1 for i in range(mol.natm))
+        n_val_virt = max(n_sigma_bonds, n_min_basis - n_occ)
+        
+        # Take only the lowest valence virtual MOs to avoid diffuse/Rydberg mixing
+        non_pi_virt_cols = [i for i in range(n_occ, mo_coeff.shape[1]) if i not in pi_virt_indices][:n_val_virt]
 
         if non_pi_virt_cols:
             virt_coeff = mo_coeff[:, non_pi_virt_cols]
-            print(f"  Localizing {virt_coeff.shape[1]} σ* virtual MOs (Boys)...")
+            print(f"  Localizing {virt_coeff.shape[1]} σ* virtual MOs (Pipek-Mezey)...")
             try:
-                loc_virt = lo.Boys(mol, virt_coeff)
+                loc_virt = lo.PipekMezey(mol, virt_coeff)
                 loc_virt.init_guess = 'random'
                 virt_loc = loc_virt.kernel()
 

@@ -22,7 +22,7 @@ def run_scf(xyz_file, charge=0, spin=0, basis='6-31g*', method='b3lyp',
         spin = 1  # doublet for odd-electron systems
         print(f"  ⚠ Odd electron count ({n_elec_check}), auto-setting spin=1 (doublet)")
 
-    mol = gto.M(atom=atom_str, basis=basis, charge=charge, spin=spin, symmetry=True, verbose=0)
+    mol = gto.M(atom=atom_str, basis=basis, charge=charge, spin=spin, symmetry=False, verbose=0)
     n_elec = mol.nelectron
     print(f"  {n_elec} electrons (charge={charge}, spin={spin})")
 

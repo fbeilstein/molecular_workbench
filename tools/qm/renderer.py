@@ -44,7 +44,7 @@ class Renderer:
                 cube_name = f"{self.name}_pistar_canonical_{idx}.cube"
                 self.manifest['localized']['pi_star'].append(orb.to_dict(cube_name))
                 
-            elif orb.type == 'sigma':
+            elif orb.type in ('sigma', 'delocalized_sigma'):
                 cube_name = f"{self.name}_sigma_{atoms_str}_{idx}.cube"
                 self.manifest['localized']['sigma'].append(orb.to_dict(cube_name))
                 
@@ -55,6 +55,14 @@ class Renderer:
             elif orb.type == 'lone_pair':
                 cube_name = f"{self.name}_lp_{atoms_str}_{idx}.cube"
                 self.manifest['localized']['lone_pairs'].append(orb.to_dict(cube_name))
+                
+            elif orb.type in ('pi', 'delocalized_pi'):
+                cube_name = f"{self.name}_pi_{atoms_str}_{idx}.cube"
+                self.manifest['localized']['pi'].append(orb.to_dict(cube_name))
+                
+            elif orb.type == 'pi_star':
+                cube_name = f"{self.name}_pistar_{atoms_str}_{idx}.cube"
+                self.manifest['localized']['pi_star'].append(orb.to_dict(cube_name))
             
             else:
                 cube_name = f"{self.name}_{orb.type}_{atoms_str}_{idx}.cube"
