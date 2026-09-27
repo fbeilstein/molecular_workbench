@@ -5,9 +5,6 @@ A comprehensive suite for exploring molecular structures, orbitals, reaction pat
 ## Prerequisites
 
 - **Python**: Version **3.9 to 3.12** is required (to ensure compatibility with PySCF and other numerical libraries).
-- **ORCA** (Optional but recommended for reaction path fallback): ORCA is a quantum chemistry program suite.
-  - Download: [ORCA Forum](https://orcaforum.kofo.mpg.de/) (Registration required).
-  - Setup: Ensure the `orca` binary is available in your system `$PATH` (e.g. `/data/orca/orca`).
 
 ## Installation
 
