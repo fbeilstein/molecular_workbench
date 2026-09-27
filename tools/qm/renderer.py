@@ -33,12 +33,9 @@ class Renderer:
                 self.manifest['canonical'][orb.type] = orb.to_dict(cube_name)
                 
             elif orb.type == 'pi_canonical':
-                # Map back to localized 'pi' bucket for UI consistency
                 cube_name = f"{self.name}_pi_canonical_{idx}.cube"
-                self.manifest['localized']['pi'].append(orb.to_dict(cube_name))
                 if 'pi_system' not in self.manifest['canonical']:
                     self.manifest['canonical']['pi_system'] = []
-                # Also add to canonical summary
                 d = orb.to_dict(cube_name)
                 d['homo_label'] = orb.canonical_label
                 self.manifest['canonical']['pi_system'].append(d)

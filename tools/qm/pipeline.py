@@ -32,6 +32,12 @@ class QuantumPipeline:
         
         pi_occ, pi_virt = canonical.get_pi_system(aromatic_atoms)
         
+        # In larger basis sets, many high-energy virtual pi orbitals appear.
+        valence_pi_virt = pi_virt[:len(pi_occ)]
+
+        self._snap_degenerate_pairs(pi_occ, aromatic_atoms)
+        self._snap_degenerate_pairs(valence_pi_virt, aromatic_atoms)
+        
         for idx in pi_occ:
             energy_ev = self.mf.mo_energy[idx] * 27.211
             depth = homo_idx - idx
@@ -41,10 +47,6 @@ class QuantumPipeline:
                 energy_ev=energy_ev, canonical_label=f"π ({lbl})"
             ))
             
-        # In larger basis sets, many high-energy virtual pi orbitals appear.
-        # We only want the core valence pi* orbitals, so we take a number equal to pi_occ
-        valence_pi_virt = pi_virt[:len(pi_occ)]
-        
         for idx in valence_pi_virt:
             energy_ev = self.mf.mo_energy[idx] * 27.211
             depth = idx - lumo_idx
@@ -70,3 +72,31 @@ class QuantumPipeline:
         manifest = renderer.render(self.orbitals)
         
         return manifest
+
+    def _snap_degenerate_pairs(self, indices, aromatic_atoms):
+        import numpy as np
+        if not indices or not aromatic_atoms:
+            return
+        ovlp = self.mol.intor_symmetric('int1e_ovlp')
+        ao_labels = self.mol.ao_labels(fmt=False)
+        target_atom = aromatic_atoms[0]
+        
+        # Build population operator for the target atom
+        P_A = np.zeros_like(ovlp)
+        for mu, (atom_idx, *_) in enumerate(ao_labels):
+            if atom_idx == target_atom:
+                P_A[mu, :] += 0.5 * ovlp[mu, :]
+                P_A[:, mu] += 0.5 * ovlp[:, mu]
+                
+        # Group indices into degenerate sets (within 0.01 Hartree)
+        i = 0
+        while i < len(indices) - 1:
+            if abs(self.mf.mo_energy[indices[i]] - self.mf.mo_energy[indices[i+1]]) < 0.01:
+                idx1, idx2 = indices[i], indices[i+1]
+                C = self.mf.mo_coeff[:, [idx1, idx2]]
+                P_red = C.T @ P_A @ C
+                evals, evecs = np.linalg.eigh(P_red)
+                self.mf.mo_coeff[:, [idx1, idx2]] = C @ evecs
+                i += 2
+            else:
+                i += 1

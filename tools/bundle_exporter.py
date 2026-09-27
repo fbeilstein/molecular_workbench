@@ -264,7 +264,7 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                                     if os.path.exists(os.path.join(tmp_dir, sign_file)):
                                         zf.write(os.path.join(tmp_dir, sign_file), f'molecules/{sign_file}')
                                 lp_group['items'].append({
-                                    'label': f"LP({info['atom']} #{info['index']})",
+                                    'label': f"LP({info['atoms'][0]})",
                                     'file': f'molecules/{base_file}',
                                     'color': '#eeee22'
                                 })
@@ -285,6 +285,8 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                             
                         print(f"    ✓ {key} ({smiles}): {sum(len(g['items']) for g in mol_data['orbitals'])} orbitals")
                     except Exception as e:
+                        import traceback
+                        traceback.print_exc()
                         print(f"    ✗ {key} ({smiles}): computation failed ({e})")
 
             manifest['molecules'].append(mol_data)
