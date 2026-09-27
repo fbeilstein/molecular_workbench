@@ -155,7 +155,7 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                                     if os.path.exists(os.path.join(tmp_dir, sign_file)):
                                         zf.write(os.path.join(tmp_dir, sign_file), f'molecules/{sign_file}')
                                 pi_group['items'].append({
-                                    'label': f"π ({info['homo_label']}, {info['energy_ev']} eV)",
+                                    'label': info['homo_label'],
                                     'file': f'molecules/{base_file}',
                                     'energy_ev': info['energy_ev'],
                                     'color': PI_COLORS[ci % len(PI_COLORS)]
