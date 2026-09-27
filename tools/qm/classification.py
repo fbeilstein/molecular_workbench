@@ -42,23 +42,21 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
             else:
                 return {'type': 'delocalized_sigma', 'atoms': [atom_ids[m[0]] for m in sig_atoms]}
         
-        a1_idx, a2_idx = major[0][0], major[1][0]
-        bond_type = _classify_sigma_pi(mol, mo_coeff, a1_idx, a2_idx)
-        return {'type': bond_type, 'atoms': [atom_ids[a1_idx], atom_ids[a2_idx]]}
+        if len(sig_atoms) == 2:
+            a1_idx, a2_idx = sig_atoms[0][0], sig_atoms[1][0]
+            bond_type = _classify_sigma_pi(mol, mo_coeff, a1_idx, a2_idx)
+            return {'type': bond_type, 'atoms': [atom_ids[a1_idx], atom_ids[a2_idx]]}
 
-    # Lone pair fallback
-    if len(major) == 1:
-        idx = major[0][0]
-        if atom_labels[idx] == 'H':
-            import numpy as np
-            coords = mol.atom_coords()
-            dists = np.linalg.norm(coords - coords[idx], axis=1)
-            dists[idx] = 999.9
-            closest_idx = np.argmin(dists)
-            return {'type': 'sigma', 'atoms': [atom_ids[closest_idx], atom_ids[idx]]}
-        return {'type': 'lone_pair', 'atom': atom_ids[idx]}
-
-    return {'type': 'sigma', 'atoms': ['?', '?']}
+    # Lone pair fallback (if only 1 atom has >10% population, or it failed bond checks)
+    idx = major[0][0]
+    if atom_labels[idx] == 'H':
+        import numpy as np
+        coords = mol.atom_coords()
+        dists = np.linalg.norm(coords - coords[idx], axis=1)
+        dists[idx] = 999.9
+        closest_idx = np.argmin(dists)
+        return {'type': 'sigma', 'atoms': [atom_ids[closest_idx], atom_ids[idx]]}
+    return {'type': 'lone_pair', 'atom': atom_ids[idx]}
 
 
 _CORE_ELECTRONS = {
