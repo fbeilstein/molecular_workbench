@@ -114,7 +114,7 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                     try:
                         orb_manifest = compute_all_orbitals(
                             xyz_file=xyz_path, name=key, out_dir=tmp_dir, 
-                            charge=mol_charge, method='b3lyp'
+                            charge=mol_charge, method='b3lyp', smiles=smiles
                         )
                         
                         # Process cubes into .json surfaces

@@ -409,36 +409,53 @@ def compute_localized(mol, mf, atom_labels, name, out_dir, grid_points=50):
     # ── Step 5: Localize σ* virtual MOs (excluding π*) ──
     n_sigma_bonds = len(sigma)
     if n_sigma_bonds > 0:
-        # Select as many low virtual MOs as σ bonds, excluding the π* ones
-        non_pi_virt_cols = []
-        scan_idx = n_occ
-        while len(non_pi_virt_cols) < n_sigma_bonds and scan_idx < mo_coeff.shape[1]:
-            if scan_idx not in pi_virt_indices:
-                non_pi_virt_cols.append(scan_idx)
-            scan_idx += 1
+        # Take ALL virtual MOs excluding the π* ones to avoid basis truncation artifacts
+        non_pi_virt_cols = [i for i in range(n_occ, mo_coeff.shape[1]) if i not in pi_virt_indices]
 
         if non_pi_virt_cols:
             virt_coeff = mo_coeff[:, non_pi_virt_cols]
-            print(f"  Localizing {virt_coeff.shape[1]} σ* virtual MOs (PM)...")
+            print(f"  Localizing {virt_coeff.shape[1]} σ* virtual MOs (Boys)...")
             try:
-                loc_virt = lo.PM(mol, virt_coeff)
+                loc_virt = lo.Boys(mol, virt_coeff)
                 loc_virt.init_guess = 'random'
                 virt_loc = loc_virt.kernel()
 
+                # We will find many virtuals; keep the most symmetric one for each bond
+                best_sigmastar = {}
                 for i in range(virt_loc.shape[1]):
                     mo = virt_loc[:, i]
                     pop = _atom_populations(mol, mo, ovlp)
                     info = _classify_orbital(mol, mo, pop, atom_labels, atom_ids, ovlp)
 
-                    atoms = info.get('atoms', ['?', '?'])
-                    if len(atoms) < 2:
-                        atoms = ['?', '?']
-                    a1, a2 = atoms[0], atoms[1]
-                    cube_name = f"{name}_sigmastar_{a1}_{a2}_{i}.cube"
+                    atoms = info.get('atoms', [])
+                    if len(atoms) == 2:
+                        a1, a2 = atoms[0], atoms[1]
+                        pair = tuple(sorted([a1, a2]))
+                        
+                        # Calculate symmetry score (how close to 50/50 population)
+                        abs_pop = np.abs(pop)
+                        frac = abs_pop / abs_pop.sum()
+                        idx1 = atom_ids.index(a1)
+                        idx2 = atom_ids.index(a2)
+                        sym_score = abs(frac[idx1] - frac[idx2])
+
+                        # Keep the one that is most symmetrically shared between the 2 atoms
+                        if pair not in best_sigmastar or sym_score < best_sigmastar[pair]['sym_score']:
+                            best_sigmastar[pair] = {
+                                'mo': mo,
+                                'sym_score': sym_score,
+                                'atoms': [a1, a2],
+                                'idx': i
+                            }
+
+                # Now export only the best one for each bonded pair
+                for pair, data in best_sigmastar.items():
+                    a1, a2 = data['atoms']
+                    cube_name = f"{name}_sigmastar_{a1}_{a2}_{data['idx']}.cube"
                     cube_path = os.path.join(out_dir, cube_name)
-                    cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
+                    cubegen.orbital(mol, cube_path, data['mo'], nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
                     sigma_star.append({'atoms': [a1, a2], 'file': cube_name})
-                    print(f"  ✓ σ*({a1}–{a2}) → {cube_name}")
+                    print(f"  ✓ σ*({a1}–{a2}) → {cube_name} (sym: {data['sym_score']:.2f})")
 
             except Exception as e:
                 print(f"  ⚠ σ* localization failed: {e}")

@@ -4,13 +4,13 @@ import json
 import argparse
 from qm.geometry import parse_xyz
 from qm.scf import run_scf
-from qm.localization import compute_canonical, compute_localized
+from qm.pipeline import QuantumPipeline
 from qm.esp import compute_esp_surface
 
 def compute_all_orbitals(xyz_file, name=None, out_dir=None, charge=0, spin=0,
                          basis='6-31g*', method='b3lyp', grid_points=50,
-                         chkfile=None, read_chk=False):
-    """Full pipeline: SCF → canonical + localized orbitals → cube files + JSON."""
+                         chkfile=None, read_chk=False, smiles=""):
+    """Full pipeline: SCF → QuantumPipeline → ESP → JSON manifest."""
     if name is None:
         name = os.path.splitext(os.path.basename(xyz_file))[0]
     if out_dir is None:
@@ -21,11 +21,9 @@ def compute_all_orbitals(xyz_file, name=None, out_dir=None, charge=0, spin=0,
     mol, mf, labels = run_scf(xyz_file, charge, spin, basis, method,
                                chkfile, read_chk)
 
-    # Canonical orbitals
-    canonical = compute_canonical(mol, mf, labels, name, out_dir, grid_points)
-
-    # Localized orbitals
-    localized = compute_localized(mol, mf, labels, name, out_dir, grid_points)
+    # Run new pipeline for all orbitals
+    pipeline = QuantumPipeline(mol, mf, smiles, name, out_dir, grid_points)
+    orbitals_manifest = pipeline.run()
 
     # ESP surface
     esp_data = compute_esp_surface(mol, mf, name, out_dir, grid_points)
@@ -39,8 +37,8 @@ def compute_all_orbitals(xyz_file, name=None, out_dir=None, charge=0, spin=0,
         'spin': spin,
         'n_electrons': mol.nelectron,
         'energy_hartree': float(mf.e_tot),
-        'canonical': canonical,
-        'localized': localized,
+        'canonical': orbitals_manifest['canonical'],
+        'localized': orbitals_manifest['localized'],
     }
     if esp_data:
         manifest['esp_surface'] = esp_data
