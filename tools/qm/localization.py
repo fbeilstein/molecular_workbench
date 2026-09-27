@@ -256,7 +256,7 @@ def compute_localized(mol, mf, atom_labels, name, out_dir, grid_points=50):
 
     sigma, pi, lone_pairs = [], [], []
 
-    # -- Localize Occupieds (IBO is perfect for occupieds) --
+    # -- Localize Occupieds (IBO preserves delocalized aromatic systems better) --
     # Construct full IAOs from all occupied orbitals to form proper minimal basis
     full_occ = mo_coeff[:, :n_occ]
     iaos = lo.iao.iao(mol, full_occ)
@@ -265,7 +265,7 @@ def compute_localized(mol, mf, atom_labels, name, out_dir, grid_points=50):
     val_occ = mo_coeff[:, n_core:n_occ]
     print(f"  Localizing {val_occ.shape[1]} valence MOs (IBO)...")
     try:
-        occ_loc = lo.ibo.ibo(mol, val_occ, iaos=iaos)
+        occ_loc = lo.ibo.ibo(mol, val_occ, iaos=iaos, max_iter=500)
         for i in range(occ_loc.shape[1]):
             mo = occ_loc[:, i]
             pop = _atom_populations(mol, mo, ovlp)
@@ -286,27 +286,42 @@ def compute_localized(mol, mf, atom_labels, name, out_dir, grid_points=50):
                 cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
                 sigma.append({'atoms': [a1, a2], 'file': cube_name})
                 print(f"  ✓ σ({a1}–{a2}) → {cube_name}")
-            elif info['type'] == 'pi':
-                a1, a2 = info['atoms']
-                cube_name = f"{name}_pi_{a1}_{a2}_{i}.cube"
+            elif info['type'] in ('pi', 'delocalized_pi'):
+                if len(info['atoms']) > 2:
+                    atoms_str = "_".join(info['atoms'])
+                    cube_name = f"{name}_delocpi_{atoms_str}_{i}.cube"
+                    cube_path = os.path.join(out_dir, cube_name)
+                    cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
+                    pi.append({'atoms': info['atoms'], 'file': cube_name})
+                    print(f"  ✓ deloc-π({','.join(info['atoms'])}) → {cube_name}")
+                else:
+                    a1, a2 = info['atoms']
+                    cube_name = f"{name}_pi_{a1}_{a2}_{i}.cube"
+                    cube_path = os.path.join(out_dir, cube_name)
+                    cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
+                    pi.append({'atoms': [a1, a2], 'file': cube_name})
+                    print(f"  ✓ π({a1}={a2}) → {cube_name}")
+            elif info['type'] == 'delocalized_sigma':
+                atoms_str = "_".join(info['atoms'])
+                cube_name = f"{name}_delocsig_{atoms_str}_{i}.cube"
                 cube_path = os.path.join(out_dir, cube_name)
                 cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                pi.append({'atoms': [a1, a2], 'file': cube_name})
-                print(f"  ✓ π({a1}={a2}) → {cube_name}")
+                sigma.append({'atoms': info['atoms'], 'file': cube_name})
+                print(f"  ✓ deloc-σ({','.join(info['atoms'])}) → {cube_name}")
 
     except Exception as e:
         print(f"  ⚠ Localization failed: {e}")
 
-    # -- Localize Virtuals (IBO with Occupied IAOs) --
+    # -- Localize Virtuals --
     sigma_star, pi_star = [], []
     n_virt_to_loc = len(sigma) + len(pi)
     if n_virt_to_loc > 0 and n_occ + n_virt_to_loc <= mo_coeff.shape[1]:
         virt_coeff = mo_coeff[:, n_occ : n_occ + n_virt_to_loc]
-        print(f"  Localizing {virt_coeff.shape[1]} lowest virtual MOs (IBO)...")
+        print(f"  Localizing {virt_coeff.shape[1]} lowest virtual MOs (PM)...")
         try:
-            # Re-use the exact same IAOs from the occupied space to project virtuals!
-            # This is the secret to avoiding leakage and preventing unphysical banana bonds.
-            virt_loc = lo.ibo.ibo(mol, virt_coeff, iaos=iaos)
+            loc_virt = lo.PM(mol, virt_coeff)
+            loc_virt.init_guess = 'random'
+            virt_loc = loc_virt.kernel()
             
             sigma_star_idx, pi_star_idx = 0, 0
             for i in range(virt_loc.shape[1]):
@@ -314,22 +329,24 @@ def compute_localized(mol, mf, atom_labels, name, out_dir, grid_points=50):
                 pop = _atom_populations(mol, mo, ovlp)
                 info = _classify_orbital(mol, mo, pop, atom_labels, atom_ids, ovlp)
                 
-                if info['type'] == 'sigma':
-                    a1, a2 = info['atoms']
-                    cube_name = f"{name}_sigmastar_{a1}_{a2}_{sigma_star_idx}.cube"
+                if info['type'] in ('sigma', 'delocalized_sigma'):
+                    atoms = info['atoms']
+                    atoms_str = "_".join(atoms)
+                    cube_name = f"{name}_sigmastar_{atoms_str}_{sigma_star_idx}.cube"
                     cube_path = os.path.join(out_dir, cube_name)
                     cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                    sigma_star.append({'atoms': [a1, a2], 'file': cube_name})
-                    print(f"  ✓ σ*({a1}–{a2}) → {cube_name} [IBO]")
+                    sigma_star.append({'atoms': atoms, 'file': cube_name})
+                    print(f"  ✓ σ*({'–'.join(atoms)}) → {cube_name}")
                     sigma_star_idx += 1
                 
-                elif info['type'] == 'pi':
-                    a1, a2 = info['atoms']
-                    cube_name = f"{name}_pistar_{a1}_{a2}_{pi_star_idx}.cube"
+                elif info['type'] in ('pi', 'delocalized_pi'):
+                    atoms = info['atoms']
+                    atoms_str = "_".join(atoms)
+                    cube_name = f"{name}_pistar_{atoms_str}_{pi_star_idx}.cube"
                     cube_path = os.path.join(out_dir, cube_name)
                     cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                    pi_star.append({'atoms': [a1, a2], 'file': cube_name})
-                    print(f"  ✓ π*({a1}–{a2}) → {cube_name} [IBO]")
+                    pi_star.append({'atoms': atoms, 'file': cube_name})
+                    print(f"  ✓ π*({'–'.join(atoms)}) → {cube_name}")
                     pi_star_idx += 1
 
         except Exception as e:

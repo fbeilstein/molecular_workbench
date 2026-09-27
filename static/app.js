@@ -413,9 +413,8 @@ const WB = (() => {
             }
 
             // Summary in log
-            clearLog();
-            appendLog('═'.repeat(50));
-            appendLog(`Job Result: ${manifest.title}`);
+            appendLog('\n\n\n' + '═'.repeat(50) + '\n');
+            appendLog(`Job Result: ${manifest.title || name}\n`);
             appendLog('═'.repeat(50));
             appendLog(`SMILES: ${manifest.smiles}`);
             appendLog(`Method: ${manifest.method}`);
@@ -483,39 +482,43 @@ const WB = (() => {
                     const renderId = ++currentRenderId;
                     
                     const shapesToAdd = [];
-                    for (const o of allItems) {
-                        const chk = sidebar.querySelector(`[data-orb-file="${o.file}"]`);
-                        if (!chk || !chk.checked) continue;
+                    // Iterate checked checkboxes directly (not allItems) to avoid
+                    // querySelector collisions when multiple items share the same file
+                    const checkedBoxes = sidebar.querySelectorAll('input[data-orb-file]:checked');
+                    for (const chk of checkedBoxes) {
+                        const file = chk.getAttribute('data-orb-file');
+                        const color = chk.getAttribute('data-orb-color');
+                        if (!file) continue;
                         
-                        if (o.file.endsWith('.json')) {
+                        if (file.endsWith('.json')) {
                             for (let sign of ['pos', 'neg']) {
                                 try {
-                                    const actualFile = o.file.replace('.json', `_${sign}.json`);
+                                    const actualFile = file.replace('.json', `_${sign}.json`);
                                     let mesh = cache[actualFile];
                                     if (!mesh) {
                                         mesh = await (await fetch(`${base}/${actualFile}`)).json();
                                         cache[actualFile] = mesh;
                                     }
                                     if (mesh && mesh.vertices) {
-                                        const finalColor = (sign === 'neg') ? shiftColor(o.color) : o.color;
+                                        const finalColor = (sign === 'neg') ? shiftColor(color) : color;
                                         const alpha = (sign === 'neg') ? 0.5 : 0.7;
                                         shapesToAdd.push({vertexArr: mesh.vertices, faceArr: mesh.faces, color: $3Dmol.CC.color(finalColor), opacity: alpha});
                                     }
                                 } catch(e) {}
                             }
-                        } else if (o.file.endsWith('.cube')) {
-                            let txt = cache[o.file];
+                        } else if (file.endsWith('.cube')) {
+                            let txt = cache[file];
                             if (!txt) {
                                 try {
-                                    const r = await fetch(`${base}/${o.file}`);
+                                    const r = await fetch(`${base}/${file}`);
                                     const buf = await r.arrayBuffer();
                                     txt = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
-                                    cache[o.file] = txt;
+                                    cache[file] = txt;
                                 } catch(e) { continue; }
                             }
                             const vol = new $3Dmol.VolumeData(txt, 'cube');
-                            shapesToAdd.push({vol: vol, isoval: 0.03, color: o.color, opacity: 0.55, smoothness: 1});
-                            shapesToAdd.push({vol: vol, isoval: -0.03, color: lighten(o.color), opacity: 0.35, smoothness: 1});
+                            shapesToAdd.push({vol: vol, isoval: 0.03, color: color, opacity: 0.55, smoothness: 1});
+                            shapesToAdd.push({vol: vol, isoval: -0.03, color: lighten(color), opacity: 0.35, smoothness: 1});
                         }
                     }
 
@@ -551,6 +554,7 @@ const WB = (() => {
                         cb.type = 'checkbox';
                         cb.onchange = window.onChangeHandler;
                         cb.setAttribute('data-orb-file', orb.file);
+                        cb.setAttribute('data-orb-color', orb.color);
                         const dot = document.createElement('span');
                         dot.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${orb.color};`;
                         const lbl = document.createElement('span');

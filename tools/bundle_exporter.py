@@ -181,16 +181,20 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                                     sign_file = info['file'].replace('.cube', f'_{sign}.json')
                                     if os.path.exists(os.path.join(tmp_dir, sign_file)):
                                         zf.write(os.path.join(tmp_dir, sign_file), f'molecules/{sign_file}')
+                                if len(info['atoms']) > 2:
+                                    lbl = "deloc-σ(" + ",".join(info['atoms']) + ")"
+                                else:
+                                    lbl = f"σ({info['atoms'][0]}–{info['atoms'][1]})"
+                                    
                                 sigma_group['items'].append({
-                                    'label': f"σ({info['atoms'][0]}–{info['atoms'][1]})",
+                                    'label': lbl,
                                     'file': f'molecules/{base_file}',
                                     'color': '#44cc77'
                                 })
                             mol_data['orbitals'].append(sigma_group)
                             
-                        # Only show localized π bonds if no canonical π system was detected
-                        # (localized π bonds look bad for aromatic rings)
-                        if loc.get('pi') and not has_pi_system:
+                        # Show localized π bonds (now with multi-center support)
+                        if loc.get('pi'):
                             pi_group = {'name': 'π Bonds', 'items': []}
                             for info in loc['pi']:
                                 base_file = info['file'].replace('.cube', '.json')
@@ -198,8 +202,14 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                                     sign_file = info['file'].replace('.cube', f'_{sign}.json')
                                     if os.path.exists(os.path.join(tmp_dir, sign_file)):
                                         zf.write(os.path.join(tmp_dir, sign_file), f'molecules/{sign_file}')
+                                
+                                if len(info['atoms']) > 2:
+                                    lbl = "deloc-π(" + ",".join(info['atoms']) + ")"
+                                else:
+                                    lbl = f"π({info['atoms'][0]}={info['atoms'][1]})"
+                                    
                                 pi_group['items'].append({
-                                    'label': f"π({info['atoms'][0]}={info['atoms'][1]})",
+                                    'label': lbl,
                                     'file': f'molecules/{base_file}',
                                     'color': '#cc44bb'
                                 })
@@ -212,8 +222,12 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                                     sign_file = info['file'].replace('.cube', f'_{sign}.json')
                                     if os.path.exists(os.path.join(tmp_dir, sign_file)):
                                         zf.write(os.path.join(tmp_dir, sign_file), f'molecules/{sign_file}')
+                                if len(info['atoms']) > 2:
+                                    lbl = "σ*(" + ",".join(info['atoms']) + ")"
+                                else:
+                                    lbl = f"σ*({info['atoms'][0]}–{info['atoms'][1]})"
                                 sigma_star_group['items'].append({
-                                    'label': f"σ*({info['atoms'][0]}–{info['atoms'][1]})",
+                                    'label': lbl,
                                     'file': f'molecules/{base_file}',
                                     'color': '#ffaa00'
                                 })
@@ -227,14 +241,16 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                                     sign_file = info['file'].replace('.cube', f'_{sign}.json')
                                     if os.path.exists(os.path.join(tmp_dir, sign_file)):
                                         zf.write(os.path.join(tmp_dir, sign_file), f'molecules/{sign_file}')
+                                if len(info['atoms']) > 2:
+                                    lbl = "π*(" + ",".join(info['atoms']) + ")"
+                                else:
+                                    lbl = f"π*({info['atoms'][0]}–{info['atoms'][1]})"
                                 pi_star_group['items'].append({
-                                    'label': f"π*({info['atoms'][0]}–{info['atoms'][1]})",
+                                    'label': lbl,
                                     'file': f'molecules/{base_file}',
                                     'color': '#ff00aa'
                                 })
                             mol_data['orbitals'].append(pi_star_group)
-
-                            
                         if loc.get('lone_pairs'):
                             lp_group = {'name': 'Lone Pairs', 'items': []}
                             for info in loc['lone_pairs']:

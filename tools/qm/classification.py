@@ -34,6 +34,14 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
 
     # Bond: two+ atoms with >10% population
     if len(major) >= 2:
+        sig_atoms = [m for m in major if m[1] > 0.10]
+        if len(sig_atoms) > 2:
+            bond_type = _classify_sigma_pi(mol, mo_coeff, sig_atoms[0][0], sig_atoms[1][0])
+            if bond_type == 'pi':
+                return {'type': 'delocalized_pi', 'atoms': [atom_ids[m[0]] for m in sig_atoms]}
+            else:
+                return {'type': 'delocalized_sigma', 'atoms': [atom_ids[m[0]] for m in sig_atoms]}
+        
         a1_idx, a2_idx = major[0][0], major[1][0]
         bond_type = _classify_sigma_pi(mol, mo_coeff, a1_idx, a2_idx)
         return {'type': bond_type, 'atoms': [atom_ids[a1_idx], atom_ids[a2_idx]]}
