@@ -80,18 +80,25 @@ def _ring_plane_normals(mol, rings):
     return result
 
 
-def _find_pi_canonical(mol, mf, atom_labels):
+def _find_pi_canonical(mol, mf, atom_labels, n_virt_scan=None):
     """Identify canonical MOs with π character using PCA-based ring planes.
 
     For each ring system, finds the plane normal via SVD.  Then for each
-    valence canonical MO, checks whether its AO coefficients on ring atoms
-    are dominated by p-orbitals aligned with the plane normal (= π character).
+    valence canonical MO (occupied AND virtual), checks whether its AO
+    coefficients on ring atoms are dominated by p-orbitals aligned with
+    the plane normal (= π character).
 
-    Returns list of (mo_index, energy_ev) for each π MO, sorted by energy.
+    Args:
+        n_virt_scan: How many virtual MOs to scan for π*. If None, scans
+                     as many virtuals as there are valence occupieds.
+
+    Returns:
+        (pi_occ, pi_virt) where each is a list of (mo_index, energy_ev),
+        sorted by energy. pi_occ = bonding π, pi_virt = antibonding π*.
     """
     rings = _find_rings(mol)
     if not rings:
-        return []
+        return [], []
 
     ring_planes = _ring_plane_normals(mol, rings)
 
@@ -103,7 +110,6 @@ def _find_pi_canonical(mol, mf, atom_labels):
     # Collect all unique plane normals (group coplanar rings)
     normals = []
     for _, n in ring_planes:
-        # Check if this normal is already represented (parallel or anti-parallel)
         duplicate = False
         for existing in normals:
             if abs(abs(np.dot(n, existing)) - 1.0) < 0.1:
@@ -121,22 +127,18 @@ def _find_pi_canonical(mol, mf, atom_labels):
     else:
         n_occ = mol.nelectron // 2
 
-    # Core count
     core_electrons = sum(_CORE_ELECTRONS.get(s, 0) for s in atom_labels)
     n_core = core_electrons // 2
+    n_valence = n_occ - n_core
 
     ao_labels = mol.ao_labels(fmt=False)
     p_dirs = {'x': np.array([1, 0, 0]),
               'y': np.array([0, 1, 0]),
               'z': np.array([0, 0, 1])}
 
-    pi_mos = []
-    for i in range(n_core, n_occ):
-        mo = mo_coeff[:, i]
-
-        # For each unique ring plane normal, accumulate perpendicular vs parallel
-        # p-character on ring atoms
-        is_pi = False
+    def _is_pi_mo(mo_idx):
+        """Check if canonical MO at mo_idx has π character."""
+        mo = mo_coeff[:, mo_idx]
         for normal in normals:
             p_perp, p_along, total_ring = 0.0, 0.0, 0.0
             for mu, (aidx, *rest) in enumerate(ao_labels):
@@ -150,17 +152,32 @@ def _find_pi_canonical(mol, mf, atom_labels):
                     p_perp += c2 * proj
                     p_along += c2 * (1 - proj)
 
-            # Significant ring density + dominated by perpendicular p
             if total_ring > 0.1 and p_perp > p_along * 2:
-                is_pi = True
-                break
+                return True
+        return False
 
-        if is_pi:
+    # Scan occupied valence MOs for bonding π
+    pi_occ = []
+    for i in range(n_core, n_occ):
+        if _is_pi_mo(i):
             energy_ev = float(mo_energy[i]) * 27.2114
-            pi_mos.append((i, energy_ev))
+            pi_occ.append((i, energy_ev))
+    pi_occ.sort(key=lambda x: x[1])
 
-    pi_mos.sort(key=lambda x: x[1])
-    return pi_mos
+    # Scan virtual MOs for antibonding π*
+    if n_virt_scan is None:
+        n_virt_scan = n_valence
+    n_total = mo_coeff.shape[1]
+    virt_end = min(n_occ + n_virt_scan, n_total)
+
+    pi_virt = []
+    for i in range(n_occ, virt_end):
+        if _is_pi_mo(i):
+            energy_ev = float(mo_energy[i]) * 27.2114
+            pi_virt.append((i, energy_ev))
+    pi_virt.sort(key=lambda x: x[1])
+
+    return pi_occ, pi_virt
 
 
 def compute_canonical(mol, mf, atom_labels, name, out_dir, grid_points=50):
@@ -202,10 +219,10 @@ def compute_canonical(mol, mf, atom_labels, name, out_dir, grid_points=50):
         }
         print(f"  ✓ {label.upper()} (E={energy_ev:+.2f} eV) → {cube_name}")
 
-    # Detect and export canonical π MOs
-    pi_mos = _find_pi_canonical(mol, mf, atom_labels)
+    # Detect and export canonical π MOs (occupied bonding)
+    pi_occ, pi_virt = _find_pi_canonical(mol, mf, atom_labels)
     pi_results = []
-    for mo_idx, energy_ev in pi_mos:
+    for mo_idx, energy_ev in pi_occ:
         depth = homo_idx - mo_idx
         if depth == 0:
             # Already exported as HOMO
@@ -232,132 +249,204 @@ def compute_canonical(mol, mf, atom_labels, name, out_dir, grid_points=50):
 
     if pi_results:
         results['pi_system'] = pi_results
-        print(f"  Canonical π system: {len(pi_results)} MOs detected")
+        print(f"  Canonical π system: {len(pi_results)} bonding MOs detected")
+
+    # Detect and export canonical π* MOs (virtual antibonding)
+    pi_star_results = []
+    for mo_idx, energy_ev in pi_virt:
+        offset = mo_idx - lumo_idx
+        if offset == 0:
+            # Already exported as LUMO
+            pi_star_results.append({
+                'file': results['lumo']['file'],
+                'energy_ev': round(energy_ev, 2),
+                'index': mo_idx,
+                'lumo_label': 'LUMO',
+            })
+            continue
+        label = f"pistar_{mo_idx}"
+        cube_name = f"{name}_{label}.cube"
+        cube_path = os.path.join(out_dir, cube_name)
+        cubegen.orbital(mol, cube_path, mo_coeff[:, mo_idx],
+                              nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
+        lumo_label = f"LUMO+{offset}" if offset > 0 else "LUMO"
+        pi_star_results.append({
+            'file': cube_name,
+            'energy_ev': round(energy_ev, 2),
+            'index': mo_idx,
+            'lumo_label': lumo_label,
+        })
+        print(f"  ✓ π* ({lumo_label}, E={energy_ev:+.2f} eV) → {cube_name}")
+
+    if pi_star_results:
+        results['pi_star_system'] = pi_star_results
+        print(f"  Canonical π* system: {len(pi_star_results)} antibonding MOs detected")
 
     return results
 
 
 def compute_localized(mol, mf, atom_labels, name, out_dir, grid_points=50):
-    """Localize MOs using hybrid Boys/IBO and export to cube/json."""
+    """Localize MOs and export to cube files.
+
+    Strategy:
+    - Detect canonical π/π* MOs (ring plane analysis) and export them directly
+      (canonical MOs look correct for π systems — textbook shapes).
+    - Exclude π MOs from the localization subspace.
+    - Localize only the σ/LP occupied MOs (IBO) and σ* virtual MOs (PM).
+    """
     import os
     from pyscf.tools import cubegen
     from pyscf import lo
-    
+
     n_core = 0
     for sym in atom_labels:
         n_core += _CORE_ELECTRONS.get(sym, 0)
     n_core //= 2
     n_occ = mol.nelectron // 2
-    
+
     mo_coeff = mf.mo_coeff
+    mo_energy = mf.mo_energy
     ovlp = mol.intor_symmetric('int1e_ovlp')
     atom_ids = make_atom_ids(atom_labels)
     lp_counts = {}
 
     sigma, pi, lone_pairs = [], [], []
-
-    # -- Localize Occupieds (IBO preserves delocalized aromatic systems better) --
-    # Construct full IAOs from all occupied orbitals to form proper minimal basis
-    full_occ = mo_coeff[:, :n_occ]
-    iaos = lo.iao.iao(mol, full_occ)
-
-    # Localize ONLY valence orbitals using the full IAOs to prevent core mixing
-    val_occ = mo_coeff[:, n_core:n_occ]
-    print(f"  Localizing {val_occ.shape[1]} valence MOs (IBO)...")
-    try:
-        occ_loc = lo.ibo.ibo(mol, val_occ, iaos=iaos, max_iter=500)
-        for i in range(occ_loc.shape[1]):
-            mo = occ_loc[:, i]
-            pop = _atom_populations(mol, mo, ovlp)
-            info = _classify_orbital(mol, mo, pop, atom_labels, atom_ids, ovlp)
-            
-            if info['type'] == 'lone_pair':
-                a_id = info['atom']
-                cube_name = f"{name}_lp_{a_id}_{lp_counts.get(a_id,0)+1}_{i}.cube"
-                lp_counts[a_id] = lp_counts.get(a_id, 0) + 1
-                cube_path = os.path.join(out_dir, cube_name)
-                cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                lone_pairs.append({'atom': a_id, 'index': lp_counts[a_id], 'file': cube_name})
-                print(f"  ✓ LP({a_id} #{lp_counts[a_id]}) → {cube_name}")
-            elif info['type'] == 'sigma':
-                a1, a2 = info['atoms']
-                cube_name = f"{name}_sigma_{a1}_{a2}_{i}.cube"
-                cube_path = os.path.join(out_dir, cube_name)
-                cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                sigma.append({'atoms': [a1, a2], 'file': cube_name})
-                print(f"  ✓ σ({a1}–{a2}) → {cube_name}")
-            elif info['type'] in ('pi', 'delocalized_pi'):
-                if len(info['atoms']) > 2:
-                    atoms_str = "_".join(info['atoms'])
-                    cube_name = f"{name}_delocpi_{atoms_str}_{i}.cube"
-                    cube_path = os.path.join(out_dir, cube_name)
-                    cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                    pi.append({'atoms': info['atoms'], 'file': cube_name})
-                    print(f"  ✓ deloc-π({','.join(info['atoms'])}) → {cube_name}")
-                else:
-                    a1, a2 = info['atoms']
-                    cube_name = f"{name}_pi_{a1}_{a2}_{i}.cube"
-                    cube_path = os.path.join(out_dir, cube_name)
-                    cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                    pi.append({'atoms': [a1, a2], 'file': cube_name})
-                    print(f"  ✓ π({a1}={a2}) → {cube_name}")
-            elif info['type'] == 'delocalized_sigma':
-                atoms_str = "_".join(info['atoms'])
-                cube_name = f"{name}_delocsig_{atoms_str}_{i}.cube"
-                cube_path = os.path.join(out_dir, cube_name)
-                cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                sigma.append({'atoms': info['atoms'], 'file': cube_name})
-                print(f"  ✓ deloc-σ({','.join(info['atoms'])}) → {cube_name}")
-
-    except Exception as e:
-        print(f"  ⚠ Localization failed: {e}")
-
-    # -- Localize Virtuals --
     sigma_star, pi_star = [], []
-    n_virt_to_loc = len(sigma) + len(pi)
-    if n_virt_to_loc > 0 and n_occ + n_virt_to_loc <= mo_coeff.shape[1]:
-        virt_coeff = mo_coeff[:, n_occ : n_occ + n_virt_to_loc]
-        print(f"  Localizing {virt_coeff.shape[1]} lowest virtual MOs (PM)...")
+
+    # ── Step 1: Detect canonical π/π* MOs ──
+    n_valence = n_occ - n_core
+    pi_occ_mos, pi_virt_mos = _find_pi_canonical(mol, mf, atom_labels,
+                                                   n_virt_scan=n_valence)
+    pi_occ_indices = set(idx for idx, _ in pi_occ_mos)
+    pi_virt_indices = set(idx for idx, _ in pi_virt_mos)
+    n_pi_occ = len(pi_occ_indices)
+    n_pi_virt = len(pi_virt_indices)
+
+    if n_pi_occ > 0:
+        print(f"  Detected {n_pi_occ} canonical π MOs — exporting directly")
+    if n_pi_virt > 0:
+        print(f"  Detected {n_pi_virt} canonical π* MOs — exporting directly")
+
+    # ── Step 2: Export canonical π bonds directly ──
+    for mo_idx, energy_ev in pi_occ_mos:
+        depth = (n_occ - 1) - mo_idx
+        homo_label = f"HOMO-{depth}" if depth > 0 else "HOMO"
+        cube_name = f"{name}_pi_canonical_{mo_idx}.cube"
+        cube_path = os.path.join(out_dir, cube_name)
+        cubegen.orbital(mol, cube_path, mo_coeff[:, mo_idx],
+                        nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
+        pi.append({
+            'atoms': ['ring'],  # canonical — spread over ring
+            'file': cube_name,
+            'energy_ev': round(energy_ev, 2),
+            'canonical_label': f"π ({homo_label})",
+        })
+        print(f"  ✓ π ({homo_label}, E={energy_ev:+.2f} eV) → {cube_name}")
+
+    # ── Step 3: Export canonical π* antibonds directly ──
+    lumo_idx = n_occ
+    for mo_idx, energy_ev in pi_virt_mos:
+        offset = mo_idx - lumo_idx
+        lumo_label = f"LUMO+{offset}" if offset > 0 else "LUMO"
+        cube_name = f"{name}_pistar_canonical_{mo_idx}.cube"
+        cube_path = os.path.join(out_dir, cube_name)
+        cubegen.orbital(mol, cube_path, mo_coeff[:, mo_idx],
+                        nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
+        pi_star.append({
+            'atoms': ['ring'],
+            'file': cube_name,
+            'energy_ev': round(energy_ev, 2),
+            'canonical_label': f"π* ({lumo_label})",
+        })
+        print(f"  ✓ π* ({lumo_label}, E={energy_ev:+.2f} eV) → {cube_name}")
+
+    # ── Step 4: Localize σ/LP occupied MOs (excluding π) ──
+    # Build the non-π valence occupied subspace
+    non_pi_cols = [i for i in range(n_core, n_occ) if i not in pi_occ_indices]
+    if non_pi_cols:
+        sigma_occ = mo_coeff[:, non_pi_cols]
+        print(f"  Localizing {sigma_occ.shape[1]} σ/LP valence MOs (IBO)...")
         try:
-            loc_virt = lo.PM(mol, virt_coeff)
-            loc_virt.init_guess = 'random'
-            virt_loc = loc_virt.kernel()
-            
-            sigma_star_idx, pi_star_idx = 0, 0
-            for i in range(virt_loc.shape[1]):
-                mo = virt_loc[:, i]
+            full_occ = mo_coeff[:, :n_occ]
+            iaos = lo.iao.iao(mol, full_occ)
+            occ_loc = lo.ibo.ibo(mol, sigma_occ, iaos=iaos, max_iter=500)
+
+            for i in range(occ_loc.shape[1]):
+                mo = occ_loc[:, i]
                 pop = _atom_populations(mol, mo, ovlp)
                 info = _classify_orbital(mol, mo, pop, atom_labels, atom_ids, ovlp)
-                
-                if info['type'] in ('sigma', 'delocalized_sigma'):
-                    atoms = info['atoms']
-                    atoms_str = "_".join(atoms)
-                    cube_name = f"{name}_sigmastar_{atoms_str}_{sigma_star_idx}.cube"
+
+                if info['type'] == 'lone_pair':
+                    a_id = info['atom']
+                    cube_name = f"{name}_lp_{a_id}_{lp_counts.get(a_id,0)+1}_{i}.cube"
+                    lp_counts[a_id] = lp_counts.get(a_id, 0) + 1
                     cube_path = os.path.join(out_dir, cube_name)
                     cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                    sigma_star.append({'atoms': atoms, 'file': cube_name})
-                    print(f"  ✓ σ*({'–'.join(atoms)}) → {cube_name}")
-                    sigma_star_idx += 1
-                
+                    lone_pairs.append({'atom': a_id, 'index': lp_counts[a_id], 'file': cube_name})
+                    print(f"  ✓ LP({a_id} #{lp_counts[a_id]}) → {cube_name}")
+                elif info['type'] in ('sigma', 'delocalized_sigma'):
+                    atoms = info['atoms']
+                    a1, a2 = atoms[0], atoms[1]
+                    cube_name = f"{name}_sigma_{a1}_{a2}_{i}.cube"
+                    cube_path = os.path.join(out_dir, cube_name)
+                    cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
+                    sigma.append({'atoms': [a1, a2], 'file': cube_name})
+                    print(f"  ✓ σ({a1}–{a2}) → {cube_name}")
                 elif info['type'] in ('pi', 'delocalized_pi'):
+                    # Residual π that leaked through — shouldn't happen often
+                    # after removing canonical π, but handle gracefully
                     atoms = info['atoms']
                     atoms_str = "_".join(atoms)
-                    cube_name = f"{name}_pistar_{atoms_str}_{pi_star_idx}.cube"
+                    cube_name = f"{name}_pi_residual_{atoms_str}_{i}.cube"
                     cube_path = os.path.join(out_dir, cube_name)
                     cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
-                    pi_star.append({'atoms': atoms, 'file': cube_name})
-                    print(f"  ✓ π*({'–'.join(atoms)}) → {cube_name}")
-                    pi_star_idx += 1
+                    pi.append({'atoms': atoms, 'file': cube_name})
+                    print(f"  ⚠ residual π({','.join(atoms)}) → {cube_name}")
 
         except Exception as e:
-            print(f"  ⚠ Virtual localization failed: {e}")
+            print(f"  ⚠ σ/LP localization failed: {e}")
+
+    # ── Step 5: Localize σ* virtual MOs (excluding π*) ──
+    n_sigma_bonds = len(sigma)
+    if n_sigma_bonds > 0:
+        # Select as many low virtual MOs as σ bonds, excluding the π* ones
+        non_pi_virt_cols = []
+        scan_idx = n_occ
+        while len(non_pi_virt_cols) < n_sigma_bonds and scan_idx < mo_coeff.shape[1]:
+            if scan_idx not in pi_virt_indices:
+                non_pi_virt_cols.append(scan_idx)
+            scan_idx += 1
+
+        if non_pi_virt_cols:
+            virt_coeff = mo_coeff[:, non_pi_virt_cols]
+            print(f"  Localizing {virt_coeff.shape[1]} σ* virtual MOs (PM)...")
+            try:
+                loc_virt = lo.PM(mol, virt_coeff)
+                loc_virt.init_guess = 'random'
+                virt_loc = loc_virt.kernel()
+
+                for i in range(virt_loc.shape[1]):
+                    mo = virt_loc[:, i]
+                    pop = _atom_populations(mol, mo, ovlp)
+                    info = _classify_orbital(mol, mo, pop, atom_labels, atom_ids, ovlp)
+
+                    atoms = info.get('atoms', ['?', '?'])
+                    if len(atoms) < 2:
+                        atoms = ['?', '?']
+                    a1, a2 = atoms[0], atoms[1]
+                    cube_name = f"{name}_sigmastar_{a1}_{a2}_{i}.cube"
+                    cube_path = os.path.join(out_dir, cube_name)
+                    cubegen.orbital(mol, cube_path, mo, nx=grid_points, ny=grid_points, nz=grid_points, margin=5.0)
+                    sigma_star.append({'atoms': [a1, a2], 'file': cube_name})
+                    print(f"  ✓ σ*({a1}–{a2}) → {cube_name}")
+
+            except Exception as e:
+                print(f"  ⚠ σ* localization failed: {e}")
 
     return {
         'sigma': sigma,
         'pi': pi,
         'lone_pairs': lone_pairs,
         'sigma_star': sigma_star,
-        'pi_star': pi_star
+        'pi_star': pi_star,
     }
-
-

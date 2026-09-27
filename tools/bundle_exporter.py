@@ -203,7 +203,9 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                                     if os.path.exists(os.path.join(tmp_dir, sign_file)):
                                         zf.write(os.path.join(tmp_dir, sign_file), f'molecules/{sign_file}')
                                 
-                                if len(info['atoms']) > 2:
+                                if 'canonical_label' in info:
+                                    lbl = info['canonical_label']
+                                elif len(info['atoms']) > 2:
                                     lbl = "deloc-π(" + ",".join(info['atoms']) + ")"
                                 else:
                                     lbl = f"π({info['atoms'][0]}={info['atoms'][1]})"
@@ -241,7 +243,9 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
                                     sign_file = info['file'].replace('.cube', f'_{sign}.json')
                                     if os.path.exists(os.path.join(tmp_dir, sign_file)):
                                         zf.write(os.path.join(tmp_dir, sign_file), f'molecules/{sign_file}')
-                                if len(info['atoms']) > 2:
+                                if 'canonical_label' in info:
+                                    lbl = info['canonical_label']
+                                elif len(info['atoms']) > 2:
                                     lbl = "π*(" + ",".join(info['atoms']) + ")"
                                 else:
                                     lbl = f"π*({info['atoms'][0]}–{info['atoms'][1]})"
