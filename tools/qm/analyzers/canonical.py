@@ -46,37 +46,35 @@ class CanonicalAnalyzer:
         return pi_occ, pi_virt
 
     def _is_pi_orbital(self, mo, ring_indices, normal):
-        """Check if an MO is a pi orbital centered on the ring."""
+        """
+        Check if an MO is a pi orbital centered on the ring.
+        Uses a rotation-invariant nodal plane check: a pi orbital must have 
+        nodes exactly at the atomic centers of the ring atoms.
+        """
+        # 1. Check if the orbital has significant density on the ring
         dm = np.outer(mo, mo)
         ps = dm * self.ovlp
         
         total_ring = 0.0
-        p_perp = 0.0
-        
         ao_labels = self.mol.ao_labels(fmt=False)
-        
         for mu, (atom_idx, _, ao_type, axis) in enumerate(ao_labels):
             if atom_idx in ring_indices:
-                pop = ps[mu, :].sum()
-                total_ring += pop
+                total_ring += ps[mu, :].sum()
                 
-                # If it's a p-orbital, project onto the normal vector
-                if 'p' in ao_type:
-                    vec = np.zeros(3)
-                    if axis == 'x': vec[0] = 1.0
-                    elif axis == 'y': vec[1] = 1.0
-                    elif axis == 'z': vec[2] = 1.0
-                    
-                    # Contribution perpendicular to the ring plane
-                    proj = abs(np.dot(vec, normal))
-                    p_perp += pop * proj
-
-        # To be a ring pi orbital, it must have significant density on the ring
         if total_ring < 0.2:
             return False
             
-        # And that density must be predominantly perpendicular p-character
-        if p_perp > total_ring * 0.75:
+        # 2. Check if the MO has a nodal plane at the ring atoms
+        coords = self.mol.atom_coords()[ring_indices]
+        ao_values = self.mol.eval_gto("GTOval", coords)
+        mo_values = np.dot(ao_values, mo)
+        
+        # Max absolute value of the MO at any ring atom's nucleus
+        max_val_at_nuclei = np.max(np.abs(mo_values))
+        
+        # Pi orbitals should be extremely close to 0 at the nuclei (<0.05)
+        # Sigma orbitals usually have values > 0.1 at the nuclei
+        if max_val_at_nuclei < 0.05:
             return True
             
         return False

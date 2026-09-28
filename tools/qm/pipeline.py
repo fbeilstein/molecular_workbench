@@ -19,9 +19,9 @@ class QuantumPipeline:
     def run(self):
         print(f"--- Running Refactored Quantum Pipeline for {self.name} ---")
         
-        # 1. Topology (find aromatic rings)
+        # 1. Topology (find aromatic rings and conjugated systems)
         topology = TopologyDetector(self.smiles)
-        aromatic_atoms = topology.get_aromatic_atoms()
+        aromatic_atoms = topology.get_conjugated_atoms()
         
         # 2. Canonical Analyzer
         canonical = CanonicalAnalyzer(self.mol, self.mf.mo_coeff, self.mf.mo_energy)
@@ -90,7 +90,7 @@ class QuantumPipeline:
         # Group indices into degenerate sets (within 0.01 Hartree)
         i = 0
         while i < len(indices) - 1:
-            if abs(self.mf.mo_energy[indices[i]] - self.mf.mo_energy[indices[i+1]]) < 0.01:
+            if abs(self.mf.mo_energy[indices[i]] - self.mf.mo_energy[indices[i+1]]) < 1e-4:
                 idx1, idx2 = indices[i], indices[i+1]
                 C = self.mf.mo_coeff[:, [idx1, idx2]]
                 P_red = C.T @ P_A @ C

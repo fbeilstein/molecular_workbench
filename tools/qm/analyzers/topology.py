@@ -28,16 +28,10 @@ class TopologyDetector:
         if not self.mol:
             return []
             
-        conjugated_indices = []
-        for atom in self.mol.GetAtoms():
-            # Aromatic atoms are conjugated
-            if atom.GetIsAromatic():
-                conjugated_indices.append(atom.GetIdx())
-                continue
+        conjugated_indices = set()
+        for bond in self.mol.GetBonds():
+            if bond.GetIsConjugated():
+                conjugated_indices.add(bond.GetBeginAtomIdx())
+                conjugated_indices.add(bond.GetEndAtomIdx())
                 
-            # Non-aromatic atoms with pi bonds are conjugated if adjacent to another pi bond
-            # In RDKit, an atom might be flagged as conjugated if it's involved in a conjugated system
-            if hasattr(atom, 'GetIsConjugated') and atom.GetIsConjugated():
-                conjugated_indices.append(atom.GetIdx())
-                
-        return conjugated_indices
+        return sorted(list(conjugated_indices))
