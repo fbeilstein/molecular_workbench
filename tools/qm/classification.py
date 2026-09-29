@@ -44,17 +44,6 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
             bond_type = _classify_sigma_pi(mol, mo_coeff, a1_idx, a2_idx)
             return {'type': bond_type, 'atoms': [atom_ids[a1_idx], atom_ids[a2_idx]]}
 
-        # Polarized π bond rescue: if 2+ major atoms but only 1 passes the
-        # 10% threshold, the orbital may still be a highly polarized π bond
-        # (e.g. Cl-O π in ClO₂⁻: 88% on O, 9% on Cl).  Test for π character
-        # before giving up and calling it a lone pair.
-        # Require >7% on the minor atom to avoid rescuing p-type lone pairs
-        # (e.g. O lone pair in H₂C=O has ~5% tail on C — not a real bond).
-        if len(sig_atoms) == 1 and len(major) >= 2 and major[1][1] > 0.07:
-            a1_idx, a2_idx = major[0][0], major[1][0]
-            if _classify_sigma_pi(mol, mo_coeff, a1_idx, a2_idx) == 'pi':
-                return {'type': 'pi', 'atoms': [atom_ids[a1_idx], atom_ids[a2_idx]]}
-
     # Lone pair fallback (if only 1 atom has >10% population, or it failed bond checks)
     idx = major[0][0]
     if atom_labels[idx] == 'H':

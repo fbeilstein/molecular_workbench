@@ -32,6 +32,9 @@ class ValenceLocalizer:
             iaos = lo.iao.iao(self.mol, occ_coeff)
             loc_occ = lo.ibo.ibo(self.mol, occ_coeff, iaos=iaos)
             
+            # Track pi bonds to prevent "triple bonds" to terminal oxygens
+            seen_pi = set()
+            
             for i in range(loc_occ.shape[1]):
                 mo = loc_occ[:, i]
                 pop = _atom_populations(self.mol, mo, self.ovlp)
@@ -39,6 +42,19 @@ class ValenceLocalizer:
                 
                 orb_type = info.get('type', 'unknown')
                 atoms = info.get('atoms', [info.get('atom', '?')])
+                
+                # Heuristic: Limit hypervalent M=O bonds to exactly 1 pi bond.
+                # If a second polarized lone pair crosses the threshold, demote it to a lone pair.
+                if orb_type == 'pi' and len(atoms) == 2:
+                    pair = tuple(sorted(atoms))
+                    s1, s2 = ''.join(filter(str.isalpha, pair[0])), ''.join(filter(str.isalpha, pair[1]))
+                    hyper = {'S', 'P', 'Cl', 'Br', 'I', 'N'}
+                    if (s1 in hyper and s2 == 'O') or (s2 in hyper and s1 == 'O'):
+                        if pair in seen_pi:
+                            orb_type = 'lone_pair'
+                            atoms = [pair[0] if s1 == 'O' else pair[1]]
+                        else:
+                            seen_pi.add(pair)
                 
                 orbitals.append(Orbital(type=orb_type, atoms=atoms, mo_coeff=mo))
                 

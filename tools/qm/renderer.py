@@ -60,7 +60,7 @@ class Renderer:
                 cube_name = f"{self.name}_pi_{atoms_str}_{idx}.cube"
                 self.manifest['localized']['pi'].append(orb.to_dict(cube_name))
                 
-            elif orb.type == 'pi_star':
+            elif orb.type in ('pi_star', 'delocalized_pistar'):
                 cube_name = f"{self.name}_pistar_{atoms_str}_{idx}.cube"
                 self.manifest['localized']['pi_star'].append(orb.to_dict(cube_name))
             

@@ -30,11 +30,14 @@ class CanonicalAnalyzer:
         evals, evecs = np.linalg.eigh(cov)
         normal = evecs[:, 0]  # The eigenvector corresponding to the smallest eigenvalue is the normal
         
+        from pyscf.data.elements import chemcore
+        n_core = chemcore(self.mol)
+        
         pi_occ = []
         pi_virt = []
         
-        # Analyze each MO
-        for idx in range(self.mo_coeff.shape[1]):
+        # Analyze each MO (valence only, skip core)
+        for idx in range(n_core, self.mo_coeff.shape[1]):
             mo = self.mo_coeff[:, idx]
             is_pi = self._is_pi_orbital(mo, aromatic_atom_indices, normal)
             if is_pi:
@@ -88,10 +91,14 @@ class CanonicalAnalyzer:
         n_anti_symmetric = 0
         
         for u, d in zip(mo_up, mo_dn):
-            if abs(u) > max_abs * 0.1 or abs(d) > max_abs * 0.1:
+            mag_u, mag_d = abs(u), abs(d)
+            max_mag = max(mag_u, mag_d)
+            if max_mag > max_abs * 0.1:
                 n_significant += 1
-                # If they have opposite signs, it's anti-symmetric
-                if u * d < 0:
+                
+                # Must be reasonably symmetric in magnitude to be a true canonical pi orbital.
+                # If highly asymmetric, it's just an arbitrary node in an asymmetric molecule.
+                if u * d < 0 and abs(mag_u - mag_d) / max_mag < 0.45:
                     n_anti_symmetric += 1
                     
         if n_significant > 0 and (n_anti_symmetric / n_significant) > 0.8:
