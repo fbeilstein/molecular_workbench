@@ -2,7 +2,6 @@ from pyscf import gto
 from qm.analyzers.topology import TopologyDetector
 from qm.analyzers.canonical import CanonicalAnalyzer
 from qm.analyzers.valence import ValenceLocalizer
-from qm.analyzers.virtual import VirtualLocalizer
 from qm.renderer import Renderer
 from qm.models import Orbital
 

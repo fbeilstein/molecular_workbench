@@ -1,5 +1,4 @@
 import numpy as np
-from pyscf.tools import cubegen
 
 def _atom_populations(mol, mo_coeff, ovlp):
     """Mulliken population of a single MO on each atom."""
@@ -14,8 +13,6 @@ def _atom_populations(mol, mo_coeff, ovlp):
 
 def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
     """Classify a localized MO as lone_pair, sigma, or pi."""
-    import numpy as np
-    from pyscf.tools import cubegen
     abs_pop = np.abs(pop)
     total = abs_pop.sum()
     if total < 1e-6:
@@ -47,10 +44,20 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
             bond_type = _classify_sigma_pi(mol, mo_coeff, a1_idx, a2_idx)
             return {'type': bond_type, 'atoms': [atom_ids[a1_idx], atom_ids[a2_idx]]}
 
+        # Polarized π bond rescue: if 2+ major atoms but only 1 passes the
+        # 10% threshold, the orbital may still be a highly polarized π bond
+        # (e.g. Cl-O π in ClO₂⁻: 88% on O, 9% on Cl).  Test for π character
+        # before giving up and calling it a lone pair.
+        # Require >7% on the minor atom to avoid rescuing p-type lone pairs
+        # (e.g. O lone pair in H₂C=O has ~5% tail on C — not a real bond).
+        if len(sig_atoms) == 1 and len(major) >= 2 and major[1][1] > 0.07:
+            a1_idx, a2_idx = major[0][0], major[1][0]
+            if _classify_sigma_pi(mol, mo_coeff, a1_idx, a2_idx) == 'pi':
+                return {'type': 'pi', 'atoms': [atom_ids[a1_idx], atom_ids[a2_idx]]}
+
     # Lone pair fallback (if only 1 atom has >10% population, or it failed bond checks)
     idx = major[0][0]
     if atom_labels[idx] == 'H':
-        import numpy as np
         coords = mol.atom_coords()
         dists = np.linalg.norm(coords - coords[idx], axis=1)
         dists[idx] = 999.9
@@ -122,39 +129,61 @@ def _is_core_orbital(mol, mo_coeff, atom_idx, element):
 
 
 def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
-    """Distinguish σ vs π by AO angular momentum analysis."""
+    """Distinguish σ vs π using a nodal-plane test.
+
+    Samples the MO on a small circle perpendicular to the bond axis at
+    the bond midpoint.  A σ orbital is cylindrically symmetric (same sign
+    all around), while a π orbital has a nodal plane through the bond
+    axis (half positive, half negative).
+
+    This approach is basis-set agnostic — works equally well for
+    s, p, d, and f orbital contributions.
+    """
     coords = mol.atom_coords()
-    
-    # Hydrogens cannot form pi bonds. Prevent polarization functions from falsely triggering pi character.
-    sym1 = mol.atom_symbol(atom1_idx)
-    sym2 = mol.atom_symbol(atom2_idx)
-    if sym1 == 'H' or sym2 == 'H':
+
+    # Hydrogens cannot form pi bonds.
+    if mol.atom_symbol(atom1_idx) == 'H' or mol.atom_symbol(atom2_idx) == 'H':
         return 'sigma'
-        
+
     bond_vec = coords[atom2_idx] - coords[atom1_idx]
     bond_len = np.linalg.norm(bond_vec)
     if bond_len < 1e-6:
         return 'sigma'
     bond_hat = bond_vec / bond_len
 
-    ao_labels = mol.ao_labels(fmt=False)
-    p_dirs = {'x': np.array([1, 0, 0]),
-              'y': np.array([0, 1, 0]),
-              'z': np.array([0, 0, 1])}
+    # Build an orthogonal frame perpendicular to the bond
+    ref = np.array([1., 0., 0.]) if abs(bond_hat[0]) < 0.9 else np.array([0., 1., 0.])
+    perp1 = np.cross(bond_hat, ref)
+    perp1 /= np.linalg.norm(perp1)
+    perp2 = np.cross(bond_hat, perp1)
 
-    p_along, p_perp = 0.0, 0.0
-    for mu, (aidx, *rest) in enumerate(ao_labels):
-        if aidx not in (atom1_idx, atom2_idx):
-            continue
-        sublabel = rest[-1] if rest else ''
-        coeff = abs(mo_coeff[mu])
-        if coeff < 1e-4:
-            continue
-        if sublabel in p_dirs:
-            proj = abs(np.dot(p_dirs[sublabel], bond_hat))
-            p_along += coeff * proj
-            p_perp += coeff * (1 - proj)
+    # Sample 12 points on a circle at the bond midpoint
+    midpoint = (coords[atom1_idx] + coords[atom2_idx]) / 2
+    n_samples = 12
+    radius = 0.5  # Bohr (~0.26 Å)
+    angles = 2 * np.pi * np.arange(n_samples) / n_samples
+    sample_coords = midpoint + radius * (
+        np.outer(np.cos(angles), perp1) + np.outer(np.sin(angles), perp2)
+    )
 
-    return 'pi' if p_perp > p_along * 1.5 else 'sigma'
+    ao_vals = mol.eval_gto("GTOval", sample_coords)
+    mo_vals = ao_vals @ mo_coeff
+
+    max_abs = np.max(np.abs(mo_vals))
+    if max_abs < 1e-6:
+        return 'sigma'
+
+    # Among samples with significant amplitude, count positive vs negative.
+    # σ → all same sign (minority ≈ 0), π → half-and-half (minority ≈ 0.5).
+    sig_mask = np.abs(mo_vals) > max_abs * 0.1
+    n_sig = int(np.sum(sig_mask))
+    if n_sig < 4:
+        return 'sigma'
+
+    n_pos = int(np.sum(mo_vals[sig_mask] > 0))
+    n_neg = n_sig - n_pos
+    minority_frac = min(n_pos, n_neg) / n_sig
+
+    return 'pi' if minority_frac > 0.25 else 'sigma'
 
 

@@ -48,8 +48,8 @@ class CanonicalAnalyzer:
     def _is_pi_orbital(self, mo, ring_indices, normal):
         """
         Check if an MO is a pi orbital centered on the ring.
-        Uses a rotation-invariant nodal plane check: a pi orbital must have 
-        nodes exactly at the atomic centers of the ring atoms.
+        Uses an anti-symmetry test: a true pi orbital must have opposite phases
+        above and below the molecular plane.
         """
         # 1. Check if the orbital has significant density on the ring
         dm = np.outer(mo, mo)
@@ -64,17 +64,37 @@ class CanonicalAnalyzer:
         if total_ring < 0.2:
             return False
             
-        # 2. Check if the MO has a nodal plane at the ring atoms
+        # 2. Check for anti-symmetry across the ring plane
         coords = self.mol.atom_coords()[ring_indices]
-        ao_values = self.mol.eval_gto("GTOval", coords)
-        mo_values = np.dot(ao_values, mo)
         
-        # Max absolute value of the MO at any ring atom's nucleus
-        max_val_at_nuclei = np.max(np.abs(mo_values))
+        # Sample points above and below the plane (e.g. 0.5 Bohr)
+        d = 0.5
+        coords_up = coords + d * normal
+        coords_dn = coords - d * normal
         
-        # Pi orbitals should be extremely close to 0 at the nuclei (<0.05)
-        # Sigma orbitals usually have values > 0.1 at the nuclei
-        if max_val_at_nuclei < 0.05:
+        ao_up = self.mol.eval_gto("GTOval", coords_up)
+        ao_dn = self.mol.eval_gto("GTOval", coords_dn)
+        
+        mo_up = np.dot(ao_up, mo)
+        mo_dn = np.dot(ao_dn, mo)
+        
+        # We need significant amplitude above/below the plane
+        max_abs = max(np.max(np.abs(mo_up)), np.max(np.abs(mo_dn)))
+        if max_abs < 0.05:
+            return False
+            
+        # For significant samples, check if they are anti-symmetric
+        n_significant = 0
+        n_anti_symmetric = 0
+        
+        for u, d in zip(mo_up, mo_dn):
+            if abs(u) > max_abs * 0.1 or abs(d) > max_abs * 0.1:
+                n_significant += 1
+                # If they have opposite signs, it's anti-symmetric
+                if u * d < 0:
+                    n_anti_symmetric += 1
+                    
+        if n_significant > 0 and (n_anti_symmetric / n_significant) > 0.8:
             return True
             
         return False
