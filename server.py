@@ -175,6 +175,9 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
 
         script_path = os.path.join(job_dir, f'compute_{name}.sh')
 
+        import json
+        safe_smiles_json = json.dumps(rxn_smiles)
+        
         lines = [
             '#!/bin/bash',
             'set -e',
@@ -185,21 +188,21 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             f'echo "═══ Computing: {name} ═══"',
             '',
             '# Step 1: Prepare molecule (3D structure, SVG, MOL)',
-            f'$PYTHON $TOOLS/mol_prep.py "{rxn_smiles}" --name {name} -o $OUT --charge {charge}',
+            f'$PYTHON $TOOLS/mol_prep.py {safe_smiles_json} --name {name} -o $OUT --charge {charge}',
             f'obabel $OUT/{name}.mol -O $OUT/{name}.cdxml 2>/dev/null || true',
             '',
             '# Step 2: Create bundle manifest',
-            f'cat <<EOF > $OUT/{name}_bundle.json',
+            f'cat <<\'EOF\' > $OUT/{name}_bundle.json',
             '{',
             f'  "name": "{name}",',
-            f'  "smiles": "{rxn_smiles}",',
+            f'  "smiles": {safe_smiles_json},',
             f'  "charge": {charge},',
             f'  "method": "b3lyp",',
             '  "molecules": [',
             '    {',
             f'      "key": "{name}",',
             '      "role": "molecule",',
-            f'      "smiles": "{rxn_smiles}",',
+            f'      "smiles": {safe_smiles_json},',
             f'      "xyz": "{name}.xyz"',
             '    }',
             '  ]',
