@@ -30,6 +30,12 @@ class CanonicalAnalyzer:
         evals, evecs = np.linalg.eigh(cov)
         normal = evecs[:, 0]  # The eigenvector corresponding to the smallest eigenvalue is the normal
         
+        # Check planarity: if the ring is significantly puckered (e.g. tub-shaped cyclooctatetraene),
+        # a single global plane cannot define the pi system.
+        distances = np.abs(np.dot(centered, normal))
+        if np.max(distances) > 0.5:  # 0.5 Bohr ~ 0.26 Angstroms
+            return [], []
+        
         from pyscf.data.elements import chemcore
         n_core = chemcore(self.mol)
         

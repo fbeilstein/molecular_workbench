@@ -33,7 +33,23 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
     if len(major) >= 2:
         sig_atoms = [m for m in major if m[1] > 0.10]
         if len(sig_atoms) > 2:
-            bond_type = _classify_sigma_pi(mol, mo_coeff, sig_atoms[0][0], sig_atoms[1][0])
+            # Find a genuinely bonded pair among the significant atoms to determine sigma/pi symmetry
+            coords = mol.atom_coords()
+            a1_idx, a2_idx = sig_atoms[0][0], sig_atoms[1][0]
+            for i in range(len(sig_atoms)):
+                for j in range(i + 1, len(sig_atoms)):
+                    idx_i, idx_j = sig_atoms[i][0], sig_atoms[j][0]
+                    dist = np.linalg.norm(coords[idx_i] - coords[idx_j])
+                    # Ensure atoms are bonded (ignoring H-H since they can't form pi anyway)
+                    # Typical C-C bond is ~1.2-1.6 Angstroms. We use 1.8 as a safe upper bound.
+                    if 0.5 < dist < 1.8:
+                        a1_idx, a2_idx = idx_i, idx_j
+                        break
+                else:
+                    continue
+                break
+
+            bond_type = _classify_sigma_pi(mol, mo_coeff, a1_idx, a2_idx)
             if bond_type == 'pi':
                 return {'type': 'delocalized_pi', 'atoms': [atom_ids[m[0]] for m in sig_atoms]}
             else:
