@@ -54,9 +54,9 @@ def _find_xtb():
 
 # ── Core pipeline ────────────────────────────────────────────────────────────
 
-def smiles_to_3d(smiles, name, out_dir, charge=0, skip_xtb=False):
+def smiles_to_3d(smiles, name, out_dir, charge=0, engine="xtb"):
     """
-    Full pipeline: SMILES → RDKit 3D → xTB optimization → output files.
+    Full pipeline: SMILES → RDKit 3D → geometry optimization → output files.
 
     Returns dict with paths to generated files and metadata.
     """
@@ -74,22 +74,26 @@ def smiles_to_3d(smiles, name, out_dir, charge=0, skip_xtb=False):
     # Store canonical SMILES (with explicit Hs if mapped)
     canon = Chem.MolToSmiles(mol)
 
-    # 2. Add hydrogens and generate 3D
+    # 2. Add hydrogens and generate coordinates
     mol_h = Chem.AddHs(mol)
-    result = AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3())
-    if result == -1:
-        # Retry with random coords
-        result = AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3(),
-                                       useRandomCoords=True)
+    if engine == "pyscf-flat":
+        AllChem.Compute2DCoords(mol_h)
+        print(f"  Generated flat 2D starting geometry for {name}")
+    else:
+        result = AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3())
         if result == -1:
-            raise RuntimeError(f"Failed to embed 3D coordinates for {smiles}")
+            # Retry with random coords
+            result = AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3(),
+                                           useRandomCoords=True)
+            if result == -1:
+                raise RuntimeError(f"Failed to embed 3D coordinates for {smiles}")
 
-    # 3. MMFF94 force-field optimization
-    try:
-        AllChem.MMFFOptimizeMolecule(mol_h, maxIters=500)
-        print(f"  Optimized {name} with MMFF94")
-    except Exception:
-        print(f"  Warning: MMFF94 optimization failed for {name}, using raw embed")
+        # 3. MMFF94 force-field optimization
+        try:
+            AllChem.MMFFOptimizeMolecule(mol_h, maxIters=500)
+            print(f"  Optimized {name} with MMFF94")
+        except Exception:
+            print(f"  Warning: MMFF94 optimization failed for {name}, using raw embed")
 
     # 4. Compute formula
     formula = Chem.rdMolDescriptors.CalcMolFormula(mol_h)
@@ -112,11 +116,17 @@ def smiles_to_3d(smiles, name, out_dir, charge=0, skip_xtb=False):
     xyz_path = os.path.join(out_dir, f"{name}.xyz")
     _write_xyz(mol_h, xyz_path)
 
-    # 8. xTB geometry optimization
-    xtb_bin = _find_xtb()
-    if xtb_bin and not skip_xtb:
-        print(f"  Optimizing {name} with xTB...")
-        xyz_path = _run_xtb_opt(xtb_bin, xyz_path, out_dir, charge)
+    # 8. Geometry optimization
+    opt = None
+    if engine == "xtb":
+        from qm.optimizers.xtb_opt import XtbOptimizer
+        opt = XtbOptimizer()
+    elif engine == "pyscf" or engine == "pyscf-flat":
+        from qm.optimizers.pyscf_opt import PyscfOptimizer
+        opt = PyscfOptimizer()
+    
+    if opt:
+        xyz_path = opt.optimize(xyz_path, charge)
 
     # 9. Generate 2D SVG depiction
     svg_path = os.path.join(out_dir, f"{name}.svg")
@@ -190,28 +200,7 @@ def _write_svg(smiles, filepath, width=400, height=300):
         print(f"  Warning: SVG generation failed: {e}")
 
 
-def _run_xtb_opt(xtb_bin, xyz_path, out_dir, charge=0):
-    """Run xTB geometry optimization, return path to optimized XYZ."""
-    try:
-        cmd = [xtb_bin, xyz_path, '--opt', '--chrg', str(charge)]
-        result = subprocess.run(cmd, capture_output=True, text=True,
-                                cwd=out_dir, timeout=120)
 
-        opt_xyz = os.path.join(out_dir, 'xtbopt.xyz')
-        if os.path.exists(opt_xyz):
-            # Replace the original with optimized geometry
-            import shutil
-            shutil.move(opt_xyz, xyz_path)
-            print(f"  xTB optimization converged")
-        else:
-            print(f"  Warning: xTB did not produce optimized geometry")
-
-    except subprocess.TimeoutExpired:
-        print(f"  Warning: xTB timed out after 120s, using MMFF geometry")
-    except Exception as e:
-        print(f"  Warning: xTB failed: {e}")
-
-    return xyz_path
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -231,13 +220,13 @@ Examples:
     parser.add_argument('--name', '-n', required=True, help='Base name for output files')
     parser.add_argument('-o', '--output-dir', default='.', help='Output directory')
     parser.add_argument('--charge', type=int, default=0, help='Molecular charge')
-    parser.add_argument('--skip-xtb', action='store_true', help='Skip xTB optimization')
+    parser.add_argument('--engine', choices=['xtb', 'pyscf', 'pyscf-flat', 'none'], default='xtb', help='Geometry optimization engine (default: xtb)')
     parser.add_argument('--json', action='store_true', help='Print result as JSON')
 
     args = parser.parse_args()
 
     result = smiles_to_3d(args.smiles, args.name, args.output_dir,
-                          charge=args.charge, skip_xtb=args.skip_xtb)
+                          charge=args.charge, engine=args.engine)
 
     if args.json:
         print(json.dumps(result, indent=2))

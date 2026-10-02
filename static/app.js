@@ -288,6 +288,8 @@ const WB = (() => {
     async function generateComputeScript() {
         const name = document.getElementById('job-name').value || 'molecule';
         const charge = parseInt(document.getElementById('mol-charge').value) || 0;
+        const engineSelect = document.getElementById('qm-engine');
+        const engine = engineSelect ? engineSelect.value : 'xtb';
         const smiles = await getSmiles();
         currentJobName = name;
 
@@ -314,7 +316,7 @@ const WB = (() => {
             const res = await fetch('/api/rxn/compute-script', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ smiles, name, charge, rxn, svg, ket }),
+                body: JSON.stringify({ smiles, name, charge, engine, rxn, svg, ket }),
             });
             const data = await res.json();
             if (data.error) { 

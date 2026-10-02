@@ -4,3 +4,4 @@ scipy
 pyscf
 scikit-image
 trimesh
+geometric

@@ -29,6 +29,15 @@
                 <label>Charge:</label>
                 <input type="number" id="mol-charge" value="0" style="width:50px;">
             </div>
+            <div class="field-group">
+                <label>Engine:</label>
+                <select id="qm-engine" style="width:100px;">
+                    <option value="xtb">Fast (xTB)</option>
+                    <option value="pyscf">Accurate (PySCF)</option>
+                    <option value="pyscf-flat">Accurate (PySCF Flat Start)</option>
+                    <option value="none">None (2D Flat)</option>
+                </select>
+            </div>
 
                                 <button class="btn btn-primary" onclick="WB.generateComputeScript()">🚀 Compute</button>
                     <button class="btn btn-danger" id="btn-stop" onclick="WB.stopCompute()" style="display:none; background:#e74c3c;">🛑 Stop</button>

@@ -153,6 +153,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         rxn_smiles = body.get('smiles', '')
         name = body.get('name', 'molecule')
         charge = body.get('charge', 0)
+        engine = body.get('engine', 'xtb')
 
         smiles_charge = _detect_charge_from_smiles(rxn_smiles)
         if charge == 0 and smiles_charge != 0:
@@ -188,7 +189,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             f'echo "═══ Computing: {name} ═══"',
             '',
             '# Step 1: Prepare molecule (3D structure, SVG, MOL)',
-            f'$PYTHON $TOOLS/mol_prep.py {safe_smiles_json} --name {name} -o $OUT --charge {charge}',
+            f'$PYTHON $TOOLS/mol_prep.py {safe_smiles_json} --name {name} -o $OUT --charge {charge} --engine {engine}',
             f'obabel $OUT/{name}.mol -O $OUT/{name}.cdxml 2>/dev/null || true',
             '',
             '# Step 2: Create bundle manifest',
@@ -197,6 +198,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             f'  "name": "{name}",',
             f'  "smiles": {safe_smiles_json},',
             f'  "charge": {charge},',
+            f'  "engine": "{engine}",',
             f'  "method": "b3lyp",',
             '  "molecules": [',
             '    {',
