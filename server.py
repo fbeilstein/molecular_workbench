@@ -36,26 +36,6 @@ if not os.path.exists(VENV_PYTHON):
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-def _detect_charge_from_smiles(smiles):
-    """Detect total charge from SMILES string by calculating formal charges."""
-    try:
-        from rdkit import Chem
-        mol = Chem.MolFromSmiles(smiles, sanitize=False)
-        if mol:
-            mol.UpdatePropertyCache(strict=False)
-            return sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
-    except ImportError:
-        pass
-        
-    import re
-    total = 0
-    # Match patterns like [C+], [NH4+], [Br-], [O-2], [Fe+3], [O+:6]
-    for match in re.finditer(r'\[([^\]]*?)([+-])(\d*)(?::\d+)?\]', smiles):
-        sign = 1 if match.group(2) == '+' else -1
-        magnitude = int(match.group(3)) if match.group(3) else 1
-        total += sign * magnitude
-    return total
-
 # ── Ketcher download ────────────────────────────────────────────────────────
 
 def _ensure_ketcher():
@@ -97,6 +77,31 @@ def _mime(path):
 
 
 # ── Request handler ──────────────────────────────────────────────────────────
+
+def _try_remesh(item, name, isovalue, converter, remeshed_meshes):
+    if not (isovalue and converter): return None
+    if not (item.filename.endswith('_pos.json') or item.filename.endswith('_neg.json')): return None
+    if item.filename.endswith('esp_pos.json') or item.filename.endswith('esp_neg.json'): return None
+    
+    base_name = __import__('os').path.basename(item.filename).replace('_pos.json', '').replace('_neg.json', '')
+    raw_cube = __import__('os').path.join(OUTPUT_DIR, name, 'orbitals_raw', f'{base_name}.cube')
+    if not __import__('os').path.exists(raw_cube):
+        raw_cube = __import__('os').path.join(OUTPUT_DIR, name, 'mep_orbitals', f'{base_name}.cube')
+    if not __import__('os').path.exists(raw_cube):
+        return None
+        
+    sign = 1 if item.filename.endswith('_pos.json') else -1
+    cache_key = (raw_cube, sign * float(isovalue))
+    
+    if cache_key not in remeshed_meshes:
+        try:
+            vol, origin, step = converter.read_cube(raw_cube)
+            remeshed_meshes[cache_key] = converter.extract_mesh(vol, origin, step, cache_key[1])
+        except Exception as e:
+            remeshed_meshes[cache_key] = None
+            print(f"Error remeshing {raw_cube}: {e}")
+            
+    return remeshed_meshes.get(cache_key)
 
 class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
 
@@ -144,82 +149,24 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             self._api_job_stop(body)
         elif path == '/api/bundle/package':
             self._api_bundle_package(body)
+        elif path == '/api/orbital/remesh':
+            self._api_orbital_remesh(body)
+        elif path == '/api/bundle/purge-cubes':
+            self._api_purge_cubes(body)
+        elif path == '/api/bundle/purge-cubes':
+            self._api_purge_cubes(body)
+            self._api_orbital_remesh(body)
         else:
             self.send_error(404)
 
     # ── API: Compute Script ───────────────────────────────────────────
 
     def _api_compute_script(self, body):
-        rxn_smiles = body.get('smiles', '')
-        name = body.get('name', 'molecule')
-        charge = body.get('charge', 0)
-        engine = body.get('engine', 'xtb')
-
-        smiles_charge = _detect_charge_from_smiles(rxn_smiles)
-        if charge == 0 and smiles_charge != 0:
-            charge = smiles_charge
-
-        job_dir = os.path.join(OUTPUT_DIR, name)
-        os.makedirs(job_dir, exist_ok=True)
-
-        ket_data = body.get('ket', '')
-        if ket_data:
-            ket_path = os.path.join(job_dir, f"{name}.ket")
-            with open(ket_path, 'w') as f:
-                f.write(ket_data)
-
-        svg_data = body.get('svg', '')
-        if svg_data:
-            svg_path = os.path.join(job_dir, f"{name}.svg")
-            with open(svg_path, 'w') as f:
-                f.write(svg_data)
-
-        script_path = os.path.join(job_dir, f'compute_{name}.sh')
-
-        import json
-        safe_smiles_json = json.dumps(rxn_smiles)
+        import sys
+        sys.path.insert(0, TOOLS_DIR)
+        from script_builder import build_compute_script
         
-        lines = [
-            '#!/bin/bash',
-            'set -e',
-            'export PYTHONUNBUFFERED=1',
-            f'PYTHON="{VENV_PYTHON}"',
-            f'TOOLS="{TOOLS_DIR}"',
-            f'OUT="{job_dir}"',
-            f'echo "═══ Computing: {name} ═══"',
-            '',
-            '# Step 1: Prepare molecule (3D structure, SVG, MOL)',
-            f'$PYTHON $TOOLS/mol_prep.py {safe_smiles_json} --name {name} -o $OUT --charge {charge} --engine {engine}',
-            f'obabel $OUT/{name}.mol -O $OUT/{name}.cdxml 2>/dev/null || true',
-            '',
-            '# Step 2: Create bundle manifest',
-            f'cat <<\'EOF\' > $OUT/{name}_bundle.json',
-            '{',
-            f'  "name": "{name}",',
-            f'  "smiles": {safe_smiles_json},',
-            f'  "charge": {charge},',
-            f'  "engine": "{engine}",',
-            f'  "method": "b3lyp",',
-            '  "molecules": [',
-            '    {',
-            f'      "key": "{name}",',
-            '      "role": "molecule",',
-            f'      "smiles": {safe_smiles_json},',
-            f'      "xyz": "{name}.xyz"',
-            '    }',
-            '  ]',
-            '}',
-            'EOF',
-            '',
-            '# Export data-only archive + clean intermediates',
-            f'$PYTHON $TOOLS/bundle_exporter.py $OUT --clean',
-            '',
-            'echo "DONE"'
-        ]
-
-        with open(script_path, 'w') as f:
-            f.write('\n'.join(lines) + '\n')
-        os.chmod(script_path, 0o755)
+        script_path, name, job_dir = build_compute_script(body, OUTPUT_DIR, VENV_PYTHON, TOOLS_DIR)
 
         log_path = os.path.join(job_dir, 'compute.log')
         import subprocess, threading
@@ -299,17 +246,25 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
         except KeyError:
-            self.send_error(404, f'Not in zip: {inner_path}')
+            if inner_path.endswith('_pos.json') or inner_path.endswith('_neg.json'):
+                data = b'{"vertices": [], "faces": []}'
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self.send_error(404, f'Not in zip: {inner_path}')
         except Exception as e:
             self.send_error(500, str(e))
 
 
     def _api_bundle_package(self, body):
-        import zipfile
+        import zipfile, json
         name = body.get('name')
         keep_files = set(body.get('keep_files', []))
-        trajectory_keys = [k.replace('trajectory_key:', '') for k in keep_files if k.startswith('trajectory_key:')]
-        keep_files = {k for k in keep_files if not k.startswith('trajectory_key:')}
+        isovalue = body.get('isovalue')
         
         zip_path = os.path.join(OUTPUT_DIR, name, f'{name}.rxnbundle.zip')
         if not os.path.exists(zip_path):
@@ -317,26 +272,99 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             return
             
         custom_zip_path = os.path.join(OUTPUT_DIR, name, f'{name}_custom.rxnbundle.zip')
+        
+        # If we need to remesh, import converter
+        converter = None
+        if isovalue:
+            import sys
+            sys.path.insert(0, TOOLS_DIR)
+            try:
+                from cube_converter import CubeConverter
+                converter = CubeConverter
+            except ImportError:
+                pass
+                
+        # Remesh cache
+        remeshed_meshes = {}
+        seen_files = set()
+        
         with zipfile.ZipFile(zip_path, 'r') as zin, zipfile.ZipFile(custom_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
+                if item.filename in seen_files:
+                    continue
+                seen_files.add(item.filename)
+                
                 is_metadata = item.filename == 'manifest.json' or item.filename.endswith('.xyz')
-                # Keep molecule manifests and trajectory data
                 if item.filename.endswith('.json') and not item.filename.endswith('_pos.json') and not item.filename.endswith('_neg.json'):
                     is_metadata = True
                 
                 keep_item = is_metadata or item.filename in keep_files
                 
-                # Check trajectory orbitals
-                if not keep_item and item.filename.startswith('orbitals/'):
-                    for tk in trajectory_keys:
-                        if f'_{tk}_' in item.filename or f'_{tk}.' in item.filename:
-                            keep_item = True
-                            break
-                            
-                if keep_item:
+                if not keep_item:
+                    continue
+                
+                mesh = _try_remesh(item, name, isovalue, converter, remeshed_meshes)
+                if mesh:
+                    zout.writestr(item, json.dumps(mesh))
+                else:
                     zout.writestr(item, zin.read(item.filename))
         
         self._json_response({'download_url': f'/output/{name}/{name}_custom.rxnbundle.zip'})
+
+    def _api_orbital_remesh(self, body):
+        name = body.get('name')
+        cube_file_path = body.get('cube_file')  # e.g. "molecules/[18]annulene_homo.json"
+        isovalue = body.get('isovalue', 0.045)
+        
+        if not name or not cube_file_path:
+            self.send_error(400)
+            return
+            
+        base_name = os.path.basename(cube_file_path).replace('.json', '').replace('_pos', '').replace('_neg', '')
+        
+        raw_cube = os.path.join(OUTPUT_DIR, name, 'orbitals_raw', f'{base_name}.cube')
+        
+        if not os.path.exists(raw_cube):
+            raw_cube = os.path.join(OUTPUT_DIR, name, 'mep_orbitals', f'{base_name}.cube')
+            if not os.path.exists(raw_cube):
+                self._json_response({'error': f'Cube file not found: {base_name}.cube'})
+                return
+                
+        sys.path.insert(0, TOOLS_DIR)
+        from cube_converter import CubeConverter
+        
+        try:
+            vol, origin, step = CubeConverter.read_cube(raw_cube)
+            pos = CubeConverter.extract_mesh(vol, origin, step, isovalue)
+            neg = CubeConverter.extract_mesh(vol, origin, step, -isovalue)
+            
+            self._json_response({'pos': pos, 'neg': neg})
+        except Exception as e:
+            self._json_response({'error': str(e)})
+
+    def _api_purge_cubes(self, body):
+        import shutil
+        name = body.get('name')
+        if not name:
+            self.send_error(400)
+            return
+            
+        raw_dir = os.path.join(OUTPUT_DIR, name, 'orbitals_raw')
+        count = 0
+        if os.path.exists(raw_dir):
+            for f in os.listdir(raw_dir):
+                if f.endswith('.cube'):
+                    os.remove(os.path.join(raw_dir, f))
+                    count += 1
+                    
+        mep_dir = os.path.join(OUTPUT_DIR, name, 'mep_orbitals')
+        if os.path.exists(mep_dir):
+            for f in os.listdir(mep_dir):
+                if f.endswith('.cube'):
+                    os.remove(os.path.join(mep_dir, f))
+                    count += 1
+                    
+        self._json_response({'status': 'ok', 'purged': count})
 
     # ── Utility methods ───────────────────────────────────────────────
 
