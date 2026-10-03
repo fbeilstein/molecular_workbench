@@ -140,6 +140,12 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
         if os.path.exists(rxn_svg_path):
             zf.write(rxn_svg_path, 'reaction.svg')
             manifest['has_reaction_svg'] = True
+            
+        # --- Original Ketcher Layout ---
+        ket_path = os.path.join(job_dir, f'{name}.ket')
+        if os.path.exists(ket_path):
+            zf.write(ket_path, 'layout.ket')
+            manifest['ket_file'] = 'layout.ket'
 
         # --- Molecules + Orbitals (HOMO/LUMO + Localized) ---
         print('  Computing molecule orbitals...')

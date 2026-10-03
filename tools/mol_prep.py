@@ -54,7 +54,7 @@ def _find_xtb():
 
 # ── Core pipeline ────────────────────────────────────────────────────────────
 
-def smiles_to_3d(smiles, name, out_dir, charge=0, engine="xtb"):
+def smiles_to_3d(smiles, name, out_dir, charge=0, engine="xtb", molfile=None, levelshift=False):
     """
     Full pipeline: SMILES → RDKit 3D → geometry optimization → output files.
 
@@ -75,11 +75,33 @@ def smiles_to_3d(smiles, name, out_dir, charge=0, engine="xtb"):
     canon = Chem.MolToSmiles(mol)
 
     # 2. Add hydrogens and generate coordinates
-    mol_h = Chem.AddHs(mol)
-    if engine == "pyscf-flat":
-        AllChem.Compute2DCoords(mol_h)
-        print(f"  Generated flat 2D starting geometry for {name}")
+    if engine == "pyscf-flat" and molfile is not None:
+        import numpy as np
+        with open(molfile, 'r') as f:
+            mol_2d = Chem.MolFromMolBlock(f.read(), sanitize=False)
+        mol_2d.UpdatePropertyCache(strict=False)
+        mol_h = Chem.AddHs(mol_2d, addCoords=True)
+        
+        conf = mol_h.GetConformer()
+        pos = np.array(conf.GetPositions())
+        bond_lens = []
+        for bond in mol_2d.GetBonds():
+            a, b = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+            bond_lens.append(np.linalg.norm(pos[a] - pos[b]))
+        
+        if bond_lens:
+            scale = 1.40 / np.mean(bond_lens)
+            pos *= scale
+            
+        pos[:, 2] = 0.0
+        
+        for i in range(mol_h.GetNumAtoms()):
+            conf.SetAtomPosition(i, pos[i])
+            
+        print(f"  Generated flat 2D starting geometry from molfile for {name}")
     else:
+        mol_h = Chem.AddHs(mol)
+        
         result = AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3())
         if result == -1:
             # Retry with random coords
@@ -94,6 +116,35 @@ def smiles_to_3d(smiles, name, out_dir, charge=0, engine="xtb"):
             print(f"  Optimized {name} with MMFF94")
         except Exception:
             print(f"  Warning: MMFF94 optimization failed for {name}, using raw embed")
+            
+        if engine == "pyscf-flat":
+            import numpy as np
+            conf = mol_h.GetConformer()
+            coords = np.array(conf.GetPositions())
+            coords -= coords.mean(axis=0)
+            
+            # SVD to find best-fit plane
+            U, S, Vt = np.linalg.svd(coords)
+            normal = Vt[2, :]
+            
+            # Rotate so normal is aligned with Z-axis
+            z_axis = np.array([0, 0, 1])
+            v = np.cross(normal, z_axis)
+            s = np.linalg.norm(v)
+            c = np.dot(normal, z_axis)
+            if s > 1e-6:
+                vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+                R = np.eye(3) + vx + (vx @ vx) * ((1 - c) / (s ** 2))
+            else:
+                R = np.eye(3) if c > 0 else -np.eye(3)
+                
+            flat_coords = coords @ R.T
+            flat_coords[:, 2] = 0.0  # Force perfect flatness
+            
+            for i in range(mol_h.GetNumAtoms()):
+                conf.SetAtomPosition(i, flat_coords[i])
+                
+            print(f"  Flattened geometry to perfect Z=0 plane for {name}")
 
     # 4. Compute formula
     formula = Chem.rdMolDescriptors.CalcMolFormula(mol_h)
@@ -123,7 +174,7 @@ def smiles_to_3d(smiles, name, out_dir, charge=0, engine="xtb"):
         opt = XtbOptimizer()
     elif engine == "pyscf" or engine == "pyscf-flat":
         from qm.optimizers.pyscf_opt import PyscfOptimizer
-        opt = PyscfOptimizer()
+        opt = PyscfOptimizer(levelshift=levelshift)
     
     if opt:
         xyz_path = opt.optimize(xyz_path, charge)
@@ -221,12 +272,14 @@ Examples:
     parser.add_argument('-o', '--output-dir', default='.', help='Output directory')
     parser.add_argument('--charge', type=int, default=0, help='Molecular charge')
     parser.add_argument('--engine', choices=['xtb', 'pyscf', 'pyscf-flat', 'none'], default='xtb', help='Geometry optimization engine (default: xtb)')
+    parser.add_argument('--molfile', default=None, help='Input 2D molfile for flat starting geometry')
+    parser.add_argument('--levelshift', action='store_true', help='Use SCF level shift for difficult convergence in PySCF')
     parser.add_argument('--json', action='store_true', help='Print result as JSON')
 
     args = parser.parse_args()
 
     result = smiles_to_3d(args.smiles, args.name, args.output_dir,
-                          charge=args.charge, engine=args.engine)
+                          charge=args.charge, engine=args.engine, molfile=args.molfile, levelshift=args.levelshift)
 
     if args.json:
         print(json.dumps(result, indent=2))

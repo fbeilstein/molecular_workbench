@@ -68,6 +68,8 @@ window.WB.generateComputeScript = async function() {
     const charge = parseInt(document.getElementById('mol-charge').value) || 0;
     const engineSelect = document.getElementById('qm-engine');
     const engine = engineSelect ? engineSelect.value : 'xtb';
+    const levelShiftCb = document.getElementById('pyscf-levelshift');
+    const levelshift = levelShiftCb ? levelShiftCb.checked : false;
     const smiles = await window.WB.getSmiles();
     currentJobName = name;
 
@@ -83,8 +85,9 @@ window.WB.generateComputeScript = async function() {
         let rxn = '';
         let svg = '';
         let ket = '';
+        let mol = '';
         try {
-            const mol = await ketcher.getMolfile();
+            mol = await ketcher.getMolfile();
             svg = await ketcher.generateImage(mol, { outputFormat: 'svg' });
             ket = await ketcher.getKet();
         } catch (err) {
@@ -94,7 +97,7 @@ window.WB.generateComputeScript = async function() {
         const res = await fetch('/api/rxn/compute-script', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ smiles, name, charge, engine, rxn, svg, ket }),
+            body: JSON.stringify({ smiles, name, charge, engine, levelshift, rxn, svg, ket, mol }),
         });
         const data = await res.json();
         if (data.error) { 
@@ -163,16 +166,24 @@ window.WB.verifyBundle = async function() {
         window.WB.viewer.removeAllShapes();
         window.WB.viewer.removeAllSurfaces();
 
-        // Load SMILES back into Ketcher
-        if (manifest.reaction_smiles) {
+        // Load KET layout back into Ketcher if available
+        const frame = document.getElementById('ketcher-frame');
+        const ketcherObj = (frame && frame.contentWindow) ? frame.contentWindow.ketcher : null;
+        
+        if (manifest.ket_file && ketcherObj) {
             try {
-                const frame = document.getElementById('ketcher-frame');
-                if (frame && frame.contentWindow && frame.contentWindow.ketcher) {
-                    await frame.contentWindow.ketcher.setMolecule(manifest.reaction_smiles);
+                const ketRes = await fetch(`/api/bundle/${name}/${manifest.ket_file}?t=${Date.now()}`);
+                if (ketRes.ok) {
+                    const ketData = await ketRes.text();
+                    await ketcherObj.setMolecule(ketData);
                 }
             } catch (err) {
-                console.warn("Could not load SMILES into Ketcher:", err);
+                console.warn("Could not load KET file into Ketcher:", err);
+                if (manifest.smiles) await ketcherObj.setMolecule(manifest.smiles);
             }
+        } else if (ketcherObj && manifest.smiles) {
+            // Fallback to SMILES for older bundles that lack a .ket file
+            await ketcherObj.setMolecule(manifest.smiles);
         }
 
         // Build chemical chooser from bundle manifest
@@ -259,6 +270,7 @@ window.WB.loadBundleItem = async function(value) {
     
     if (mol.orbitals && mol.orbitals.length) {
         window._currentOrbitalCache = {};
+        window._currentEspCache = null;
 
         mol.orbitals.forEach(group => {
             if (!group.items || !group.items.length) return;

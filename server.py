@@ -177,7 +177,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         
         def run_job():
             with open(log_path, 'w') as lf:
-                p = subprocess.Popen(["bash", script_path], stdout=lf, stderr=subprocess.STDOUT)
+                p = subprocess.Popen(["bash", script_path], stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
                 self.server.active_jobs[name] = p
                 p.wait()
                 self.server.active_jobs.pop(name, None)
@@ -210,10 +210,16 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         })
 
     def _api_job_stop(self, body):
+        import os, signal
         name = body.get('name', '')
         jobs = getattr(self.server, 'active_jobs', {})
         if name in jobs:
-            jobs[name].terminate()
+            job = jobs[name]
+            if hasattr(job, 'pid'):
+                try:
+                    os.killpg(os.getpgid(job.pid), signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
             jobs.pop(name, None)
             self._json_response({'status': 'stopped'})
         else:

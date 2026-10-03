@@ -38,6 +38,10 @@
                     <option value="none">None (2D Flat)</option>
                 </select>
             </div>
+            <div class="field-group" style="flex-direction:row; gap:4px; align-items:center;" title="Use SCF Level Shift (0.2) to help difficult aromatic systems converge">
+                <input type="checkbox" id="pyscf-levelshift" style="width:auto; margin:0;">
+                <label for="pyscf-levelshift" style="font-size:10px; width:45px; white-space:normal; line-height:1;">SCF Lvl<br>Shift</label>
+            </div>
 
                                 <button class="btn btn-primary" onclick="WB.generateComputeScript()">🚀 Compute</button>
                     <button class="btn btn-danger" id="btn-stop" onclick="WB.stopCompute()" style="display:none; background:#e74c3c;">🛑 Stop</button>

@@ -46,10 +46,24 @@ def build_compute_script(body, output_dir, venv_python, tools_dir):
         with open(svg_path, 'w') as f:
             f.write(svg_data)
 
+    mol_data = body.get('mol', '')
+    molfile_arg = ''
+    if mol_data and engine == 'pyscf-flat':
+        mol_path = os.path.join(job_dir, "input_2d.mol")
+        with open(mol_path, 'w') as f:
+            f.write(mol_data)
+        molfile_arg = f' --molfile $OUT/input_2d.mol'
+
+    levelshift_arg = ''
+    if body.get('levelshift'):
+        levelshift_arg = ' --levelshift'
+
     script_path = os.path.join(job_dir, f'compute_{name}.sh')
 
     safe_smiles_json = json.dumps(rxn_smiles)
     
+    ket_field = f'  "ket_file": "{name}.ket",' if ket_data else ''
+
     lines = [
         '#!/bin/bash',
         'set -e',
@@ -60,7 +74,7 @@ def build_compute_script(body, output_dir, venv_python, tools_dir):
         f'echo "═══ Computing: {name} ═══"',
         '',
         '# Step 1: Prepare molecule (3D structure, SVG, MOL)',
-        f'$PYTHON $TOOLS/mol_prep.py {safe_smiles_json} --name {name} -o $OUT --charge {charge} --engine {engine}',
+        f'$PYTHON $TOOLS/mol_prep.py {safe_smiles_json} --name {name} -o $OUT --charge {charge} --engine {engine}{molfile_arg}{levelshift_arg}',
         f'obabel $OUT/{name}.mol -O $OUT/{name}.cdxml 2>/dev/null || true',
         '',
         '# Step 2: Create bundle manifest',
@@ -71,6 +85,7 @@ def build_compute_script(body, output_dir, venv_python, tools_dir):
         f'  "charge": {charge},',
         f'  "engine": "{engine}",',
         f'  "method": "b3lyp",',
+        ket_field,
         '  "molecules": [',
         '    {',
         f'      "key": "{name}",',

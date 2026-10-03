@@ -48,8 +48,6 @@ class QuantumPipeline:
                 energy_ev = self.mf.mo_energy[idx] * 27.211
                 depth = homo_idx - idx
                 lbl = f"HOMO-{depth}" if depth > 0 else "HOMO"
-                if idx == homo_idx or idx == lumo_idx:
-                    continue # Do not duplicate in pi_system
                 self.orbitals.append(Orbital(
                     type='delocalized_pi', atoms=atom_ids, mo_coeff=self.mf.mo_coeff[:, idx], 
                     energy_ev=energy_ev, canonical_label=f"π ({lbl})"
@@ -60,8 +58,6 @@ class QuantumPipeline:
                 energy_ev = self.mf.mo_energy[idx] * 27.211
                 depth = idx - lumo_idx
                 lbl = f"LUMO+{depth}" if depth > 0 else "LUMO"
-                if idx == homo_idx or idx == lumo_idx:
-                    continue # Do not duplicate in pi_system
                 self.orbitals.append(Orbital(
                     type='delocalized_pistar', atoms=atom_ids, mo_coeff=self.mf.mo_coeff[:, idx], 
                     energy_ev=energy_ev, canonical_label=f"π* ({lbl})"

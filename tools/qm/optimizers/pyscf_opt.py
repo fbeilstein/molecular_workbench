@@ -2,9 +2,10 @@ import os
 from .base import GeometryOptimizer
 
 class PyscfOptimizer(GeometryOptimizer):
-    def __init__(self, basis='6-31g*', method='b3lyp'):
+    def __init__(self, basis='6-31g*', method='b3lyp', levelshift=False):
         self.basis = basis
         self.method = method
+        self.levelshift = levelshift
 
     def optimize(self, xyz_path: str, charge: int = 0) -> str:
         try:
@@ -33,6 +34,11 @@ class PyscfOptimizer(GeometryOptimizer):
             else:
                 mf = dft.RKS(mol)
                 mf.xc = self.method
+                
+            if self.levelshift:
+                mf.max_cycle = 200
+                mf.level_shift = 0.2
+                print("  [SCF Level Shift ENABLED (0.2)]")
                 
             mol_eq = optimize(mf, maxsteps=100)
             
