@@ -183,7 +183,11 @@ window.WB.verifyBundle = async function() {
             }
         } else if (ketcherObj && manifest.smiles) {
             // Fallback to SMILES for older bundles that lack a .ket file
-            await ketcherObj.setMolecule(manifest.smiles);
+            try {
+                await ketcherObj.setMolecule(manifest.smiles);
+            } catch (err) {
+                console.warn("Could not load SMILES into Ketcher:", err);
+            }
         }
 
         // Build chemical chooser from bundle manifest
