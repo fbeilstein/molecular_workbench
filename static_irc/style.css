@@ -1,0 +1,120 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f9;
+    color: #333;
+}
+
+.container {
+    max-width: 800px;
+    margin: 2rem auto;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    padding: 2rem;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+}
+
+h1 { margin: 0; font-size: 1.5rem; }
+
+.tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+}
+
+.tab {
+    padding: 0.5rem 1rem;
+    border: 1px solid #ccc;
+    background: #eee;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.tab.active {
+    background: #007bff;
+    color: white;
+    border-color: #0056b3;
+}
+
+.tab.locked {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.tab.completed {
+    border-color: #28a745;
+    color: #28a745;
+    background: #e8f5e9;
+}
+
+.tab.completed.active {
+    background: #28a745;
+    color: white;
+}
+
+.content {
+    border: 1px solid #eee;
+    padding: 2rem;
+    border-radius: 8px;
+    min-height: 200px;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+}
+
+.form-group input[type="text"] {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.navigation-buttons {
+    margin-top: 2rem;
+    text-align: right;
+    border-top: 1px solid #eee;
+    padding-top: 1rem;
+}
+
+button {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+button.primary { background: #007bff; color: white; }
+button.primary:hover { background: #0056b3; }
+
+button.danger { background: #dc3545; color: white; }
+button.danger:hover { background: #c82333; }
+
+.error-msg {
+    color: #721c24;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-top: 1rem;
+}
