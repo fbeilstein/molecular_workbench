@@ -10,7 +10,7 @@ def get_plugins():
 
 # Import and register your plugins here
 from .step_1_input import Step1Input
-from .step_2_dummy import DummyStep2
+from .step_2_mapping import Step2Mapping
 
 register_plugin(Step1Input())
-register_plugin(DummyStep2())
+register_plugin(Step2Mapping())
