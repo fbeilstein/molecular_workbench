@@ -71,7 +71,34 @@ document.addEventListener('DOMContentLoaded', () => {
         msg.innerText = ui.message || '';
         schemaContainer.appendChild(msg);
         
-        if (ui.fields) {
+        if (ui.type === 'ketcher') {
+            const wrapper = document.createElement('div');
+            wrapper.style.height = '500px';
+            wrapper.style.border = '1px solid #ccc';
+            wrapper.style.marginBottom = '1rem';
+            
+            const iframe = document.createElement('iframe');
+            iframe.id = 'ketcher-frame';
+            iframe.src = '/ketcher/index.html';
+            iframe.style.width = '100%';
+            iframe.style.height = '100%';
+            iframe.style.border = 'none';
+            wrapper.appendChild(iframe);
+            schemaContainer.appendChild(wrapper);
+
+            // Give Ketcher a moment to load, then push any previous data
+            const prevData = state[plugin.step_id];
+            if (prevData && prevData.raw_rxnfile) {
+                iframe.onload = () => {
+                    setTimeout(() => {
+                        if(iframe.contentWindow.ketcher) {
+                            iframe.contentWindow.ketcher.setMolecule(prevData.raw_rxnfile);
+                        }
+                    }, 500);
+                };
+            }
+        }
+        else if (ui.fields) {
             ui.fields.forEach(field => {
                 const group = document.createElement('div');
                 group.className = 'form-group';
@@ -114,7 +141,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const ui = plugin.ui_schema;
         const userInput = {};
         
-        if (ui.fields) {
+        if (ui.type === 'ketcher') {
+            const iframe = document.getElementById('ketcher-frame');
+            if (iframe && iframe.contentWindow.ketcher) {
+                try {
+                    const smiles = await iframe.contentWindow.ketcher.getSmiles();
+                    // getRxn() is required for reactions; getMolfile() fails if arrows are present.
+                    const rxnfile = await iframe.contentWindow.ketcher.getRxn();
+                    userInput['smiles'] = smiles;
+                    userInput['rxnfile'] = rxnfile;
+                } catch(e) {
+                    errorContainer.innerText = "Error reading from Ketcher: " + e.message;
+                    errorContainer.style.display = 'block';
+                    runBtn.disabled = false;
+                    return;
+                }
+            }
+        }
+        else if (ui.fields) {
             ui.fields.forEach(field => {
                 const input = document.getElementById(`field_${field.name}`);
                 if (input) userInput[field.name] = input.value;

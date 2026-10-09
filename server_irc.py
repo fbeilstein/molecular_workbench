@@ -28,6 +28,11 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         elif parsed.path.startswith('/static_irc/'):
             return super().do_GET()
             
+        elif parsed.path.startswith('/ketcher/'):
+            rel = parsed.path[len('/ketcher/'):]
+            self.path = '/.ketcher/' + rel
+            return super().do_GET()
+            
         elif parsed.path == '/api/plugins':
             plugins = get_plugins()
             resp = [
