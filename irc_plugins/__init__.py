@@ -11,6 +11,8 @@ def get_plugins():
 # Import and register your plugins here
 from .step_1_input import Step1Input
 from .step_2_mapping import Step2Mapping
+from .step_3_ts import Step3TS
 
 register_plugin(Step1Input())
 register_plugin(Step2Mapping())
+register_plugin(Step3TS())

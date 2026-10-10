@@ -2,11 +2,13 @@
 import { KetcherUI } from './ui_plugins/ketcher_ui.js';
 import { FieldsUI } from './ui_plugins/fields_ui.js';
 import { MappingUI } from './ui_plugins/mapping_ui.js';
+import { TSEditorUI } from './ui_plugins/ts_editor_ui.js';
 
 const UIRegistry = {
     'ketcher': KetcherUI,
     'mapping_ui': MappingUI,
-    'fields': FieldsUI
+    'fields': FieldsUI,
+    'ts_editor_ui': TSEditorUI
 };
 
 document.addEventListener('DOMContentLoaded', () => {

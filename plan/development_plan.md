@@ -72,19 +72,26 @@ The new architecture relies on state-of-the-art Deep Learning models to handle m
   - **3D Render Verification**: The script will output the predicted TS as a standalone `.xyz` file.
   - **Acceptance Criteria**: The TS `.xyz` will be rendered in the 3Dmol.js viewer. The user will visually confirm that the distances and angles of the breaking/forming bonds look like a plausible transition state geometry.
 
-## Phase 3: Rigorous TS Optimization & Verification
-- **Goal**: Take the AI-predicted TS (which may be slightly physically imprecise) and optimize it to a true First-Order Saddle Point on the potential energy surface.
+## Phase 3: Rigorous TS Optimization, Verification & Manual Fallback
+- **Goal**: Take the AI-predicted TS and optimize it to a true First-Order Saddle Point. If the automated AI route fails or is rejected, provide a 3D editor to manually construct the pre-reaction complex or TS guess.
 - **Tools**: 
-  - `MACE` or `TorchANI` (Neural Network Potentials for instant DFT-level energy/forces).
-  - `Sella` (Saddle-point optimizer for ASE).
+  - `MACE`, `TorchANI`, or `GFN2-xTB` (for energy/forces).
+  - `Sella` (Saddle-point optimizer).
+  - **Manual Fallback UI**: A 3D manipulation UI (e.g., `3Dmol.js` or `NGLViewer`) with tools to:
+    1. Generate 3D conformers from 2D (e.g., RDKit ETKDG).
+    2. Perform quick individual molecule optimizations (e.g., MMFF94 or GFN2-xTB).
+    3. Rigid-body rotation/translation of independent fragments to dock them.
+    4. **Directly construct the TS Guess**: Manually arrange atoms (e.g., forming a 6-membered ring) and optionally set constrained distances (e.g., "freeze this C-C distance at 1.9 Å") to build the TS by hand, bypassing NEB completely.
+    5. Add explicit molecules (solvent, second equivalents).
 - **Review notes**:
-  - **Calculator coverage**: MACE-OFF (H C N O F P S Cl Br I) and ANI-2x (H C N O F S Cl) are **neutral, closed-shell, organic only** and were not trained on TS regions, so barrier heights are approximate. `GFN2-xTB` (all elements to Rn, charges, implicit solvent via ALPB) is the **universal fallback** and must be wired as a selectable calculator. Broad-coverage models trained on OMol25 (e.g., UMA/eSEN) cover organometallics and charges and are worth evaluating, but check their licence and hardware needs.
-  - Energies along the path should be reported at **one consistent level** (DFT single points at stationary points at minimum). Do not mix MLIP and DFT energies in one diagram.
-  - Frequency check tolerance: small spurious imaginary modes (< ~50i cm⁻¹, e.g., methyl rotors) are common with MLIPs. Treat them as noise, not failure.
+  - **Calculator coverage**: MACE-OFF (H C N O F P S Cl Br I) and ANI-2x are organic-only. `GFN2-xTB` is the universal fallback for metals (like Mg in Grignard).
+  - **The Grignard Edge-Case (Fallback)**: As seen in complex multi-molecular transition states (e.g., 6-membered ring Grignard TS with 2 equivalents of R-MgX), generative AI often fails. If the user rejects the AI output, they enter the 3D editor to manually arrange the 3D fragments into the correct orbital attack pose and re-submit for NEB/optimization.
+  - Energies along the path should be reported at **one consistent level**.
+  - Frequency check tolerance: small spurious imaginary modes (< ~50i cm⁻¹) are treated as noise.
 - **Testing Method**: 
-  - **Hessian Frequency Check**: The script calculates vibrational frequencies. It MUST yield exactly ONE significant imaginary frequency.
-  - **Vibrational Animation**: The normal mode of the imaginary frequency will be saved as an animated `.xyz` and visualized in 3Dmol.js. 
-  - **Acceptance Criteria**: The user watches the vibration in the UI. If the atoms are vibrating along the exact bond breaking/forming coordinate, the TS is verified.
+  - **Hessian Frequency Check**: MUST yield exactly ONE significant imaginary frequency.
+  - **Acceptance Criteria**: The user watches the vibration in the UI. If the atoms are vibrating along the exact bond breaking/forming coordinate, the TS is approved. If not, the user clicks "Reject" and drops into the 3D manual assembly editor to fix the pose and try again.
+
 
 ## Phase 4: Intrinsic Reaction Coordinate (IRC) Generation
 - **Goal**: Slide downhill from the verified TS to generate the full 0K reaction trajectory connecting the Reactant Complex and Product Complex.

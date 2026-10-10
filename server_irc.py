@@ -65,8 +65,9 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         
         if parsed.path.startswith('/api/step/'):
             parts = parsed.path.split('/')
-            if len(parts) >= 5 and parts[4] == 'run':
+            if len(parts) >= 5:
                 step_id = parts[3]
+                action = parts[4]
                 
                 content_length = int(self.headers['Content-Length'])
                 post_data = self.rfile.read(content_length)
@@ -80,28 +81,38 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(json.dumps({"error": "Plugin not found"}).encode())
                     return
-                    
-                # Invalidate downstream steps before running this one
-                plugin_idx = plugins.index(plugin)
-                for downstream in plugins[plugin_idx+1:]:
-                    if downstream.step_id in pipeline_state:
-                        del pipeline_state[downstream.step_id]
-
-                result = plugin.run(pipeline_state, user_input)
                 
-                if result.success:
-                    pipeline_state[step_id] = result.data
+                if action == 'run':
+                    # Invalidate downstream steps before running this one
+                    plugin_idx = plugins.index(plugin)
+                    for downstream in plugins[plugin_idx+1:]:
+                        if downstream.step_id in pipeline_state:
+                            del pipeline_state[downstream.step_id]
+
+                    result = plugin.run(pipeline_state, user_input)
                     
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({
-                    "success": result.success,
-                    "data": result.data,
-                    "error": result.error_message,
-                    "warnings": result.warnings
-                }).encode())
-                return
+                    if result.success:
+                        pipeline_state[step_id] = result.data
+                        
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "success": result.success,
+                        "data": result.data,
+                        "error": result.error_message,
+                        "warnings": result.warnings
+                    }).encode())
+                    return
+                
+                elif action == 'custom':
+                    # Custom action does not modify global state and returns arbitrary data
+                    result_data = plugin.custom_action(user_input) if hasattr(plugin, 'custom_action') else {}
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(result_data).encode())
+                    return
                 
         elif parsed.path == '/api/reset':
             pipeline_state = {}
