@@ -126,7 +126,7 @@ export function createOptimizationCard({ strats, showNextPose, onRun, onNextPose
         stratSelect.appendChild(opt);
     });
 
-    const runBtn = styledButton('⚡ Find TS (Run Strategy)', true);
+    const runBtn = styledButton('⚡ Run / Refine TS', true);
     const nextPoseBtn = styledButton('↻ Next docking pose');
     const optStatus = el('div', { fontWeight: '600', color: '#4f6ef7', marginTop: '8px', fontSize: '13px' });
 
@@ -136,8 +136,10 @@ export function createOptimizationCard({ strats, showNextPose, onRun, onNextPose
     if (showNextPose) actCard.appendChild(nextPoseBtn);
 
     actCard.appendChild(el('div', { fontSize: '11.5px', color: '#777', marginTop: '6px' },
-        'Constrained Scan: drives reaction coordinate to find barrier maximum, then polishes with Sella. ' +
-        'CI-NEB: nudged elastic band with IDPP interpolation. Dimer: force-based saddle search without Hessian inversion.'));
+        'RitS: Generative flow-matching TS predictor. ' +
+        'Lego: R+P dual-endpoint scaffold superposition. ' +
+        'Quantum Valley: relaxes crude manual placements. ' +
+        'ORCA: high-level DFT (r2SCAN-3c) refinement.'));
     actCard.appendChild(optStatus);
 
     const profCanvas = el('canvas', { width: '100%', border: '1px solid #e1e4ea', borderRadius: '8px', background: '#fff', display: 'none', flexShrink: '0' });

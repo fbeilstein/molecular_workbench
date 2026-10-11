@@ -12,6 +12,10 @@ from .calculators import (
 from .strategies import (
     run_dimer_ts, run_drive_sella_ts, run_seeded_sella_ts, run_neb_ts
 )
+from .rits_predictor import run_rits_ts
+from .lego_builder import run_lego_ts
+from .manual_valley import run_guided_manual_ts
+from .orca_runner import run_orca_dft_ts
 from .vibrations import analyse_mode
 
 __all__ = [
@@ -28,6 +32,10 @@ __all__ = [
     "_make_restrained_calc",
     "check_geometry_sanity",
     "build_reaction_eigenvector",
+    "run_rits_ts",
+    "run_lego_ts",
+    "run_guided_manual_ts",
+    "run_orca_dft_ts",
     "run_dimer_ts",
     "run_drive_sella_ts",
     "run_seeded_sella_ts",
@@ -39,3 +47,4 @@ __all__ = [
     "DOCK_EXTRA",
     "BREAK_EXTRA",
 ]
+

@@ -1,3 +1,4 @@
+import os
 import http.server
 import socketserver
 import json
@@ -5,7 +6,32 @@ import urllib.parse
 from irc_plugins import get_plugins
 
 PORT = 8082
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reaction_state.json')
 pipeline_state = {}
+
+
+def load_saved_state():
+    global pipeline_state
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, 'r') as f:
+                data = json.load(f)
+                pipeline_state.clear()
+                pipeline_state.update(data)
+                print(f"Loaded persistent reaction state: {list(pipeline_state.keys())}")
+        except Exception as e:
+            print(f"Failed to load state: {e}")
+
+
+def save_current_state():
+    try:
+        with open(STATE_FILE, 'w') as f:
+            json.dump(pipeline_state, f, indent=2)
+    except Exception:
+        pass
+
+
+load_saved_state()
 
 
 class IRCHandler(http.server.SimpleHTTPRequestHandler):
@@ -101,6 +127,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         result = plugin.run(pipeline_state, user_input)
         if result.success:
             pipeline_state[plugin.step_id] = result.data
+            save_current_state()
 
         self._send_json({
             "success": result.success,
@@ -142,6 +169,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
 
         if path == '/api/reset':
             pipeline_state.clear()
+            save_current_state()
             return self._send_json({})
 
         self.send_response(404)
@@ -149,6 +177,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
+    load_saved_state()
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     socketserver.ThreadingTCPServer.daemon_threads = True
     with socketserver.ThreadingTCPServer(("", PORT), IRCHandler) as httpd:

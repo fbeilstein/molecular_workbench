@@ -54,6 +54,8 @@ def _match_free_atoms_by_symbol(symbols, free, r2p, n_atoms):
 
 class ReactionModel:
     def __init__(self, raw_smiles, mapping_json):
+        if not raw_smiles or ">>" not in raw_smiles:
+            raise ValueError(f"Invalid reaction SMILES: '{raw_smiles}' (must contain '>>')")
         r_part, p_part = raw_smiles.split(">>")
         self.r_smiles = [s.strip() for s in r_part.split(".") if s.strip()]
         self.p_smiles = [s.strip() for s in p_part.split(".") if s.strip()]

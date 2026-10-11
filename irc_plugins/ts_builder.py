@@ -24,6 +24,10 @@ from .ts_engine import (
     _make_restrained_calc,
     check_geometry_sanity,
     build_reaction_eigenvector,
+    run_rits_ts,
+    run_lego_ts,
+    run_guided_manual_ts,
+    run_orca_dft_ts,
     run_dimer_ts,
     run_drive_sella_ts,
     run_seeded_sella_ts,
@@ -35,3 +39,4 @@ from .ts_engine import (
     DOCK_EXTRA,
     BREAK_EXTRA,
 )
+

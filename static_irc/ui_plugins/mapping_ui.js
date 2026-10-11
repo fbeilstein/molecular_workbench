@@ -5,43 +5,27 @@
 
 function createAtomCircle(side, fragIdx, atomIdx, pt, onAtomClick) {
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', pt.x);
-    circle.setAttribute('cy', pt.y);
-    circle.setAttribute('r', '15');
-    circle.setAttribute('fill', 'transparent');
+    circle.setAttribute('cx', pt.x); circle.setAttribute('cy', pt.y);
+    circle.setAttribute('r', '15'); circle.setAttribute('fill', 'transparent');
     circle.setAttribute('stroke', 'transparent');
-    circle.style.cursor = 'pointer';
-    circle.style.pointerEvents = 'all';
+    Object.assign(circle.style, { cursor: 'pointer', pointerEvents: 'all' });
     circle.id = `atom_${side}_${fragIdx}_${atomIdx}`;
     circle.dataset.side = side;
     circle.dataset.key = `${side}_${fragIdx}_${atomIdx}`;
-
     circle.addEventListener('mouseover', () => circle.setAttribute('stroke', '#3b82f6'));
     circle.addEventListener('mouseout', () => circle.setAttribute('stroke', 'transparent'));
     circle.addEventListener('click', () => onAtomClick(circle, circle.dataset.key));
-
     return circle;
 }
 
 function createFragCard(side, svgStr, fragIdx, coords, startX, getScale, onAtomClick, onDrag) {
     const wrapper = document.createElement('div');
-    wrapper.style.position = 'absolute';
-    wrapper.style.top = '0';
-    wrapper.style.left = '0';
-    wrapper.style.cursor = 'grab';
-    wrapper.style.borderRadius = '8px';
-    wrapper.style.padding = '10px';
-    wrapper.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
-    wrapper.style.zIndex = '10';
-
-    if (side === 'R') {
-        wrapper.style.backgroundColor = 'rgba(235, 245, 255, 0.92)';
-        wrapper.style.border = '2px solid #a3c2f0';
-    } else {
-        wrapper.style.backgroundColor = 'rgba(255, 240, 235, 0.92)';
-        wrapper.style.border = '2px solid #f0bda3';
-    }
-
+    Object.assign(wrapper.style, {
+        position: 'absolute', top: '0', left: '0', cursor: 'grab',
+        borderRadius: '8px', padding: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: '10',
+        backgroundColor: side === 'R' ? 'rgba(235, 245, 255, 0.92)' : 'rgba(255, 240, 235, 0.92)',
+        border: side === 'R' ? '2px solid #a3c2f0' : '2px solid #f0bda3'
+    });
     wrapper.innerHTML = svgStr;
 
     let fx = startX;

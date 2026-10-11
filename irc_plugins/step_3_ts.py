@@ -55,6 +55,8 @@ class Step3TS(PipelineStep):
     def _model(state: Dict[str, Any]):
         from .ts_builder import ReactionModel
         raw = state.get("step_1_input", {}).get("raw_smiles", "")
+        if not raw or ">>" not in raw:
+            raise ValueError(f"No valid reaction SMILES in state: '{raw}'")
         mapping = state.get("step_2_mapping", {}).get("final_mapping", {})
         return ReactionModel(raw, mapping)
 
@@ -178,14 +180,22 @@ class Step3TS(PipelineStep):
 
     @staticmethod
     def _run_strategy(strategy, atoms, model, log):
-        from .ts_builder import run_dimer_ts, run_drive_sella_ts, run_seeded_sella_ts, run_neb_ts
+        from .ts_builder import (
+            run_dimer_ts, run_drive_sella_ts, run_seeded_sella_ts, run_neb_ts,
+            run_rits_ts, run_lego_ts, run_guided_manual_ts, run_orca_dft_ts
+        )
         dispatch = {
+            "rits": lambda: (run_rits_ts(atoms, model, log), None),
+            "lego": lambda: (run_lego_ts(atoms, model, log), None),
+            "manual_valley": lambda: (run_guided_manual_ts(atoms, model, log), None),
+            "auto_dock": lambda: (run_drive_sella_ts(atoms, model, log), None),
+            "orca_dft": lambda: (run_orca_dft_ts(atoms, model, log), None),
             "dimer": lambda: ([], run_dimer_ts(atoms, model, log)),
             "drive": lambda: (run_drive_sella_ts(atoms, model, log), None),
             "sella": lambda: (run_seeded_sella_ts(atoms, model, log), None),
             "neb": lambda: (run_neb_ts(atoms, model, log), None),
         }
-        runner = dispatch.get(strategy, dispatch["drive"])
+        runner = dispatch.get(strategy, dispatch["rits"])
         profile, _ = runner()
         return profile or []
 
@@ -197,10 +207,14 @@ class Step3TS(PipelineStep):
 
         docked = user_input.get("docked_molblocks", [])
         mode = user_input.get("mode", "auto")
-        strategy = user_input.get("strategy") or ("dimer" if mode == "refine" else "drive")
+        strategy = user_input.get("strategy") or "rits"
 
         if not docked:
             return {"error": "No molblocks provided"}
+
+        raw = global_state.get("step_1_input", {}).get("raw_smiles", "")
+        if not raw or ">>" not in raw:
+            return {"error": "Reaction SMILES missing. Please complete Step 1 (Input) and Step 2 (Mapping) first."}
 
         log_fh = open(LOG_PATH, 'w', buffering=1)
 
@@ -238,7 +252,15 @@ class Step3TS(PipelineStep):
                     "profile": profile,
                 }
 
-            e_ts = atoms.get_potential_energy()
+            if atoms.calc is None:
+                from .ts_engine.calculators import make_xtb
+                atoms.calc = make_xtb(model.charge, model.multiplicity)
+            try:
+                e_ts = atoms.get_potential_energy()
+            except Exception:
+                from .ts_engine.calculators import make_xtb
+                atoms.calc = make_xtb(model.charge, model.multiplicity)
+                e_ts = atoms.get_potential_energy()
             log(f"\nFinal geometry energy: E = {e_ts:.4f} eV")
             for i, j in model.formed + model.broken:
                 d = np.linalg.norm(atoms.positions[i] - atoms.positions[j])
