@@ -68,9 +68,10 @@ class Step3TS(PipelineStep):
                    "Just press 'Find TS' - manual adjustment is optional.")
         except Exception as e:
             r_smiles_list = r_part.split(".") if r_part else []
-            r_blocks = [self._generate_3d_molblock(s) for s in r_smiles_list]
+            r_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
             n_var, info = 1, {"forming": [], "breaking": [], "summary": [f"Auto-dock failed: {e}"]}
-            msg = "Automatic docking failed - arrange the reactants manually."
+            msg = ("Automatic docking failed - arrange the reactants manually, "
+                   "pick the reacting bonds in 3D and use 'Refine my guess'.")
 
         return {
             "type": "ts_editor_ui",
@@ -81,6 +82,25 @@ class Step3TS(PipelineStep):
             "message": msg,
         }
 
+    @staticmethod
+    def _side_by_side(blocks, gap=2.5):
+        """Fallback layout: separate fragments along x instead of overlapping."""
+        import numpy as np
+        from .ts_builder import set_positions
+        out, x_cursor = [], 0.0
+        for mb in blocks:
+            m = Chem.MolFromMolBlock(mb, removeHs=False) if mb else None
+            if m is None:
+                out.append(mb)
+                continue
+            p = m.GetConformer().GetPositions()
+            p = p - p.mean(axis=0)
+            half = float(np.max(np.abs(p[:, 0]))) if len(p) else 0.0
+            p[:, 0] += x_cursor + half
+            x_cursor += 2 * half + gap
+            out.append(Chem.MolToMolBlock(set_positions(m, p)))
+        return out
+
     # ------------------------------------------------------------------
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
@@ -90,6 +110,7 @@ class Step3TS(PipelineStep):
             try:
                 from .ts_builder import auto_dock_molblocks
                 model = self._model(global_state)
+                model.apply_override(user_input.get("reaction_override"))
                 variant = int(user_input.get("variant", 0))
                 blocks, n_var, score = auto_dock_molblocks(model, variant=variant)
                 return {"success": True, "molblocks": blocks, "n_variants": n_var,
@@ -106,9 +127,11 @@ class Step3TS(PipelineStep):
         import numpy as np
         from ase import Atoms
         from .ts_builder import (molblocks_to_positions, positions_to_molblocks,
-                                 bond_drive, refine_ts, analyse_mode, EV_TO_KCAL)
+                                 bond_drive, refine_guess, refine_ts, analyse_mode,
+                                 EV_TO_KCAL, DOCK_EXTRA)
 
         docked = user_input.get("docked_molblocks", [])
+        mode = user_input.get("mode", "auto")
         if not docked:
             return {"error": "No molblocks provided"}
 
@@ -120,6 +143,7 @@ class Step3TS(PipelineStep):
 
         try:
             model = self._model(global_state)
+            overridden = model.apply_override(user_input.get("reaction_override"))
             mols, pos_list = molblocks_to_positions(docked)
             positions = np.vstack(pos_list)
             symbols = [a.GetSymbol() for m in mols for a in m.GetAtoms()]
@@ -127,13 +151,24 @@ class Step3TS(PipelineStep):
                 return {"error": "3D atoms do not match the mapped reaction (re-run Step 3)."}
             atoms = Atoms(symbols=symbols, positions=positions)
 
-            log("=== Reaction analysis (from Step 2 mapping) ===")
+            src = "MANUAL selection in 3D" if overridden else "Step 2 mapping"
+            log(f"=== Reaction analysis (reacting bonds from {src}) ===")
             for line in model.summary_lines():
                 log(line)
 
             ts_report = None
             profile = []
-            if model.formed or model.broken:
+            if mode == "refine":
+                log("\n=== Manual mode: your geometry is the TS guess ===")
+                for i, j in model.formed:
+                    d = np.linalg.norm(positions[i] - positions[j])
+                    if d > model.d0(i, j) + DOCK_EXTRA + 0.2:
+                        log(f"  WARNING: forming bond {model.label(i)}...{model.label(j)} is "
+                            f"{d:.2f} A - this looks like a reactant complex, not a TS. "
+                            f"Sella may fall back to a minimum; consider 'Find TS (scan)' "
+                            f"or move the fragments closer (~{model.d0(i, j) + 0.45:.1f} A).")
+                refine_guess(atoms, model, log)
+            elif model.formed or model.broken:
                 log("\n=== Bond drive: restrained GFN2-xTB scan R -> P ===")
                 frames, energies, lams = bond_drive(atoms, model, log)
                 profile = [[l, (e - energies[0]) * EV_TO_KCAL] for l, e in zip(lams, energies)]

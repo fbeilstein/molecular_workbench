@@ -117,6 +117,12 @@ export const TSEditorUI = {
 
         const info = ui.reaction_info || { forming: [], breaking: [], summary: [] };
         let dockVariant = 0;
+        // Editable copy of the reacting bonds (mapping-derived unless the user overrides)
+        const clonePairs = (p) => (p || []).map(([[a, b], [c, d]]) => [[a, b], [c, d]]);
+        let rxnBonds = { forming: clonePairs(info.forming), breaking: clonePairs(info.breaking) };
+        let overridden = false;
+        let pickMode = false;
+        let picked = [];   // [{fi, ai}] max 2
 
         const editorLayout = el('div', { display: 'flex', gap: '20px', marginTop: '12px', flexWrap: 'wrap' });
         const viewerContainer = el('div', {
@@ -155,9 +161,11 @@ export const TSEditorUI = {
         const sphereGeo = new THREE.SphereGeometry(1, 32, 32);
         const cylGeo = new THREE.CylinderGeometry(0.15, 0.15, 1, 16);
 
+        const samePair = ([[f1, x1], [f2, x2]], fa, a, fb, b) =>
+            (f1 === fa && x1 === a && f2 === fb && x2 === b) || (f1 === fb && x1 === b && f2 === fa && x2 === a);
+
         function isBreaking(fi, a1, a2) {
-            return info.breaking.some(([[f1, x1], [f2, x2]]) =>
-                f1 === fi && f2 === fi && ((x1 === a1 && x2 === a2) || (x1 === a2 && x2 === a1)));
+            return rxnBonds.breaking.some(p => samePair(p, fi, a1, fi, a2));
         }
 
         function buildMolecules(molblocks) {
@@ -180,12 +188,14 @@ export const TSEditorUI = {
                 parsed.atoms.forEach(a => { a.x -= cx; a.y -= cy; a.z -= cz; });
                 group.position.set(cx, cy, cz);
 
-                group.userData.atomMeshes = parsed.atoms.map(atom => {
+                group.userData.atomMeshes = parsed.atoms.map((atom, ai) => {
                     const mat = new THREE.MeshPhongMaterial({ color: elementColors[atom.symbol] || 0xcccccc, shininess: 50 });
                     const mesh = new THREE.Mesh(sphereGeo, mat);
                     const r = elementRadii[atom.symbol] || 0.5;
                     mesh.scale.set(r, r, r);
                     mesh.position.set(atom.x, atom.y, atom.z);
+                    mesh.userData = { fi, ai, isAtom: true };
+                    if (picked.some(p => p.fi === fi && p.ai === ai)) mat.emissive.setHex(0x3355ff);
                     group.add(mesh);
                     return mesh;
                 });
@@ -207,16 +217,18 @@ export const TSEditorUI = {
                 moleculeGroups.push(group);
             });
 
-            // Forming bonds: dashed green lines between (possibly different) fragments
-            info.forming.forEach(([[f1, a1], [f2, a2]]) => {
+            // Reacting bonds as dashed lines: forming = green, breaking = red
+            const addLine = ([[f1, a1], [f2, a2]], color) => {
                 const g1 = moleculeGroups[f1], g2 = moleculeGroups[f2];
                 if (!g1 || !g2) return;
                 const geom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-                const mat = new THREE.LineDashedMaterial({ color: 0x18a558, dashSize: 0.18, gapSize: 0.12, linewidth: 2 });
+                const mat = new THREE.LineDashedMaterial({ color, dashSize: 0.18, gapSize: 0.12, linewidth: 2 });
                 const line = new THREE.Line(geom, mat);
                 scene.add(line);
                 reactionLines.push({ line, m1: g1.userData.atomMeshes[a1], m2: g2.userData.atomMeshes[a2] });
-            });
+            };
+            rxnBonds.forming.forEach(p => addLine(p, 0x18a558));
+            rxnBonds.breaking.forEach(p => addLine(p, 0xe0245e));
         }
 
         function updateReactionLines() {
@@ -229,6 +241,15 @@ export const TSEditorUI = {
                 pos.needsUpdate = true;
                 line.computeLineDistances();
             });
+        }
+
+        // Rebuild in place, keeping whatever the user has moved
+        function rebuildKeepingPose() {
+            const attachedIdx = moleculeGroups.indexOf(transformControl.object);
+            const blocks = TSEditorUI.extractData ? TSEditorUI.extractData() : currentDockedMolblocks;
+            currentDockedMolblocks = blocks;
+            buildMolecules(blocks);
+            if (attachedIdx >= 0 && moleculeGroups[attachedIdx]) transformControl.attach(moleculeGroups[attachedIdx]);
         }
 
         buildMolecules(ui.reactants_3d);
@@ -249,18 +270,104 @@ export const TSEditorUI = {
 
         // Main actions
         const actCard = card('Transition state');
-        const optBtn = styledButton('⚡ Find TS (automatic)', true);
+        const optBtn = styledButton('⚡ Find TS (automatic scan)', true);
+        const refineBtn = styledButton('🎯 Refine my guess as TS');
         const nextPoseBtn = styledButton('↻ Next docking pose');
         const optStatus = el('div', { fontWeight: '600', color: '#4f6ef7', marginTop: '6px', fontSize: '13px' });
         actCard.appendChild(optBtn);
-        if ((ui.n_dock_variants || 1) > 1 || moleculeGroups.length > 1) actCard.appendChild(nextPoseBtn);
+        actCard.appendChild(refineBtn);
+        if (moleculeGroups.length > 1) actCard.appendChild(nextPoseBtn);
+        actCard.appendChild(el('div', { fontSize: '11.5px', color: '#777', marginTop: '4px' },
+            'Scan: starts from reactant-like distances of the current pose, drives the reacting bonds, ' +
+            'takes the energy maximum. Refine: your current geometry is the TS guess (reacting bonds ' +
+            'frozen while the rest relaxes, then saddle search) - use after placing fragments by hand.'));
         actCard.appendChild(optStatus);
         controlsContainer.appendChild(actCard);
+
+        // Reacting bonds editor (semi-automatic fallback)
+        const bondCard = card('Reacting bonds');
+        const bondList = el('pre', { margin: '0 0 6px 0', fontSize: '12px', whiteSpace: 'pre-wrap', color: '#333' });
+        const pickBtn = styledButton('Pick atoms: OFF');
+        const formBtn = styledButton('+ Forming');
+        const breakBtn = styledButton('+ Breaking');
+        const removeBtn = styledButton('Remove pair');
+        const resetBondsBtn = styledButton('Reset to mapping');
+        const pickInfo = el('div', { fontSize: '11.5px', color: '#777' },
+            'Turn picking on, click two atoms, then mark them. Overrides the mapping for scan, refine and re-docking.');
+        [bondList, pickBtn, formBtn, breakBtn, removeBtn, resetBondsBtn, pickInfo].forEach(x => bondCard.appendChild(x));
+        controlsContainer.appendChild(bondCard);
+
+        const atomLabel = (fi, ai) => {
+            const s = parsedSDFs[fi]?.atoms[ai]?.symbol || '?';
+            return `${s}(R${fi + 1}:${ai})`;
+        };
+        function refreshBondList() {
+            const lines = [];
+            rxnBonds.forming.forEach(([[a, b], [c, d]]) => lines.push(`  FORMING  ${atomLabel(a, b)} ... ${atomLabel(c, d)}`));
+            rxnBonds.breaking.forEach(([[a, b], [c, d]]) => lines.push(`  BREAKING ${atomLabel(a, b)} -- ${atomLabel(c, d)}`));
+            bondList.textContent = (overridden ? 'Source: MANUAL\n' : 'Source: mapping\n') + (lines.join('\n') || '  (none)');
+            const sel = picked.map(p => atomLabel(p.fi, p.ai)).join(' + ');
+            pickInfo.textContent = picked.length ? `Selected: ${sel}` :
+                'Turn picking on, click two atoms, then mark them. Overrides the mapping for scan, refine and re-docking.';
+            formBtn.disabled = breakBtn.disabled = removeBtn.disabled = picked.length !== 2;
+            resetBondsBtn.disabled = !overridden;
+        }
+        function editPair(kind) {
+            if (picked.length !== 2) return;
+            const [p, q] = picked;
+            const notThis = pr => !samePair(pr, p.fi, p.ai, q.fi, q.ai);
+            rxnBonds.forming = rxnBonds.forming.filter(notThis);
+            rxnBonds.breaking = rxnBonds.breaking.filter(notThis);
+            if (kind) rxnBonds[kind].push([[p.fi, p.ai], [q.fi, q.ai]]);
+            overridden = true;
+            picked = [];
+            rebuildKeepingPose();
+            refreshBondList();
+        }
+        formBtn.onclick = () => editPair('forming');
+        breakBtn.onclick = () => editPair('breaking');
+        removeBtn.onclick = () => editPair(null);
+        resetBondsBtn.onclick = () => {
+            rxnBonds = { forming: clonePairs(info.forming), breaking: clonePairs(info.breaking) };
+            overridden = false; picked = [];
+            rebuildKeepingPose(); refreshBondList();
+        };
+        pickBtn.onclick = () => {
+            pickMode = !pickMode;
+            pickBtn.textContent = pickMode ? 'Pick atoms: ON' : 'Pick atoms: OFF';
+            pickBtn.style.background = pickMode ? '#e8edff' : '#fff';
+            if (!pickMode) { picked = []; rebuildKeepingPose(); }
+            refreshBondList();
+        };
+        refreshBondList();
+
+        // Atom picking (click without dragging)
+        const raycaster = new THREE.Raycaster();
+        let downXY = null;
+        renderer.domElement.addEventListener('pointerdown', e => { downXY = [e.clientX, e.clientY]; });
+        renderer.domElement.addEventListener('pointerup', e => {
+            if (!pickMode || !downXY || transformControl.dragging) return;
+            if (Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]) > 4) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1,
+                -((e.clientY - rect.top) / rect.height) * 2 + 1);
+            raycaster.setFromCamera(ndc, camera);
+            const meshes = moleculeGroups.flatMap(g => g.userData.atomMeshes);
+            const hit = raycaster.intersectObjects(meshes, false)[0];
+            if (!hit) return;
+            const { fi, ai } = hit.object.userData;
+            const idx = picked.findIndex(p => p.fi === fi && p.ai === ai);
+            if (idx >= 0) picked.splice(idx, 1);
+            else { picked.push({ fi, ai }); if (picked.length > 2) picked.shift(); }
+            moleculeGroups.forEach((g, gi) => g.userData.atomMeshes.forEach((m, mi) =>
+                m.material.emissive.setHex(picked.some(p => p.fi === gi && p.ai === mi) ? 0x3355ff : 0x000000)));
+            refreshBondList();
+        });
 
         // Optional fine-tuning
         const tuneCard = card('Optional fine-tuning');
         tuneCard.appendChild(el('div', { fontSize: '12px', color: '#666', marginBottom: '6px' },
-            'Usually not needed. Left-drag: rotate view · right-drag: pan · scroll: zoom.'));
+            'Select a reactant, move/rotate it with the gizmo. Left-drag: rotate view · right-drag: pan · scroll: zoom.'));
         ui.reactants_3d.forEach((_, idx) => {
             const btn = styledButton(`Reactant ${idx + 1}`);
             btn.onclick = () => { if (moleculeGroups[idx]) transformControl.attach(moleculeGroups[idx]); };
@@ -295,7 +402,10 @@ export const TSEditorUI = {
             try {
                 const res = await fetch('/api/step/step_3_ts/custom', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action_type: 'auto_dock', variant: dockVariant })
+                    body: JSON.stringify({
+                        action_type: 'auto_dock', variant: dockVariant,
+                        reaction_override: overridden ? rxnBonds : null
+                    })
                 });
                 const result = await res.json();
                 if (result.success) {
@@ -318,11 +428,16 @@ export const TSEditorUI = {
             } catch (e) { }
         }
 
-        optBtn.onclick = async () => {
-            optBtn.disabled = true; nextPoseBtn.disabled = true;
-            optBtn.textContent = 'Searching…';
+        async function runOptimization(mode) {
+            const buttons = [optBtn, refineBtn, nextPoseBtn];
+            const activeBtn = mode === 'refine' ? refineBtn : optBtn;
+            const label = activeBtn.textContent;
+            buttons.forEach(b => b.disabled = true);
+            activeBtn.textContent = 'Searching…';
             optStatus.style.color = '#4f6ef7';
-            optStatus.textContent = 'Bond drive → Sella → frequency check';
+            optStatus.textContent = mode === 'refine'
+                ? 'Constrained relax → Sella → frequency check'
+                : 'Bond drive → Sella → frequency check';
             logBox.value = 'Starting GFN2-xTB…\n';
             const logInterval = setInterval(fetchLog, 700);
 
@@ -330,17 +445,23 @@ export const TSEditorUI = {
             try {
                 const res = await fetch('/api/step/step_3_ts/custom', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action_type: 'optimize_ts', docked_molblocks: data })
+                    body: JSON.stringify({
+                        action_type: 'optimize_ts', mode, docked_molblocks: data,
+                        reaction_override: overridden ? rxnBonds : null
+                    })
                 });
                 const result = await res.json();
                 await fetchLog();
                 if (result.success) {
                     optStatus.textContent = result.message;
                     currentDockedMolblocks = result.optimized_molblocks;
+                    picked = [];
                     buildMolecules(currentDockedMolblocks);
                     if (result.profile && result.profile.length > 1) {
                         profCanvas.style.display = 'block';
                         drawProfile(profCanvas, result.profile);
+                    } else {
+                        profCanvas.style.display = 'none';
                     }
                 } else {
                     optStatus.style.color = '#e0245e';
@@ -351,10 +472,13 @@ export const TSEditorUI = {
                 optStatus.textContent = 'Request failed: ' + e.message;
             } finally {
                 clearInterval(logInterval);
-                optBtn.disabled = false; nextPoseBtn.disabled = false;
-                optBtn.textContent = '⚡ Find TS (automatic)';
+                buttons.forEach(b => b.disabled = false);
+                activeBtn.textContent = label;
+                refreshBondList();
             }
-        };
+        }
+        optBtn.onclick = () => runOptimization('auto');
+        refineBtn.onclick = () => runOptimization('refine');
 
         if (!keyHandlerInstalled) {
             window.addEventListener('keydown', (event) => {

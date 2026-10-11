@@ -52,6 +52,19 @@ def _unit(v):
     return v / n if n > 1e-9 else v * 0.0
 
 
+def dir_pen(mode, R, u):
+    """Penalty (0 = ideal) for approaching along unit vector u."""
+    if mode is None:
+        return 0.0
+    kind, v = mode
+    c = float(np.dot(R @ v, u))
+    if kind == "vec":
+        return 1.0 - c
+    if kind == "axis":
+        return 1.0 - c * c
+    return c * c  # perp
+
+
 # ---------------------------------------------------------------------------
 # 1. Reaction model
 # ---------------------------------------------------------------------------
@@ -195,6 +208,52 @@ class ReactionModel:
             "multiplicity": self.multiplicity,
         }
 
+    def apply_override(self, override):
+        """Replace formed/broken bonds by user-picked pairs.
+
+        override = {"forming": [[[fi, ai], [fj, aj]], ...], "breaking": [...]}
+        """
+        if not override:
+            return False
+
+        def conv(pairs):
+            out = []
+            for (fi, ai), (fj, aj) in pairs:
+                i = self.offsets[int(fi)] + int(ai)
+                j = self.offsets[int(fj)] + int(aj)
+                if i != j and 0 <= i < self.n_atoms and 0 <= j < self.n_atoms:
+                    out.append((min(i, j), max(i, j)))
+            return sorted(set(out))
+
+        forming = conv(override.get("forming", []))
+        breaking = conv(override.get("breaking", []))
+        if not forming and not breaking:
+            return False
+        self.formed, self.broken = forming, breaking
+        self.overridden = True
+        return True
+
+    def pose_problems(self, positions):
+        """Is this a usable pre-reaction arrangement? Returns list of reasons if not."""
+        reasons = []
+        coords = lambda c: positions[c]
+        for i, j in self.formed:
+            if self.frag_of[i] == self.frag_of[j]:
+                continue
+            d = float(np.linalg.norm(positions[j] - positions[i]))
+            if d > self.d0(i, j) + DOCK_EXTRA + 1.0:
+                reasons.append(f"{self.label(i)}...{self.label(j)} are {d:.1f} A apart")
+                continue
+            u = _unit(positions[j] - positions[i])
+            for a, b, uu in ((i, j, u), (j, i, -u)):
+                pen = dir_pen(self.attack_mode(a, coords), np.eye(3), uu)
+                if pen > 0.5:  # > 60 deg off the ideal approach
+                    reasons.append(f"{self.label(b)} approaches {self.label(a)} from a bad direction")
+        return reasons
+
+    def split(self, positions):
+        return [positions[o:o + m.GetNumAtoms()] for o, m in zip(self.offsets, self.r_mols)]
+
     # -------------------------------------------------------------------
     # 2. Attack directions
     # -------------------------------------------------------------------
@@ -310,17 +369,6 @@ class ReactionModel:
                 R = Rotation.from_rotvec(p[6 * n:6 * n + 3]).as_matrix()
                 T[f] = (R, p[6 * n + 3:6 * n + 6])
             return T
-
-        def dir_pen(mode, R, u):
-            if mode is None:
-                return 0.0
-            kind, v = mode
-            c = float(np.dot(R @ v, u))
-            if kind == "vec":
-                return 1.0 - c
-            if kind == "axis":
-                return 1.0 - c * c
-            return c * c  # perp
 
         def objective(p):
             T = transforms(p)
@@ -460,14 +508,21 @@ def bond_drive(atoms, model, log, n_points=13, k=20.0):
 
     pairs = model.formed + model.broken
     pos = atoms.get_positions()
-    d_start = np.array([np.linalg.norm(pos[i] - pos[j]) for i, j in pairs])
-    d_end = []
-    for (i, j), ds in zip(pairs, d_start):
+    d_cur = np.array([np.linalg.norm(pos[i] - pos[j]) for i, j in pairs])
+    # Start from reactant-like distances whatever the input geometry is
+    # (auto-docked complex, a hand-made TS-like guess, or a previous TS):
+    # forming bonds open, breaking bonds intact.  The restraint at lambda=0
+    # moves the geometry there first.
+    d_start, d_end = [], []
+    for (i, j), dc in zip(pairs, d_cur):
+        d0 = model.d0(i, j)
         if (i, j) in model.formed:
-            d_end.append(model.d0(i, j))
+            d_start.append(min(max(dc, d0 + DOCK_EXTRA), d0 + 2.5))
+            d_end.append(d0)
         else:
-            d_end.append(max(ds + 1.0, model.d0(i, j) + BREAK_EXTRA))
-    d_end = np.array(d_end)
+            d_start.append(min(dc, d0 + 0.1))
+            d_end.append(d0 + BREAK_EXTRA)
+    d_start, d_end = np.array(d_start), np.array(d_end)
 
     base = atoms.copy()
     base.calc = make_xtb(model.charge, model.multiplicity)
@@ -498,6 +553,33 @@ def bond_drive(atoms, model, log, n_points=13, k=20.0):
             break
     atoms.calc = None
     return frames, energies, lams
+
+
+def refine_guess(atoms, model, log, k=20.0):
+    """Manual mode: the given geometry IS the TS guess.
+
+    Freeze the reacting bonds at their current lengths (harmonic restraints)
+    and relax everything else, so rigid-body docking artefacts (e.g. a CH3
+    umbrella that has not inverted yet) are fixed before the saddle search.
+    """
+    from ase.optimize import LBFGS
+
+    pairs = model.formed + model.broken
+    if not pairs:
+        log("  no reacting bonds defined - skipping constrained pre-relaxation")
+        return
+    pos = atoms.get_positions()
+    restraints = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in pairs]
+    for i, j, d in restraints:
+        log(f"  freezing {model.label(i)}-{model.label(j)} at {d:.2f} A")
+    base = atoms.copy()
+    base.calc = make_xtb(model.charge, model.multiplicity)
+    atoms.calc = _make_restrained_calc(base, restraints, k)
+    opt = LBFGS(atoms, logfile=None, maxstep=0.2)
+    opt.run(fmax=0.08, steps=200)
+    log(f"  pre-relaxation done in {opt.nsteps} steps, "
+        f"E(xTB) = {atoms.calc.e_base:.4f} eV")
+    atoms.calc = None
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +626,7 @@ def analyse_mode(atoms, model, log, max_atoms=60):
     return report
 
 
-def refine_ts(atoms, model, log_fh, log, fmax=0.03, steps=150):
+def refine_ts(atoms, model, log_fh, log, fmax=0.01, steps=250):
     from sella import Sella
 
     atoms.calc = make_xtb(model.charge, model.multiplicity)
