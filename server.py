@@ -11,15 +11,18 @@ Workflow:
 
 Launch:
     python server.py
-    python server.py --port 8081
+    python server.py --port 8080
 """
 
 import http.server
 import json
 import os
+import signal
+import subprocess
 import sys
+import threading
 import urllib.parse
-import time
+import zipfile
 
 # ── Path setup ───────────────────────────────────────────────────────────────
 
@@ -71,28 +74,32 @@ MIME = {
     '.cdxml': 'application/xml', '.sh': 'text/plain',
 }
 
+
 def _mime(path):
     ext = os.path.splitext(path)[1].lower()
     return MIME.get(ext, 'application/octet-stream')
 
 
-# ── Request handler ──────────────────────────────────────────────────────────
+# ── Utility Helpers ──────────────────────────────────────────────────────────
 
 def _try_remesh(item, name, isovalue, converter, remeshed_meshes):
-    if not (isovalue and converter): return None
-    if not (item.filename.endswith('_pos.json') or item.filename.endswith('_neg.json')): return None
-    if item.filename.endswith('esp_pos.json') or item.filename.endswith('esp_neg.json'): return None
-    
-    base_name = __import__('os').path.basename(item.filename).replace('_pos.json', '').replace('_neg.json', '')
-    raw_cube = __import__('os').path.join(OUTPUT_DIR, name, 'orbitals_raw', f'{base_name}.cube')
-    if not __import__('os').path.exists(raw_cube):
-        raw_cube = __import__('os').path.join(OUTPUT_DIR, name, 'mep_orbitals', f'{base_name}.cube')
-    if not __import__('os').path.exists(raw_cube):
+    if not (isovalue and converter):
         return None
-        
+    if not (item.filename.endswith('_pos.json') or item.filename.endswith('_neg.json')):
+        return None
+    if item.filename.endswith('esp_pos.json') or item.filename.endswith('esp_neg.json'):
+        return None
+
+    base_name = os.path.basename(item.filename).replace('_pos.json', '').replace('_neg.json', '')
+    raw_cube = os.path.join(OUTPUT_DIR, name, 'orbitals_raw', f'{base_name}.cube')
+    if not os.path.exists(raw_cube):
+        raw_cube = os.path.join(OUTPUT_DIR, name, 'mep_orbitals', f'{base_name}.cube')
+    if not os.path.exists(raw_cube):
+        return None
+
     sign = 1 if item.filename.endswith('_pos.json') else -1
     cache_key = (raw_cube, sign * float(isovalue))
-    
+
     if cache_key not in remeshed_meshes:
         try:
             vol, origin, step = converter.read_cube(raw_cube)
@@ -100,8 +107,90 @@ def _try_remesh(item, name, isovalue, converter, remeshed_meshes):
         except Exception as e:
             remeshed_meshes[cache_key] = None
             print(f"Error remeshing {raw_cube}: {e}")
-            
+
     return remeshed_meshes.get(cache_key)
+
+
+def _kill_job(job):
+    if not hasattr(job, 'pid'):
+        return
+    try:
+        os.killpg(os.getpgid(job.pid), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+
+def _is_bundle_metadata(filename):
+    if filename == 'manifest.json' or filename.endswith('.xyz'):
+        return True
+    return filename.endswith('.json') and not filename.endswith('_pos.json') and not filename.endswith('_neg.json')
+
+
+def _purge_cube_dir(dir_path):
+    if not os.path.exists(dir_path):
+        return 0
+    count = 0
+    for f in os.listdir(dir_path):
+        if not f.endswith('.cube'):
+            continue
+        try:
+            os.remove(os.path.join(dir_path, f))
+            count += 1
+        except OSError:
+            pass
+    return count
+
+
+def _load_cube_converter():
+    sys.path.insert(0, TOOLS_DIR)
+    try:
+        from cube_converter import CubeConverter
+        return CubeConverter
+    except ImportError:
+        return None
+
+
+def _execute_script_job(log_path, script_path, active_jobs, name):
+    with open(log_path, 'w') as lf:
+        p = subprocess.Popen(["bash", script_path], stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
+        active_jobs[name] = p
+        p.wait()
+        active_jobs.pop(name, None)
+
+
+def _package_custom_bundle(zip_path, custom_zip_path, keep_files, isovalue, name):
+    converter = _load_cube_converter() if isovalue else None
+    remeshed_meshes = {}
+    seen_files = set()
+
+    with zipfile.ZipFile(zip_path, 'r') as zin, zipfile.ZipFile(custom_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            if item.filename in seen_files:
+                continue
+            seen_files.add(item.filename)
+
+            keep_item = _is_bundle_metadata(item.filename) or item.filename in keep_files
+            if not keep_item:
+                continue
+
+            mesh = _try_remesh(item, name, isovalue, converter, remeshed_meshes)
+            if mesh:
+                zout.writestr(item, json.dumps(mesh))
+            else:
+                zout.writestr(item, zin.read(item.filename))
+
+
+def _read_bundle_entry(zip_path, inner_path):
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as z:
+            return z.read(inner_path), None
+    except KeyError:
+        if inner_path.endswith('_pos.json') or inner_path.endswith('_neg.json'):
+            return b'{"vertices": [], "faces": []}', None
+        return None, f'File not found in bundle: {inner_path}'
+
+
+# ── Request handler ──────────────────────────────────────────────────────────
 
 class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
 
@@ -110,274 +199,168 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         path = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
 
-        if path == '/' or path == '/index.html':
-            self._serve_file(os.path.join(PACKAGE_DIR, 'templates', 'index.html'))
+        if path in ('/', '/index.html'):
+            return self._serve_file(os.path.join(PACKAGE_DIR, 'templates', 'index.html'))
+        if path.startswith('/static/'):
+            return self._serve_file(os.path.join(PACKAGE_DIR, path.lstrip('/')))
+        if path.startswith('/ketcher/'):
+            return self._serve_file(os.path.join(KETCHER_DIR, path[len('/ketcher/'):]))
+        if path.startswith('/api/bundle/'):
+            return self._serve_bundle_file(path[len('/api/bundle/'):])
+        if path.startswith('/output/'):
+            return self._serve_file(os.path.join(OUTPUT_DIR, path[len('/output/'):]))
+        if path == '/api/dirs':
+            dirs = sorted(d for d in os.listdir(OUTPUT_DIR) if os.path.isdir(os.path.join(OUTPUT_DIR, d)))
+            return self._json_response(dirs)
+        if path == '/api/job/status':
+            return self._api_job_status(qs)
 
-        elif path.startswith('/static/'):
-            self._serve_file(os.path.join(PACKAGE_DIR, path.lstrip('/')))
-
-        elif path.startswith('/ketcher/'):
-            rel = path[len('/ketcher/'):]
-            self._serve_file(os.path.join(KETCHER_DIR, rel))
-
-        elif path.startswith('/api/bundle/'):
-            self._serve_bundle_file(path[len('/api/bundle/'):])
-
-        elif path.startswith('/output/'):
-            rel = path[len('/output/'):]
-            self._serve_file(os.path.join(OUTPUT_DIR, rel))
-
-        elif path == '/api/dirs':
-            dirs = sorted(d for d in os.listdir(OUTPUT_DIR)
-                          if os.path.isdir(os.path.join(OUTPUT_DIR, d)))
-            self._json_response(dirs)
-
-        elif path == '/api/job/status':
-            self._api_job_status(qs)
-
-        else:
-            self.send_error(404)
+        self.send_error(404)
 
     def do_POST(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        path = urllib.parse.urlparse(self.path).path
         body = self._read_json()
 
-        if path == '/api/rxn/compute-script':
-            self._api_compute_script(body)
-        elif path == '/api/job/stop':
-            self._api_job_stop(body)
-        elif path == '/api/bundle/package':
-            self._api_bundle_package(body)
-        elif path == '/api/orbital/remesh':
-            self._api_orbital_remesh(body)
-        elif path == '/api/bundle/purge-cubes':
-            self._api_purge_cubes(body)
-        elif path == '/api/bundle/purge-cubes':
-            self._api_purge_cubes(body)
-            self._api_orbital_remesh(body)
-        else:
-            self.send_error(404)
+        routes = {
+            '/api/rxn/compute-script': self._api_compute_script,
+            '/api/job/stop': self._api_job_stop,
+            '/api/bundle/package': self._api_bundle_package,
+            '/api/orbital/remesh': self._api_orbital_remesh,
+            '/api/bundle/purge-cubes': self._api_purge_cubes,
+        }
+        handler = routes.get(path)
+        if handler:
+            return handler(body)
+        self.send_error(404)
 
     # ── API: Compute Script ───────────────────────────────────────────
 
     def _api_compute_script(self, body):
-        import sys
         sys.path.insert(0, TOOLS_DIR)
         from script_builder import build_compute_script
-        
-        script_path, name, job_dir = build_compute_script(body, OUTPUT_DIR, VENV_PYTHON, TOOLS_DIR)
 
+        script_path, name, job_dir = build_compute_script(body, OUTPUT_DIR, VENV_PYTHON, TOOLS_DIR)
         log_path = os.path.join(job_dir, 'compute.log')
-        import subprocess, threading
+
         if not hasattr(self.server, 'active_jobs'):
             self.server.active_jobs = {}
-            
         self.server.active_jobs[name] = "starting"
-        
-        def run_job():
-            with open(log_path, 'w') as lf:
-                p = subprocess.Popen(["bash", script_path], stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
-                self.server.active_jobs[name] = p
-                p.wait()
-                self.server.active_jobs.pop(name, None)
-                
-        threading.Thread(target=run_job).start()
 
-        self._json_response({
-            'status': 'started',
-            'name': name
-        })
+        t = threading.Thread(
+            target=_execute_script_job,
+            args=(log_path, script_path, self.server.active_jobs, name),
+            daemon=True
+        )
+        t.start()
 
-    def _api_job_status(self, query):
-        name = query.get('name', [''])[0]
+        self._json_response({'status': 'started', 'name': name})
+
+    def _api_job_status(self, qs):
+        name = qs.get('name', [''])[0]
+        jobs = getattr(self.server, 'active_jobs', {})
+        is_running = name in jobs
         job_dir = os.path.join(OUTPUT_DIR, name)
         log_path = os.path.join(job_dir, 'compute.log')
-        
-        is_running = name in getattr(self.server, 'active_jobs', {})
+        bundle_path = os.path.join(job_dir, f"{name}.rxnbundle.zip")
+
         log_content = ""
         if os.path.exists(log_path):
-            with open(log_path, 'r') as f:
-                lines = f.readlines()
-                log_content = ''.join(lines[-50:])
-                
-        bundle_ready = os.path.exists(os.path.join(job_dir, f'{name}.rxnbundle.zip'))
-        
+            with open(log_path, 'r', errors='ignore') as f:
+                log_content = f.read()
+
         self._json_response({
             'running': is_running,
             'log': log_content,
-            'ready': bundle_ready
+            'ready': os.path.exists(bundle_path)
         })
 
     def _api_job_stop(self, body):
-        import os, signal
         name = body.get('name', '')
         jobs = getattr(self.server, 'active_jobs', {})
-        if name in jobs:
-            job = jobs[name]
-            if hasattr(job, 'pid'):
-                try:
-                    os.killpg(os.getpgid(job.pid), signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-            jobs.pop(name, None)
-            self._json_response({'status': 'stopped'})
-        else:
-            self._json_response({'status': 'not_running'})
+        if name not in jobs:
+            return self._json_response({'status': 'not_running'})
+
+        _kill_job(jobs[name])
+        jobs.pop(name, None)
+        self._json_response({'status': 'stopped'})
 
     def _serve_bundle_file(self, path_in_bundle):
-        """Serve a file from inside a .rxnbundle.zip.
-        URL: /api/bundle/<job_name>/<path_inside_zip>
-        """
         parts = path_in_bundle.split('/', 1)
         if len(parts) < 2:
-            self.send_error(400)
-            return
+            return self.send_error(400)
         job_name, inner_path = parts
         zip_path = os.path.join(OUTPUT_DIR, job_name, f'{job_name}.rxnbundle.zip')
         if not os.path.exists(zip_path):
-            self.send_error(404, f'No bundle: {zip_path}')
-            return
-        try:
-            import zipfile
-            with zipfile.ZipFile(zip_path, 'r') as z:
-                data = z.read(inner_path)
-            ext = os.path.splitext(inner_path)[1]
-            ct = {'.json': 'application/json', '.gz': 'application/gzip',
-                  '.svg': 'image/svg+xml', '.cube': 'text/plain'}.get(ext, 'application/octet-stream')
-            self.send_response(200)
-            self.send_header('Content-Type', ct)
-            self.send_header('Content-Length', str(len(data)))
-            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-            self.end_headers()
-            self.wfile.write(data)
-        except KeyError:
-            if inner_path.endswith('_pos.json') or inner_path.endswith('_neg.json'):
-                data = b'{"vertices": [], "faces": []}'
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(data)))
-                self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-                self.end_headers()
-                self.wfile.write(data)
-            else:
-                self.send_error(404, f'Not in zip: {inner_path}')
-        except Exception as e:
-            self.send_error(500, str(e))
+            return self.send_error(404, f'No bundle: {zip_path}')
 
+        data, err = _read_bundle_entry(zip_path, inner_path)
+        if err:
+            return self.send_error(404, err)
+
+        ext = os.path.splitext(inner_path)[1]
+        ct = {'.json': 'application/json', '.gz': 'application/gzip',
+              '.svg': 'image/svg+xml', '.cube': 'text/plain'}.get(ext, 'application/octet-stream')
+        self.send_response(200)
+        self.send_header('Content-Type', ct)
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        self.end_headers()
+        self.wfile.write(data)
 
     def _api_bundle_package(self, body):
-        import zipfile, json
         name = body.get('name')
-        keep_files = set(body.get('keep_files', []))
-        isovalue = body.get('isovalue')
-        
+        if not name:
+            return self.send_error(400)
+
         zip_path = os.path.join(OUTPUT_DIR, name, f'{name}.rxnbundle.zip')
         if not os.path.exists(zip_path):
-            self._json_response({'error': 'Bundle not found'})
-            return
-            
+            return self.send_error(404, 'Bundle not found')
+
         custom_zip_path = os.path.join(OUTPUT_DIR, name, f'{name}_custom.rxnbundle.zip')
-        
-        # If we need to remesh, import converter
-        converter = None
-        if isovalue:
-            import sys
-            sys.path.insert(0, TOOLS_DIR)
-            try:
-                from cube_converter import CubeConverter
-                converter = CubeConverter
-            except ImportError:
-                pass
-                
-        # Remesh cache
-        remeshed_meshes = {}
-        seen_files = set()
-        
-        with zipfile.ZipFile(zip_path, 'r') as zin, zipfile.ZipFile(custom_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
-            for item in zin.infolist():
-                if item.filename in seen_files:
-                    continue
-                seen_files.add(item.filename)
-                
-                is_metadata = item.filename == 'manifest.json' or item.filename.endswith('.xyz')
-                if item.filename.endswith('.json') and not item.filename.endswith('_pos.json') and not item.filename.endswith('_neg.json'):
-                    is_metadata = True
-                
-                keep_item = is_metadata or item.filename in keep_files
-                
-                if not keep_item:
-                    continue
-                
-                mesh = _try_remesh(item, name, isovalue, converter, remeshed_meshes)
-                if mesh:
-                    zout.writestr(item, json.dumps(mesh))
-                else:
-                    zout.writestr(item, zin.read(item.filename))
-        
+        _package_custom_bundle(zip_path, custom_zip_path, set(body.get('files', [])), body.get('isovalue'), name)
         self._json_response({'download_url': f'/output/{name}/{name}_custom.rxnbundle.zip'})
 
     def _api_orbital_remesh(self, body):
         name = body.get('name')
-        cube_file_path = body.get('cube_file')  # e.g. "molecules/[18]annulene_homo.json"
+        cube_file_path = body.get('cube_file')
         isovalue = body.get('isovalue', 0.045)
-        
+
         if not name or not cube_file_path:
-            self.send_error(400)
-            return
-            
+            return self.send_error(400)
+
         base_name = os.path.basename(cube_file_path).replace('.json', '').replace('_pos', '').replace('_neg', '')
-        
         raw_cube = os.path.join(OUTPUT_DIR, name, 'orbitals_raw', f'{base_name}.cube')
-        
         if not os.path.exists(raw_cube):
             raw_cube = os.path.join(OUTPUT_DIR, name, 'mep_orbitals', f'{base_name}.cube')
             if not os.path.exists(raw_cube):
-                self._json_response({'error': f'Cube file not found: {base_name}.cube'})
-                return
-                
-        sys.path.insert(0, TOOLS_DIR)
-        from cube_converter import CubeConverter
-        
+                return self._json_response({'error': f'Cube file not found: {base_name}.cube'})
+
+        converter = _load_cube_converter()
+        if not converter:
+            return self._json_response({'error': 'CubeConverter tool unavailable'})
+
         try:
-            vol, origin, step = CubeConverter.read_cube(raw_cube)
-            pos = CubeConverter.extract_mesh(vol, origin, step, isovalue)
-            neg = CubeConverter.extract_mesh(vol, origin, step, -isovalue)
-            
+            vol, origin, step = converter.read_cube(raw_cube)
+            pos = converter.extract_mesh(vol, origin, step, isovalue)
+            neg = converter.extract_mesh(vol, origin, step, -isovalue)
             self._json_response({'pos': pos, 'neg': neg})
         except Exception as e:
             self._json_response({'error': str(e)})
 
     def _api_purge_cubes(self, body):
-        import shutil
         name = body.get('name')
         if not name:
-            self.send_error(400)
-            return
-            
-        raw_dir = os.path.join(OUTPUT_DIR, name, 'orbitals_raw')
-        count = 0
-        if os.path.exists(raw_dir):
-            for f in os.listdir(raw_dir):
-                if f.endswith('.cube'):
-                    os.remove(os.path.join(raw_dir, f))
-                    count += 1
-                    
-        mep_dir = os.path.join(OUTPUT_DIR, name, 'mep_orbitals')
-        if os.path.exists(mep_dir):
-            for f in os.listdir(mep_dir):
-                if f.endswith('.cube'):
-                    os.remove(os.path.join(mep_dir, f))
-                    count += 1
-                    
+            return self.send_error(400)
+
+        count = _purge_cube_dir(os.path.join(OUTPUT_DIR, name, 'orbitals_raw'))
+        count += _purge_cube_dir(os.path.join(OUTPUT_DIR, name, 'mep_orbitals'))
         self._json_response({'status': 'ok', 'purged': count})
 
     # ── Utility methods ───────────────────────────────────────────────
 
     def _serve_file(self, filepath):
         if not os.path.isfile(filepath):
-            self.send_error(404)
-            return
+            return self.send_error(404)
         self.send_response(200)
         self.send_header('Content-Type', _mime(filepath))
         self.send_header('Content-Length', os.path.getsize(filepath))
@@ -419,14 +402,13 @@ def main():
 
     class ReusableServer(http.server.HTTPServer):
         allow_reuse_address = True
-    print(f'Attempting to bind to {args.host}:{args.port}')
-    import os
-    os.system(f'lsof -i :{args.port} || echo "Nothing on {args.port}"')
+
     try:
         server = ReusableServer((args.host, args.port), WorkbenchHandler)
     except Exception as e:
-        print('Failed! ', e)
+        print('Failed to bind server:', e)
         raise
+
     print(f"  🧪 Molecular Workbench")
     print(f"  → http://localhost:{args.port}")
     print(f"  Tools:  {TOOLS_DIR}")
@@ -440,4 +422,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

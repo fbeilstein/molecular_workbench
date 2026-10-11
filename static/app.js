@@ -51,6 +51,55 @@ window.WB.getSmiles = async function() {
 let pollInterval = null;
 let currentJobName = null;
 
+async function handleJobFinished(name, sdata) {
+    document.getElementById('btn-stop').style.display = 'none';
+    if (!sdata.ready) {
+        window.WB.status('Computation failed (bundle not ready).');
+        return;
+    }
+    window.WB.status('✓ Computation finished!');
+    await window.WB.refreshDirs();
+    const chooser = document.getElementById('run-chooser');
+    if (chooser) chooser.value = name;
+    const jobNameInput = document.getElementById('job-name');
+    if (jobNameInput) jobNameInput.value = name;
+    await window.WB.verifyBundle();
+}
+
+async function loadMoleculeIntoKetcher(name, manifest, ketcherObj) {
+    if (!ketcherObj) return;
+    if (manifest.ket_file) {
+        try {
+            const ketRes = await fetch(`/api/bundle/${name}/${manifest.ket_file}?t=${Date.now()}`);
+            if (ketRes.ok) {
+                const ketData = await ketRes.text();
+                return await ketcherObj.setMolecule(ketData);
+            }
+        } catch (err) {
+            console.warn("Could not load KET file into Ketcher:", err);
+        }
+    }
+    if (manifest.smiles) {
+        try {
+            await ketcherObj.setMolecule(manifest.smiles);
+        } catch (err) {
+            console.warn("Could not load SMILES into Ketcher:", err);
+        }
+    }
+}
+
+async function loadEspSurfaceData(base, espFile) {
+    if (window._currentEspCache) return window._currentEspCache;
+    try {
+        const res = await fetch(`${base}/${espFile}`);
+        window._currentEspCache = await res.json();
+        return window._currentEspCache;
+    } catch (e) {
+        console.error('ESP load failed', e);
+        return null;
+    }
+}
+
 window.WB.stopCompute = async function() {
     if (!currentJobName) return;
     await fetch('/api/job/stop', {
@@ -121,18 +170,7 @@ window.WB.generateComputeScript = async function() {
             
             if (!sdata.running) {
                 clearInterval(pollInterval);
-                document.getElementById('btn-stop').style.display = 'none';
-                if (sdata.ready) {
-                    window.WB.status('✓ Computation finished!');
-                    await window.WB.refreshDirs();
-                    const chooser = document.getElementById('run-chooser');
-                    if (chooser) chooser.value = name;
-                    const jobNameInput = document.getElementById('job-name');
-                    if (jobNameInput) jobNameInput.value = name;
-                    await window.WB.verifyBundle();
-                } else {
-                    window.WB.status('Computation failed (bundle not ready).');
-                }
+                await handleJobFinished(name, sdata);
             }
         }, 1000);
 
@@ -169,26 +207,7 @@ window.WB.verifyBundle = async function() {
         // Load KET layout back into Ketcher if available
         const frame = document.getElementById('ketcher-frame');
         const ketcherObj = (frame && frame.contentWindow) ? frame.contentWindow.ketcher : null;
-        
-        if (manifest.ket_file && ketcherObj) {
-            try {
-                const ketRes = await fetch(`/api/bundle/${name}/${manifest.ket_file}?t=${Date.now()}`);
-                if (ketRes.ok) {
-                    const ketData = await ketRes.text();
-                    await ketcherObj.setMolecule(ketData);
-                }
-            } catch (err) {
-                console.warn("Could not load KET file into Ketcher:", err);
-                if (manifest.smiles) await ketcherObj.setMolecule(manifest.smiles);
-            }
-        } else if (ketcherObj && manifest.smiles) {
-            // Fallback to SMILES for older bundles that lack a .ket file
-            try {
-                await ketcherObj.setMolecule(manifest.smiles);
-            } catch (err) {
-                console.warn("Could not load SMILES into Ketcher:", err);
-            }
-        }
+        await loadMoleculeIntoKetcher(name, manifest, ketcherObj);
 
         // Build chemical chooser from bundle manifest
         const chooser = document.getElementById('chemical-chooser');
@@ -326,18 +345,12 @@ window.WB.loadBundleItem = async function(value) {
         sidebar.appendChild(espRow);
 
         espCb.onchange = async () => {
-            if (espCb.checked) {
-                if (!window._currentEspCache) {
-                    try {
-                        window._currentEspCache = await (await fetch(`${base}/${mol.esp_surface.file}`)).json();
-                    } catch(e) { console.error('ESP load failed', e); return; }
-                }
-                if (window._currentEspCache && window._currentEspCache.vertices) {
-                    window.WB.onChangeHandler();
-                }
-            } else {
+            if (!espCb.checked) {
                 if (window.WB.onChangeHandler) window.WB.onChangeHandler();
+                return;
             }
+            const cache = await loadEspSurfaceData(base, mol.esp_surface.file);
+            if (cache && cache.vertices) window.WB.onChangeHandler();
         };
     }
 

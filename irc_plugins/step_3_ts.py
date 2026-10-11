@@ -6,6 +6,23 @@ from rdkit.Chem import AllChem
 LOG_PATH = 'optimization.log'
 
 
+def _evaluate_frequency_mode(atoms, model, log):
+    try:
+        from .ts_builder import analyse_mode
+        return analyse_mode(atoms, model, log)
+    except Exception as e:
+        log(f"  frequency check note: {e}")
+        return None
+
+
+def _format_frequency_verdict(ts_report):
+    if not ts_report:
+        return ""
+    if ts_report.get("n_imag") == 1 and ts_report.get("mode_consistent", True):
+        return f" | 1 imag freq ({ts_report['imag_freqs'][0]:.0f}i cm-1) - TS confirmed"
+    return f" | {ts_report.get('n_imag', 0)} imag freq(s) - check log"
+
+
 class Step3TS(PipelineStep):
     _dock_cache: Dict[Any, Any] = {}
 
@@ -26,11 +43,12 @@ class Step3TS(PipelineStep):
         params.randomSeed = 42
         if AllChem.EmbedMolecule(mol, params) != 0:
             AllChem.Compute2DCoords(mol)
-        else:
-            try:
-                AllChem.MMFFOptimizeMolecule(mol)
-            except Exception:
-                pass
+            return Chem.MolToMolBlock(mol)
+
+        try:
+            AllChem.MMFFOptimizeMolecule(mol)
+        except Exception:
+            pass
         return Chem.MolToMolBlock(mol)
 
     @staticmethod
@@ -103,68 +121,83 @@ class Step3TS(PipelineStep):
         return out
 
     # ------------------------------------------------------------------
+    def _handle_auto_dock(self, global_state, user_input):
+        try:
+            from .ts_builder import auto_dock_molblocks
+            model = self._model(global_state)
+            model.apply_override(user_input.get("reaction_override"))
+            variant = int(user_input.get("variant", 0))
+            blocks, n_var, score = auto_dock_molblocks(model, variant=variant)
+            return {"success": True, "molblocks": blocks, "n_variants": n_var,
+                    "message": f"Docking pose {variant % n_var + 1}/{n_var} (score {score:.2f})"}
+        except Exception as e:
+            return {"error": f"Auto-dock failed: {e}"}
+
+    def _handle_refine_fragment(self, global_state, user_input):
+        try:
+            from .ts_builder import refine_fragment_shape
+            frag_idx = int(user_input.get("fragment_index", 0))
+            mb = user_input.get("molblock")
+            method = user_input.get("method", "mmff")
+            model = self._model(global_state)
+            chg, mult = 0, 1
+            if frag_idx < len(model.r_mols):
+                m = model.r_mols[frag_idx]
+                chg = int(sum(a.GetFormalCharge() for a in m.GetAtoms()))
+                mult = int(sum(a.GetNumRadicalElectrons() for a in m.GetAtoms())) + 1
+            new_mb = refine_fragment_shape(mb, method=method, charge=chg, mult=mult)
+            return {"success": True, "molblock": new_mb, "fragment_index": frag_idx,
+                    "message": f"Reactant {frag_idx + 1} refined via {method.upper()} in-place."}
+        except Exception as e:
+            return {"error": f"Fragment refinement failed: {e}"}
+
+    def _handle_reset_clean(self, global_state, user_input):
+        try:
+            raw_smiles = global_state.get("step_1_input", {}).get("raw_smiles", "")
+            r_part = raw_smiles.split(">>")[0]
+            r_smiles_list = r_part.split(".") if r_part else []
+            clean_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
+            return {"success": True, "molblocks": clean_blocks,
+                    "message": "Reset scene to clean reactant conformers."}
+        except Exception as e:
+            return {"error": f"Reset failed: {e}"}
+
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
         action_type = user_input.get("action_type")
+        handlers = {
+            "auto_dock": self._handle_auto_dock,
+            "refine_fragment": self._handle_refine_fragment,
+            "reset_clean": self._handle_reset_clean,
+            "optimize_ts": lambda gs, ui: self._optimize_ts(ui, gs),
+        }
+        handler = handlers.get(action_type)
+        if not handler:
+            return {"error": f"Unknown custom action: {action_type}"}
+        return handler(global_state, user_input)
 
-        if action_type == "auto_dock":
-            try:
-                from .ts_builder import auto_dock_molblocks
-                model = self._model(global_state)
-                model.apply_override(user_input.get("reaction_override"))
-                variant = int(user_input.get("variant", 0))
-                blocks, n_var, score = auto_dock_molblocks(model, variant=variant)
-                return {"success": True, "molblocks": blocks, "n_variants": n_var,
-                        "message": f"Docking pose {variant % n_var + 1}/{n_var} (score {score:.2f})"}
-            except Exception as e:
-                return {"error": f"Auto-dock failed: {e}"}
-
-        if action_type == "refine_fragment":
-            try:
-                from .ts_builder import refine_fragment_shape
-                frag_idx = int(user_input.get("fragment_index", 0))
-                mb = user_input.get("molblock")
-                method = user_input.get("method", "mmff")
-                model = self._model(global_state)
-                chg, mult = 0, 1
-                if frag_idx < len(model.r_mols):
-                    m = model.r_mols[frag_idx]
-                    chg = int(sum(a.GetFormalCharge() for a in m.GetAtoms()))
-                    mult = int(sum(a.GetNumRadicalElectrons() for a in m.GetAtoms())) + 1
-                new_mb = refine_fragment_shape(mb, method=method, charge=chg, mult=mult)
-                return {"success": True, "molblock": new_mb, "fragment_index": frag_idx,
-                        "message": f"Reactant {frag_idx + 1} refined via {method.upper()} in-place."}
-            except Exception as e:
-                return {"error": f"Fragment refinement failed: {e}"}
-
-        if action_type == "reset_clean":
-            try:
-                raw_smiles = global_state.get("step_1_input", {}).get("raw_smiles", "")
-                r_part = raw_smiles.split(">>")[0]
-                r_smiles_list = r_part.split(".") if r_part else []
-                clean_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
-                return {"success": True, "molblocks": clean_blocks,
-                        "message": "Reset scene to clean reactant conformers."}
-            except Exception as e:
-                return {"error": f"Reset failed: {e}"}
-
-        if action_type == "optimize_ts":
-            return self._optimize_ts(user_input, global_state)
-
-        return {"error": "Unknown custom action"}
+    @staticmethod
+    def _run_strategy(strategy, atoms, model, log):
+        from .ts_builder import run_dimer_ts, run_drive_sella_ts, run_seeded_sella_ts, run_neb_ts
+        dispatch = {
+            "dimer": lambda: ([], run_dimer_ts(atoms, model, log)),
+            "drive": lambda: (run_drive_sella_ts(atoms, model, log), None),
+            "sella": lambda: (run_seeded_sella_ts(atoms, model, log), None),
+            "neb": lambda: (run_neb_ts(atoms, model, log), None),
+        }
+        runner = dispatch.get(strategy, dispatch["drive"])
+        profile, _ = runner()
+        return profile or []
 
     def _optimize_ts(self, user_input, global_state):
         import numpy as np
         from ase import Atoms
         from .ts_builder import (molblocks_to_positions, positions_to_molblocks,
-                                 run_dimer_ts, run_drive_sella_ts, run_seeded_sella_ts,
-                                 run_neb_ts, check_geometry_sanity, analyse_mode)
+                                 check_geometry_sanity, analyse_mode)
 
         docked = user_input.get("docked_molblocks", [])
         mode = user_input.get("mode", "auto")
-        strategy = user_input.get("strategy")
-        if not strategy:
-            strategy = "dimer" if mode == "refine" else "drive"
+        strategy = user_input.get("strategy") or ("dimer" if mode == "refine" else "drive")
 
         if not docked:
             return {"error": "No molblocks provided"}
@@ -190,19 +223,8 @@ class Step3TS(PipelineStep):
             for line in model.summary_lines():
                 log(line)
 
-            profile = []
             log(f"\nOptimization Strategy: {strategy.upper()}")
-
-            if strategy == "dimer":
-                run_dimer_ts(atoms, model, log)
-            elif strategy == "drive":
-                profile = run_drive_sella_ts(atoms, model, log)
-            elif strategy == "sella":
-                profile = run_seeded_sella_ts(atoms, model, log)
-            elif strategy == "neb":
-                profile = run_neb_ts(atoms, model, log)
-            else:
-                run_dimer_ts(atoms, model, log)
+            profile = self._run_strategy(strategy, atoms, model, log)
 
             # Sanity verification: protect against bond tearing / unphysical distortion
             is_sane = check_geometry_sanity(atoms, model, log)
@@ -226,19 +248,9 @@ class Step3TS(PipelineStep):
                 log(f"  Order changed {model.label(i)}-{model.label(j)} ({ro:.1f}->{po:.1f}): {d:.3f} A")
 
             log("\n=== Frequency check ===")
-            ts_report = None
-            try:
-                ts_report = analyse_mode(atoms, model, log)
-            except Exception as e:
-                log(f"  frequency check note: {e}")
-
+            ts_report = _evaluate_frequency_mode(atoms, model, log)
             opt_blocks = positions_to_molblocks(mols, atoms.get_positions())
-            verdict = ""
-            if ts_report:
-                if ts_report.get("n_imag") == 1 and ts_report.get("mode_consistent", True):
-                    verdict = f" | 1 imag freq ({ts_report['imag_freqs'][0]:.0f}i cm-1) - TS confirmed"
-                else:
-                    verdict = f" | {ts_report.get('n_imag', 0)} imag freq(s) - check log"
+            verdict = _format_frequency_verdict(ts_report)
 
             return {
                 "success": True,

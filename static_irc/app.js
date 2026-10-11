@@ -11,6 +11,15 @@ const UIRegistry = {
     'ts_editor_ui': TSEditorUI
 };
 
+async function executeStepRun(stepId, userInput) {
+    const res = await fetch(`/api/step/${stepId}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userInput)
+    });
+    return await res.json();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     let plugins = [];
     let state = {};
@@ -39,14 +48,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function determineActiveStep() {
         activeStepIndex = 0;
         for (let i = 0; i < plugins.length; i++) {
-            if (state[plugins[i].step_id]) {
-                activeStepIndex = i;
-                if (i + 1 < plugins.length) {
-                    activeStepIndex = i + 1;
-                }
-            } else {
-                break;
-            }
+            if (!state[plugins[i].step_id]) break;
+            activeStepIndex = (i + 1 < plugins.length) ? i + 1 : i;
         }
     }
 
@@ -62,11 +65,10 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.disabled = isLocked;
             
             btn.onclick = () => {
-                if (!isLocked) {
-                    activeStepIndex = index;
-                    renderTabs();
-                    renderActiveStep();
-                }
+                if (isLocked) return;
+                activeStepIndex = index;
+                renderTabs();
+                renderActiveStep();
             };
             
             tabsContainer.appendChild(btn);
@@ -134,19 +136,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         try {
-            const res = await fetch(`/api/step/${plugin.step_id}/run`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(userInput)
-            });
-            const data = await res.json();
-            
-            if (data.success) {
-                await loadPipeline(); 
-            } else {
+            const data = await executeStepRun(plugin.step_id, userInput);
+            if (!data.success) {
                 errorContainer.innerText = data.error || "Unknown error";
                 errorContainer.style.display = 'block';
+                return;
             }
+            await loadPipeline();
         } catch (err) {
             errorContainer.innerText = err.message;
             errorContainer.style.display = 'block';
@@ -156,10 +152,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     resetBtn.onclick = async () => {
-        if(confirm("Reset entire pipeline?")) {
-            await fetch('/api/reset', { method: 'POST' });
-            await loadPipeline();
-        }
+        if (!confirm("Reset entire pipeline?")) return;
+        await fetch('/api/reset', { method: 'POST' });
+        await loadPipeline();
     };
 
     loadPipeline();

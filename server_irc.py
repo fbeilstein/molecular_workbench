@@ -1,15 +1,12 @@
 import http.server
 import socketserver
 import json
-import os
 import urllib.parse
 from irc_plugins import get_plugins
 
 PORT = 8082
-
-# Global state for the single-user local app
-# Form: { step_id: { data }, ... }
 pipeline_state = {}
+
 
 class IRCHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -19,132 +16,141 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Expires', '0')
         super().end_headers()
 
+    def _send_json(self, data, status=200):
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
+
+    def _send_text(self, text, status=200):
+        self.send_response(status)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(text.encode())
+
+    def _read_json_body(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        if not content_length:
+            return {}
+        post_data = self.rfile.read(content_length)
+        return json.loads(post_data.decode()) if post_data else {}
+
+    # -----------------------------------------------------------------------
+    # GET Handlers
+    # -----------------------------------------------------------------------
+    def _handle_get_log(self):
+        try:
+            with open('optimization.log', 'r') as f:
+                content = f.read()
+            self._send_text(content)
+        except FileNotFoundError:
+            self._send_text("")
+
+    def _handle_get_plugins(self):
+        plugins = get_plugins()
+        resp = [
+            {
+                "step_id": p.step_id,
+                "step_name": p.step_name,
+                "ui_schema": p.get_ui_schema(pipeline_state)
+            }
+            for p in plugins
+        ]
+        self._send_json(resp)
+
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        
-        if parsed.path == '/':
+        path = parsed.path
+
+        if path == '/':
             self.path = '/templates_irc/index.html'
             return super().do_GET()
-        elif parsed.path.startswith('/static_irc/'):
+
+        if path.startswith('/static_irc/'):
             return super().do_GET()
-            
-        elif parsed.path.startswith('/ketcher/'):
-            rel = parsed.path[len('/ketcher/'):]
-            self.path = '/.ketcher/' + rel
+
+        if path.startswith('/ketcher/'):
+            self.path = '/.ketcher/' + path[len('/ketcher/'):]
             return super().do_GET()
-            
-        elif parsed.path == '/api/log':
-            try:
-                with open('optimization.log', 'r') as f:
-                    content = f.read()
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/plain')
-                self.end_headers()
-                self.wfile.write(content.encode())
-            except FileNotFoundError:
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b"")
-            return
-            
-        elif parsed.path == '/api/plugins':
-            plugins = get_plugins()
-            resp = [
-                {
-                    "step_id": p.step_id, 
-                    "step_name": p.step_name,
-                    "ui_schema": p.get_ui_schema(pipeline_state)
-                } 
-                for p in plugins
-            ]
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-            return
-            
-        elif parsed.path == '/api/state':
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(pipeline_state).encode())
-            return
+
+        if path == '/api/log':
+            return self._handle_get_log()
+
+        if path == '/api/plugins':
+            return self._handle_get_plugins()
+
+        if path == '/api/state':
+            return self._send_json(pipeline_state)
 
         self.send_response(404)
         self.end_headers()
+
+    # -----------------------------------------------------------------------
+    # POST Handlers
+    # -----------------------------------------------------------------------
+    def _handle_step_run(self, plugin, user_input):
+        global pipeline_state
+        plugins = get_plugins()
+        plugin_idx = plugins.index(plugin)
+
+        # Invalidate downstream steps before running this one
+        for downstream in plugins[plugin_idx + 1:]:
+            if downstream.step_id in pipeline_state:
+                del pipeline_state[downstream.step_id]
+
+        result = plugin.run(pipeline_state, user_input)
+        if result.success:
+            pipeline_state[plugin.step_id] = result.data
+
+        self._send_json({
+            "success": result.success,
+            "data": result.data,
+            "error": result.error_message,
+            "warnings": result.warnings
+        })
+
+    def _handle_step_custom(self, plugin, user_input):
+        result_data = plugin.custom_action(user_input, pipeline_state) if hasattr(plugin, 'custom_action') else {}
+        self._send_json(result_data)
+
+    def _handle_post_step(self, path):
+        parts = path.split('/')
+        if len(parts) < 5:
+            return self._send_json({"error": "Invalid step endpoint"}, 400)
+
+        step_id, action = parts[3], parts[4]
+        plugins = get_plugins()
+        plugin = next((p for p in plugins if p.step_id == step_id), None)
+        if not plugin:
+            return self._send_json({"error": f"Plugin '{step_id}' not found"}, 404)
+
+        user_input = self._read_json_body()
+        if action == 'run':
+            return self._handle_step_run(plugin, user_input)
+        if action == 'custom':
+            return self._handle_step_custom(plugin, user_input)
+
+        self._send_json({"error": f"Unknown action: {action}"}, 400)
 
     def do_POST(self):
         global pipeline_state
         parsed = urllib.parse.urlparse(self.path)
-        
-        if parsed.path.startswith('/api/step/'):
-            parts = parsed.path.split('/')
-            if len(parts) >= 5:
-                step_id = parts[3]
-                action = parts[4]
-                
-                content_length = int(self.headers['Content-Length'])
-                post_data = self.rfile.read(content_length)
-                user_input = json.loads(post_data.decode()) if post_data else {}
-                
-                plugins = get_plugins()
-                plugin = next((p for p in plugins if p.step_id == step_id), None)
-                
-                if not plugin:
-                    self.send_response(404)
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": "Plugin not found"}).encode())
-                    return
-                
-                if action == 'run':
-                    # Invalidate downstream steps before running this one
-                    plugin_idx = plugins.index(plugin)
-                    for downstream in plugins[plugin_idx+1:]:
-                        if downstream.step_id in pipeline_state:
-                            del pipeline_state[downstream.step_id]
+        path = parsed.path
 
-                    result = plugin.run(pipeline_state, user_input)
-                    
-                    if result.success:
-                        pipeline_state[step_id] = result.data
-                        
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({
-                        "success": result.success,
-                        "data": result.data,
-                        "error": result.error_message,
-                        "warnings": result.warnings
-                    }).encode())
-                    return
-                
-                elif action == 'custom':
-                    # Custom action does not modify global state and returns arbitrary data
-                    result_data = plugin.custom_action(user_input, pipeline_state) if hasattr(plugin, 'custom_action') else {}
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps(result_data).encode())
-                    return
-                
-        elif parsed.path == '/api/log':
-            pass # Removed from do_POST
-            
-        elif parsed.path == '/api/reset':
-            pipeline_state = {}
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'{}')
-            return
+        if path.startswith('/api/step/'):
+            return self._handle_post_step(path)
+
+        if path == '/api/reset':
+            pipeline_state.clear()
+            return self._send_json({})
 
         self.send_response(404)
         self.end_headers()
 
+
 if __name__ == '__main__':
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     socketserver.ThreadingTCPServer.daemon_threads = True
-    # Threaded so /api/log can be polled while a long optimization runs
     with socketserver.ThreadingTCPServer(("", PORT), IRCHandler) as httpd:
         print(f"IRC Master Tool server running at http://localhost:{PORT}")
         httpd.serve_forever()
