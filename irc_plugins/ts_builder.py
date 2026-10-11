@@ -1,36 +1,37 @@
 """
-Mapping-driven transition-state builder.
+Mapping-driven transition-state builder & Multi-strategy TS optimizers.
 
-Everything here is derived from the reaction SMILES + Step-2 atom mapping,
-so the user does not have to place molecules by hand:
+1. ReactionModel:
+   - Tracks shared atom index space, R->P mapping.
+   - Categorizes bonds into:
+       * Formed bonds (new covalent connections)
+       * Broken bonds (severed covalent connections)
+       * Order-changing bonds (e.g. C=C -> C-C, pi-bond breakage in electrophilic additions)
+       * Spectator bonds (inviolable bonds whose connectivity and order do NOT change)
+   - Computes chemical attack vectors, charge, and spin multiplicity.
 
-1. ReactionModel   - one shared atom index space (reactant complex order),
-                     completed R->P bijection (incl. transferred H),
-                     formed / broken bonds, total charge, multiplicity.
-2. attack_mode()   - chemically motivated approach direction per reactive
-                     atom (backside of a leaving group, lone-pair side,
-                     normal of an sp2 plane, D-H axis for proton transfer).
-3. dock()          - rigid-body placement of reactant fragments that
-                     satisfies all inter-fragment forming bonds + sterics.
-4. bond_drive()    - synchronous restrained xTB scan R -> P in the SAME
-                     frame (the product is reached continuously, so there
-                     is no R/P orientation/permutation mismatch).
-5. refine_ts()     - Sella saddle search from the scan maximum and a
-                     frequency check that the imaginary mode is the
-                     expected bond reorganisation.
+2. Fragment Shape Refinement (Molecular Explorer methods):
+   - MMFF94 force-field clean-up
+   - GFN2-xTB quantum geometry optimization
+   - In-place Kabsch alignment so docked orientation and center-of-mass are preserved.
 
-Note on product 3D geometries: independently embedded products are NOT used
-as a template - e.g. for SN2 the CH3 umbrella is inverted in the product, so
-superimposing on it would put the nucleophile on the leaving-group side.
-The product *graph* is what carries the information.
+3. TS Optimization Strategies:
+   - Strategy 'dimer': Dimer method (ase.mep.dimer) for crude manual starts (force-based mode search).
+   - Strategy 'drive': Constrained coordinate drive across reaction coordinate -> Sella polish.
+   - Strategy 'sella': Constrained pre-relaxation of spectators -> Seeded Sella (v0 along reaction vector).
+   - Strategy 'neb': Climbing Image Nudged Elastic Band (CI-NEB) with IDPP.
+
+4. Safety & Geometry Sanity:
+   - Spectator bond guards prevent unphysical C-H or C-C tearing.
+   - Pre- and post-optimization sanity checks detect divergence without corrupting the user scene.
 """
 import os
 import tempfile
-
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Geometry import Point3D
+from scipy.spatial.transform import Rotation
 
 _PT = Chem.GetPeriodicTable()
 EV_TO_KCAL = 23.060548
@@ -65,8 +66,23 @@ def dir_pen(mode, R, u):
     return c * c  # perp
 
 
+def align_to_reference(p_orig, p_new):
+    """Rigid Kabsch alignment: rotate and translate p_new to best fit p_orig."""
+    c_orig = np.mean(p_orig, axis=0)
+    c_new = np.mean(p_new, axis=0)
+    p0 = p_orig - c_orig
+    p1 = p_new - c_new
+    if len(p0) < 2:
+        return p_new - c_new + c_orig
+    try:
+        rot, _ = Rotation.align_vectors(p0, p1)
+        return rot.apply(p1) + c_orig
+    except Exception:
+        return p_new - c_new + c_orig
+
+
 # ---------------------------------------------------------------------------
-# 1. Reaction model
+# 1. Reaction model with Bond Order Tracking
 # ---------------------------------------------------------------------------
 class ReactionModel:
     def __init__(self, raw_smiles, mapping_json):
@@ -74,7 +90,6 @@ class ReactionModel:
         self.r_smiles = [s.strip() for s in r_part.split(".") if s.strip()]
         self.p_smiles = [s.strip() for s in p_part.split(".") if s.strip()]
 
-        # Same construction as Step 2 / Step 3 so atom indices agree
         self.r_mols = [Chem.AddHs(Chem.MolFromSmiles(s)) for s in self.r_smiles]
         self.p_mols = [Chem.AddHs(Chem.MolFromSmiles(s)) for s in self.p_smiles]
         if any(m is None for m in self.r_mols + self.p_mols):
@@ -91,18 +106,21 @@ class ReactionModel:
                 self.frag_of.append(fi)
                 self.symbols.append(a.GetSymbol())
 
-        # reactant graph in complex indices
+        # Reactant graph with bond orders
         self.r_bonds = set()
+        self.r_bond_orders = {}
         self.neighbors = [[] for _ in range(self.n_atoms)]
         for fi, m in enumerate(self.r_mols):
             o = self.offsets[fi]
             for b in m.GetBonds():
                 i, j = o + b.GetBeginAtomIdx(), o + b.GetEndAtomIdx()
-                self.r_bonds.add((min(i, j), max(i, j)))
+                pair = (min(i, j), max(i, j))
+                self.r_bonds.add(pair)
+                self.r_bond_orders[pair] = float(b.GetBondTypeAsDouble())
                 self.neighbors[i].append(j)
                 self.neighbors[j].append(i)
 
-        # mapping
+        # Mapping dictionary
         r2p = {}
         for k, v in (mapping_json or {}).items():
             try:
@@ -112,7 +130,7 @@ class ReactionModel:
                 r2p[ci] = (int(pfi), int(pai))
             except (ValueError, IndexError):
                 continue
-        # drop duplicate targets (keep first)
+
         seen, clean = set(), {}
         for ci in sorted(r2p):
             if r2p[ci] not in seen:
@@ -122,29 +140,43 @@ class ReactionModel:
         self.r2p = self._complete_mapping(clean)
         self.p2r = {v: k for k, v in self.r2p.items()}
 
-        # product graph pulled back to complex indices
+        # Product graph with bond orders pulled back to reactant atom indices
         self.p_bonds = set()
+        self.p_bond_orders = {}
         for pfi, m in enumerate(self.p_mols):
             for b in m.GetBonds():
                 i = self.p2r.get((pfi, b.GetBeginAtomIdx()))
                 j = self.p2r.get((pfi, b.GetEndAtomIdx()))
                 if i is not None and j is not None:
-                    self.p_bonds.add((min(i, j), max(i, j)))
+                    pair = (min(i, j), max(i, j))
+                    self.p_bonds.add(pair)
+                    self.p_bond_orders[pair] = float(b.GetBondTypeAsDouble())
 
         mapped = set(self.r2p)
         self.formed = sorted(b for b in self.p_bonds - self.r_bonds)
         self.broken = sorted(b for b in self.r_bonds - self.p_bonds
                              if b[0] in mapped and b[1] in mapped)
 
+        # Detect order-changing bonds (e.g. C=C -> C-C, pi-bond breaking)
+        self.order_changed = []
+        for pair in self.r_bonds.intersection(self.p_bonds):
+            r_ord = self.r_bond_orders.get(pair, 1.0)
+            p_ord = self.p_bond_orders.get(pair, 1.0)
+            if abs(r_ord - p_ord) > 0.4:
+                self.order_changed.append((pair[0], pair[1], r_ord, p_ord))
+
+        # Spectator bonds: bonds that exist in both and DO NOT change bond order
+        changing_pairs = set(self.formed).union(set(self.broken)).union({(i, j) for i, j, _, _ in self.order_changed})
+        self.spectator_bonds = sorted([b for b in self.r_bonds if b not in changing_pairs])
+
         self.charge = int(sum(a.GetFormalCharge() for m in self.r_mols for a in m.GetAtoms()))
         n_rad = int(sum(a.GetNumRadicalElectrons() for m in self.r_mols for a in m.GetAtoms()))
         self.multiplicity = n_rad + 1
+        self.overridden = False
 
     def _complete_mapping(self, r2p):
-        """Extend a partial mapping to a bijection (transferred H etc.)."""
         r2p = dict(r2p)
         used = set(r2p.values())
-        # pass 1: an unmapped atom stays on the image of its own neighbour
         for ci in range(self.n_atoms):
             if ci in r2p:
                 continue
@@ -161,7 +193,6 @@ class ReactionModel:
                         break
                 if ci in r2p:
                     break
-        # pass 2: any free product atom of the same element
         free = [(pfi, a.GetIdx(), a.GetSymbol())
                 for pfi, m in enumerate(self.p_mols) for a in m.GetAtoms()
                 if (pfi, a.GetIdx()) not in used]
@@ -175,7 +206,6 @@ class ReactionModel:
                     break
         return r2p
 
-    # helpers -------------------------------------------------------------
     def local(self, ci):
         fi = self.frag_of[ci]
         return fi, ci - self.offsets[fi]
@@ -195,7 +225,9 @@ class ReactionModel:
             lines.append(f"  FORMING  {self.label(i)} ... {self.label(j)}")
         for i, j in self.broken:
             lines.append(f"  BREAKING {self.label(i)} -- {self.label(j)}")
-        if not self.formed and not self.broken:
+        for i, j, ro, po in self.order_changed:
+            lines.append(f"  PI/ORDER {self.label(i)}--{self.label(j)}: order {ro:.1f} -> {po:.1f}")
+        if not self.formed and not self.broken and not self.order_changed:
             lines.append("  (no bond changes detected - check the mapping)")
         return lines
 
@@ -203,16 +235,14 @@ class ReactionModel:
         return {
             "forming": [[list(self.local(i)), list(self.local(j))] for i, j in self.formed],
             "breaking": [[list(self.local(i)), list(self.local(j))] for i, j in self.broken],
+            "order_changed": [[[list(self.local(i)), list(self.local(j))], ro, po]
+                              for i, j, ro, po in self.order_changed],
             "summary": self.summary_lines(),
             "charge": self.charge,
             "multiplicity": self.multiplicity,
         }
 
     def apply_override(self, override):
-        """Replace formed/broken bonds by user-picked pairs.
-
-        override = {"forming": [[[fi, ai], [fj, aj]], ...], "breaking": [...]}
-        """
         if not override:
             return False
 
@@ -230,42 +260,16 @@ class ReactionModel:
         if not forming and not breaking:
             return False
         self.formed, self.broken = forming, breaking
+        changing = set(self.formed).union(set(self.broken)).union({(i, j) for i, j, _, _ in self.order_changed})
+        self.spectator_bonds = sorted([b for b in self.r_bonds if b not in changing])
         self.overridden = True
         return True
 
-    def pose_problems(self, positions):
-        """Is this a usable pre-reaction arrangement? Returns list of reasons if not."""
-        reasons = []
-        coords = lambda c: positions[c]
-        for i, j in self.formed:
-            if self.frag_of[i] == self.frag_of[j]:
-                continue
-            d = float(np.linalg.norm(positions[j] - positions[i]))
-            if d > self.d0(i, j) + DOCK_EXTRA + 1.0:
-                reasons.append(f"{self.label(i)}...{self.label(j)} are {d:.1f} A apart")
-                continue
-            u = _unit(positions[j] - positions[i])
-            for a, b, uu in ((i, j, u), (j, i, -u)):
-                pen = dir_pen(self.attack_mode(a, coords), np.eye(3), uu)
-                if pen > 0.5:  # > 60 deg off the ideal approach
-                    reasons.append(f"{self.label(b)} approaches {self.label(a)} from a bad direction")
-        return reasons
-
-    def split(self, positions):
-        return [positions[o:o + m.GetNumAtoms()] for o, m in zip(self.offsets, self.r_mols)]
-
-    # -------------------------------------------------------------------
-    # 2. Attack directions
-    # -------------------------------------------------------------------
     def attack_mode(self, ci, coords_of):
-        """Return ('vec'|'axis'|'perp', unit vector) or None.
-
-        coords_of(cj) -> xyz of complex atom cj in the frame of ci's fragment.
-        """
         x = coords_of(ci)
         nbrs = self.neighbors[ci]
         leaving = [j for j in nbrs if (min(ci, j), max(ci, j)) in self.broken]
-        if leaving:  # substitution / transfer: come in anti to what leaves
+        if leaving:
             v = -sum(_unit(coords_of(j) - x) for j in leaving)
             if np.linalg.norm(v) > 1e-3:
                 return ("vec", _unit(v))
@@ -273,19 +277,16 @@ class ReactionModel:
             return None
         units = [_unit(coords_of(j) - x) for j in nbrs]
         s = np.sum(units, axis=0)
-        if len(nbrs) == 1 or np.linalg.norm(s) > 0.35:  # lone pair side
+        if len(nbrs) == 1 or np.linalg.norm(s) > 0.35:
             return ("vec", _unit(-s))
-        if len(nbrs) == 2:  # linear sp centre: attack perpendicular
+        if len(nbrs) == 2:
             return ("perp", units[0])
-        if len(nbrs) == 3:  # planar sp2 centre: attack along the normal
+        if len(nbrs) == 3:
             n = np.cross(units[1] - units[0], units[2] - units[0])
             if np.linalg.norm(n) > 1e-6:
                 return ("axis", _unit(n))
         return None
 
-    # -------------------------------------------------------------------
-    # Fragment embedding (conformer chosen for intramolecular forming bonds)
-    # -------------------------------------------------------------------
     def embed_fragments(self, seed=42):
         out = []
         for fi, m0 in enumerate(self.r_mols):
@@ -314,14 +315,8 @@ class ReactionModel:
             out.append(Chem.Mol(mol, False, best))
         return out
 
-    # -------------------------------------------------------------------
-    # 3. Rigid-body docking
-    # -------------------------------------------------------------------
     def dock(self, frag_coords, variant=0, n_starts=32, seed=7):
-        """frag_coords: list of (n_i,3). Returns (list of (n_i,3), n_variants, score)."""
         from scipy.optimize import minimize
-        from scipy.spatial.transform import Rotation
-
         nf = len(frag_coords)
         if nf < 2:
             return [np.array(c, float) for c in frag_coords], 1, 0.0
@@ -347,7 +342,6 @@ class ReactionModel:
                     for b in self.formed for a in b}
         connected = {p[0] for p in pairs} | {p[2] for p in pairs}
 
-        # steric thresholds between fragment pairs
         thr = {}
         for f in range(nf):
             for g in range(f + 1, nf):
@@ -383,7 +377,7 @@ class ReactionModel:
             for (f, g), Tm in thr.items():
                 D = np.linalg.norm(X[f][:, None, :] - X[g][None, :, :], axis=2)
                 E += 3.0 * np.sum(np.clip(Tm - D, 0.0, None) ** 2)
-            for f in movers:  # keep spectators close but not bonded
+            for f in movers:
                 if f not in connected:
                     E += 0.1 * max(0.0, np.linalg.norm(T[f][1]) - 6.0) ** 2
             return E
@@ -403,7 +397,6 @@ class ReactionModel:
             results.append((res.fun, res.x))
         results.sort(key=lambda r: r[0])
 
-        # distinct poses (for the "next pose" button)
         unique = []
         for fun, x in results:
             T = transforms(x)
@@ -423,7 +416,7 @@ class ReactionModel:
 
 
 # ---------------------------------------------------------------------------
-# Mol / coordinate helpers
+# 2. Fragment In-Place Refinement (Molecular Explorer methods)
 # ---------------------------------------------------------------------------
 def set_positions(mol, xyz):
     mol = Chem.Mol(mol)
@@ -433,6 +426,34 @@ def set_positions(mol, xyz):
     for i, p in enumerate(xyz):
         conf.SetAtomPosition(i, Point3D(float(p[0]), float(p[1]), float(p[2])))
     return mol
+
+
+def refine_fragment_shape(mol_block, method="mmff", charge=0, mult=1):
+    """Refine isolated molecule geometry in-place using MMFF94 or GFN2-xTB."""
+    mol = Chem.MolFromMolBlock(mol_block, removeHs=False)
+    if mol is None:
+        raise ValueError("Invalid molblock")
+    p_orig = mol.GetConformer().GetPositions().copy()
+
+    if method.lower() == "mmff":
+        AllChem.MMFFOptimizeMolecule(mol, maxIters=500)
+        p_new = mol.GetConformer().GetPositions()
+    elif method.lower() == "xtb":
+        from ase import Atoms
+        from ase.optimize import LBFGS
+        from tblite.ase import TBLite
+        symbols = [a.GetSymbol() for a in mol.GetAtoms()]
+        frag_atoms = Atoms(symbols=symbols, positions=p_orig.copy())
+        frag_atoms.calc = TBLite(method="GFN2-xTB", charge=charge, multiplicity=mult, verbosity=0)
+        opt = LBFGS(frag_atoms, logfile=None, maxstep=0.2)
+        opt.run(fmax=0.04, steps=100)
+        p_new = frag_atoms.get_positions()
+    else:
+        raise ValueError(f"Unknown refinement method: {method}")
+
+    # Align back to current pose so docking orientation is preserved
+    p_aligned = align_to_reference(p_orig, p_new)
+    return Chem.MolToMolBlock(set_positions(mol, p_aligned))
 
 
 def molblocks_to_positions(molblocks):
@@ -460,9 +481,16 @@ def auto_dock_molblocks(model, variant=0):
 
 
 # ---------------------------------------------------------------------------
-# 4. Restrained xTB bond drive
+# 3. Calculators, Spectator Restraints & Sanity Checks
 # ---------------------------------------------------------------------------
-def _make_restrained_calc(base_atoms, restraints, k):
+def make_xtb(charge, multiplicity):
+    from tblite.ase import TBLite
+    return TBLite(method="GFN2-xTB", charge=charge, multiplicity=multiplicity, verbosity=0,
+                  electronic_temperature=1000.0, max_iterations=600, mixer_damping=0.2)
+
+
+def _make_restrained_calc(base_atoms, restraints, k, spectator_restraints=None, k_spec=50.0):
+    """Calculator adding harmonic restraints for reaction coordinates and spectator protection."""
     from ase.calculators.calculator import Calculator, all_changes
 
     class RestrainedCalculator(Calculator):
@@ -479,6 +507,8 @@ def _make_restrained_calc(base_atoms, restraints, k):
             e = base_atoms.get_potential_energy()
             f = base_atoms.get_forces().copy()
             er = 0.0
+
+            # Active reaction coordinate restraints
             for i, j, t in restraints:
                 r = pos[j] - pos[i]
                 d = np.linalg.norm(r)
@@ -487,32 +517,150 @@ def _make_restrained_calc(base_atoms, restraints, k):
                 er += 0.5 * k * dd * dd
                 f[j] -= k * dd * u
                 f[i] += k * dd * u
+
+            # Inviolable spectator bond protection
+            if spectator_restraints:
+                for i, j, t0 in spectator_restraints:
+                    r = pos[j] - pos[i]
+                    d = np.linalg.norm(r)
+                    u = r / d
+                    # Soft half-harmonic: only penalize elongation > +0.2 A
+                    if d > t0 + 0.15:
+                        dd = d - (t0 + 0.15)
+                        er += 0.5 * k_spec * dd * dd
+                        f[j] -= k_spec * dd * u
+                        f[i] += k_spec * dd * u
+
             self.e_base = e
             self.results = {"energy": e + er, "forces": f}
 
     return RestrainedCalculator()
 
 
-def make_xtb(charge, multiplicity):
-    from tblite.ase import TBLite
-    return TBLite(method="GFN2-xTB", charge=charge, multiplicity=multiplicity,
-                  verbosity=0)
+def check_geometry_sanity(atoms, model, log, tolerance=0.35):
+    """Verify that non-reacting spectator bonds were not stretched into unphysical states."""
+    pos = atoms.get_positions()
+    bad_bonds = []
+    for i, j in model.spectator_bonds:
+        d = float(np.linalg.norm(pos[i] - pos[j]))
+        d_ideal = model.d0(i, j)
+        if d > d_ideal + tolerance:
+            bad_bonds.append((i, j, d, d_ideal))
+    if bad_bonds:
+        log("\n⚠️ SANITY CHECK FAILED: The following spectator bond(s) were severely distorted:")
+        for i, j, d, di in bad_bonds:
+            log(f"   {model.label(i)}-{model.label(j)}: length {d:.2f} A (expected ~{di:.2f} A)")
+        return False
+    return True
 
 
-def bond_drive(atoms, model, log, n_points=13, k=20.0):
-    """Synchronous restrained scan of all forming/breaking bonds.
+def build_reaction_eigenvector(atoms, model):
+    """Construct an explicit reaction vector (compressing formed, stretching broken/order-changed)."""
+    pos = atoms.get_positions()
+    v = np.zeros_like(pos)
+    for i, j in model.formed:
+        u = _unit(pos[j] - pos[i])
+        v[i] += u
+        v[j] -= u
+    for i, j in model.broken:
+        u = _unit(pos[j] - pos[i])
+        v[i] -= u
+        v[j] += u
+    for i, j, _, _ in model.order_changed:
+        u = _unit(pos[j] - pos[i])
+        v[i] -= u * 0.5
+        v[j] += u * 0.5
+    norm = np.linalg.norm(v)
+    return v / norm if norm > 1e-6 else None
 
-    Returns (frames, energies_eV, lambdas).
-    """
+
+# ---------------------------------------------------------------------------
+# 4. Multi-Strategy Optimizers for Manual Guesses
+# ---------------------------------------------------------------------------
+
+def run_dimer_ts(atoms, model, log, steps=100, fmax=0.04):
+    """Strategy 1: Dimer Method (Robust saddle search from crude manual guess)."""
+    from ase.mep.dimer import DimerControl, MinModeAtoms, MinModeTranslate
     from ase.optimize import LBFGS
+    from sella import Sella
+    log("\n=== Strategy: Dimer Method (ase.mep.dimer) ===")
+    log("Dynamically searching and following lowest-curvature reaction mode using force replicas...")
 
+    # If the user placed fragments far apart (> d0 + 1.0 A), pre-contract forming bonds
+    # into the interaction zone (~d0 + 0.65 A) so Dimer does not wander into the dissociation limit
+    pos = atoms.get_positions()
+    far_forming = [pair for pair in model.formed if np.linalg.norm(pos[pair[0]] - pos[pair[1]]) > model.d0(pair[0], pair[1]) + 1.0]
+    if far_forming:
+        log("  Initial manual placement has large forming distance; pre-contracting into the TS zone (~2.2 A)...")
+        base = atoms.copy()
+        base.calc = make_xtb(model.charge, model.multiplicity)
+        targets = [(i, j, model.d0(i, j) + 0.65) for i, j in model.formed]
+        spec = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in model.spectator_bonds]
+        calc = _make_restrained_calc(base, targets, 35.0, spectator_restraints=spec)
+        atoms.calc = calc
+        pre_opt = LBFGS(atoms, logfile=None, maxstep=0.2)
+        pre_opt.run(fmax=0.1, steps=25)
+        atoms.set_positions(atoms.get_positions())
+        log(f"  Pre-contraction complete. Initializing Dimer saddle search...")
+
+    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    d_control = DimerControl(
+        initial_eigenmode_method='displacement',
+        displacement_method='vector',
+        dimer_separation=0.005,
+        maximum_translation=0.08,
+        trial_trans_step=0.005,
+        f_rot_min=0.05,
+        f_rot_max=0.5,
+        max_num_rot=3
+    )
+    d_atoms = MinModeAtoms(atoms, d_control)
+
+    v0 = build_reaction_eigenvector(atoms, model)
+    if v0 is not None:
+        try:
+            d_atoms.initialize_eigenmodes(eigenmodes=[v0])
+            log("  Seeded dimer eigenmode along forming/breaking bonds.")
+        except Exception:
+            pass
+
+    opt = MinModeTranslate(d_atoms, logfile=None)
+
+    def _log_dimer():
+        try:
+            f = float(np.max(np.linalg.norm(d_atoms.get_forces(), axis=1)))
+            e = atoms.get_potential_energy()
+            if opt.nsteps % 5 == 0 or f < fmax:
+                log(f"  Dimer step {opt.nsteps:3d}: E = {e:.4f} eV, max|F| = {f:.4f} eV/A")
+        except Exception:
+            pass
+
+    opt.attach(_log_dimer)
+    try:
+        opt.run(fmax=fmax, steps=steps)
+        log("  Dimer stage finished.")
+    except Exception as e:
+        log(f"  Dimer search note: {e}")
+
+    # Quick polish with Sella
+    try:
+        log("  Polishing Dimer saddle point with Sella...")
+        s_opt = Sella(atoms, internal=True, order=1, logfile=None)
+        s_opt.run(fmax=0.03, steps=30)
+    except Exception as e:
+        log(f"  Sella polish note: {e} (using Dimer saddle geometry)")
+    return True
+
+
+def run_drive_sella_ts(atoms, model, log, n_points=11, k=25.0):
+    """Strategy 2: Constrained Coordinate Drive across barrier peak -> Sella."""
+    from ase.optimize import LBFGS
+    from sella import Sella
+    log("\n=== Strategy: Constrained Coordinate Drive -> Sella ===")
     pairs = model.formed + model.broken
     pos = atoms.get_positions()
     d_cur = np.array([np.linalg.norm(pos[i] - pos[j]) for i, j in pairs])
-    # Start from reactant-like distances whatever the input geometry is
-    # (auto-docked complex, a hand-made TS-like guess, or a previous TS):
-    # forming bonds open, breaking bonds intact.  The restraint at lambda=0
-    # moves the geometry there first.
+
     d_start, d_end = [], []
     for (i, j), dc in zip(pairs, d_cur):
         d0 = model.d0(i, j)
@@ -524,6 +672,8 @@ def bond_drive(atoms, model, log, n_points=13, k=20.0):
             d_end.append(d0 + BREAK_EXTRA)
     d_start, d_end = np.array(d_start), np.array(d_end)
 
+    spec_restraints = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in model.spectator_bonds]
+
     base = atoms.copy()
     base.calc = make_xtb(model.charge, model.multiplicity)
 
@@ -531,11 +681,11 @@ def bond_drive(atoms, model, log, n_points=13, k=20.0):
     i_max = 0
     for n, lam in enumerate(np.linspace(0.0, 1.0, n_points)):
         targets = d_start + lam * (d_end - d_start)
-        calc = _make_restrained_calc(base, [(i, j, t) for (i, j), t in zip(pairs, targets)], k)
+        calc = _make_restrained_calc(base, [(i, j, t) for (i, j), t in zip(pairs, targets)], k,
+                                     spectator_restraints=spec_restraints)
         atoms.calc = calc
-        opt = LBFGS(atoms, logfile=None, maxstep=0.2)
-        opt.run(fmax=0.1, steps=120)
-        atoms.get_potential_energy()
+        opt = LBFGS(atoms, logfile=None, maxstep=0.15)
+        opt.run(fmax=0.08, steps=100)
         e = calc.e_base
         frames.append(atoms.get_positions().copy())
         energies.append(e)
@@ -543,50 +693,105 @@ def bond_drive(atoms, model, log, n_points=13, k=20.0):
         if e > energies[i_max]:
             i_max = n
         rel = (e - energies[0]) * EV_TO_KCAL
-        bar = "#" * max(0, min(40, int(round(rel / 2.0))))
-        dist_txt = ", ".join(f"{np.linalg.norm(atoms.positions[i] - atoms.positions[j]):.2f}"
-                             for i, j in pairs)
-        log(f"  lambda={lam:4.2f}  dE={rel:+7.2f} kcal/mol  d=[{dist_txt}]  {bar}")
-        # stop once we are clearly past the barrier
-        if n >= i_max + 2 and (energies[i_max] - e) * EV_TO_KCAL > 4.0:
-            log("  (past the barrier - stopping scan early)")
-            break
-    atoms.calc = None
-    return frames, energies, lams
+        log(f"  lambda={lam:4.2f}  dE={rel:+7.2f} kcal/mol")
+        # Only stop early if we have truly climbed a barrier and descended past it
+        if i_max >= 2 and (energies[i_max] - energies[0]) * EV_TO_KCAL > 3.0:
+            if (energies[i_max] - e) * EV_TO_KCAL > 6.0:
+                log("  (passed barrier maximum - stopping scan early)")
+                break
+
+    atoms.set_positions(frames[i_max])
+    log(f"  Barrier peak selected at lambda={lams[i_max]:.2f}. Refining with Sella...")
+    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    try:
+        opt = Sella(atoms, internal=True, order=1, logfile=None)
+        opt.run(fmax=0.03, steps=120)
+    except Exception as e:
+        log(f"  Sella polish note: {e}")
+    profile = [[l, (e - energies[0]) * EV_TO_KCAL] for l, e in zip(lams, energies)]
+    return profile
 
 
-def refine_guess(atoms, model, log, k=20.0):
-    """Manual mode: the given geometry IS the TS guess.
-
-    Freeze the reacting bonds at their current lengths (harmonic restraints)
-    and relax everything else, so rigid-body docking artefacts (e.g. a CH3
-    umbrella that has not inverted yet) are fixed before the saddle search.
-    """
+def run_seeded_sella_ts(atoms, model, log):
+    """Strategy 3: Constrained Pre-Relaxation -> Sella."""
     from ase.optimize import LBFGS
-
+    from sella import Sella
+    log("\n=== Strategy: Pre-Relaxation -> Sella ===")
     pairs = model.formed + model.broken
-    if not pairs:
-        log("  no reacting bonds defined - skipping constrained pre-relaxation")
-        return
     pos = atoms.get_positions()
     restraints = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in pairs]
-    for i, j, d in restraints:
-        log(f"  freezing {model.label(i)}-{model.label(j)} at {d:.2f} A")
+    spec_restraints = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in model.spectator_bonds]
+
     base = atoms.copy()
     base.calc = make_xtb(model.charge, model.multiplicity)
-    atoms.calc = _make_restrained_calc(base, restraints, k)
-    opt = LBFGS(atoms, logfile=None, maxstep=0.2)
-    opt.run(fmax=0.08, steps=200)
-    log(f"  pre-relaxation done in {opt.nsteps} steps, "
-        f"E(xTB) = {atoms.calc.e_base:.4f} eV")
-    atoms.calc = None
+    atoms.calc = _make_restrained_calc(base, restraints, 25.0, spectator_restraints=spec_restraints)
+    opt = LBFGS(atoms, logfile=None, maxstep=0.15)
+    opt.run(fmax=0.06, steps=120)
+    log(f"  Pre-relaxation complete. Relaxed energy = {atoms.calc.e_base:.4f} eV")
+
+    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    try:
+        opt = Sella(atoms, internal=True, order=1, logfile=None)
+        opt.run(fmax=0.03, steps=150)
+    except Exception as e:
+        log(f"  Sella optimization note: {e}")
+    return []
+
+
+def run_neb_ts(atoms, model, log, n_images=7):
+    """Strategy 4: Climbing Image Nudged Elastic Band (CI-NEB with IDPP)."""
+    from ase.optimize import LBFGS, MDMin
+    from ase.mep import NEB
+    from ase.mep.neb import idpp_interpolate
+    from sella import Sella
+    log("\n=== Strategy: Climbing Image NEB (CI-NEB) ===")
+
+    # 1. Product endpoint P generated cleanly via restrained relaxation
+    p_atoms = atoms.copy()
+    p_targets = [(i, j, model.d0(i, j)) for i, j in model.formed]
+    p_targets += [(i, j, model.d0(i, j) + 1.25) for i, j in model.broken]
+    spec_restraints = [(i, j, float(np.linalg.norm(atoms.positions[i] - atoms.positions[j]))) for i, j in model.spectator_bonds]
+
+    p_base = p_atoms.copy()
+    p_base.calc = make_xtb(model.charge, model.multiplicity)
+    p_atoms.calc = _make_restrained_calc(p_base, p_targets, k=30.0, spectator_restraints=spec_restraints)
+    p_opt = LBFGS(p_atoms, logfile=None, maxstep=0.2)
+    p_opt.run(fmax=0.08, steps=50)
+
+    # 2. Build NEB band between current manual pose (R) and relaxed product (P)
+    images = [atoms.copy() for _ in range(n_images)]
+    images[0].set_positions(atoms.get_positions())
+    images[-1].set_positions(p_atoms.get_positions())
+    idpp_interpolate(images, mic=False)
+
+    for img in images:
+        img.calc = make_xtb(model.charge, model.multiplicity)
+
+    neb = NEB(images, climb=True, method='improvedtangent')
+    opt = MDMin(neb, logfile=None)
+    opt.run(fmax=0.10, steps=80)
+
+    # 3. Intermediate image with highest energy is the TS guess
+    energies = [img.get_potential_energy() for img in images]
+    # Restrict saddle search to intermediate images (1 to n_images-2)
+    mid_idx = int(np.argmax(energies[1:-1])) + 1
+    atoms.set_positions(images[mid_idx].get_positions())
+    log(f"  CI-NEB finished. Image {mid_idx} selected as barrier top (E = {energies[mid_idx]:.4f} eV). Refining with Sella...")
+
+    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    try:
+        s_opt = Sella(atoms, internal=True, order=1, logfile=None)
+        s_opt.run(fmax=0.03, steps=100)
+    except Exception as e:
+        log(f"  Sella polish note: {e}")
+    profile = [[float(idx), float((e - energies[0]) * EV_TO_KCAL)] for idx, e in enumerate(energies)]
+    return profile
 
 
 # ---------------------------------------------------------------------------
-# 5. TS refinement + validation
+# 5. Vibrational Frequency Verification
 # ---------------------------------------------------------------------------
 def analyse_mode(atoms, model, log, max_atoms=60):
-    """Finite-difference Hessian; report imaginary modes and their character."""
     if len(atoms) > max_atoms:
         log(f"  (skipping frequency check: {len(atoms)} atoms)")
         return None
@@ -624,12 +829,3 @@ def analyse_mode(atoms, model, log, max_atoms=60):
     log(f"  Main imaginary mode: {share * 100:.0f}% of bond-stretch amplitude on the "
         f"reacting bonds; forming/breaking in antiphase: {'yes' if signs_ok else 'NO'}")
     return report
-
-
-def refine_ts(atoms, model, log_fh, log, fmax=0.01, steps=250):
-    from sella import Sella
-
-    atoms.calc = make_xtb(model.charge, model.multiplicity)
-    opt = Sella(atoms, internal=True, order=1, logfile=log_fh)
-    converged = opt.run(fmax=fmax, steps=steps)
-    return bool(converged)

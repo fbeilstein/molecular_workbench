@@ -73,12 +73,18 @@ function el(tag, style = {}, text = null) {
     return e;
 }
 
-function styledButton(text, primary = false) {
+function styledButton(text, primary = false, small = false) {
     const b = el('button', {
-        padding: '9px 14px', margin: '4px 6px 4px 0', borderRadius: '6px', cursor: 'pointer',
-        border: primary ? 'none' : '1px solid #c7ccd6', fontWeight: primary ? '600' : '500',
+        padding: small ? '5px 9px' : '9px 14px',
+        margin: '4px 6px 4px 0',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        fontSize: small ? '11.5px' : '13px',
+        border: primary ? 'none' : '1px solid #c7ccd6',
+        fontWeight: primary ? '600' : '500',
         background: primary ? 'linear-gradient(135deg,#4f6ef7,#7b4ff7)' : '#fff',
-        color: primary ? '#fff' : '#333', boxShadow: primary ? '0 2px 8px rgba(79,110,247,.35)' : 'none'
+        color: primary ? '#fff' : '#333',
+        boxShadow: primary ? '0 2px 8px rgba(79,110,247,.35)' : 'none'
     }, text);
     return b;
 }
@@ -231,6 +237,8 @@ export const TSEditorUI = {
             rxnBonds.breaking.forEach(p => addLine(p, 0xe0245e));
         }
 
+        let liveDistanceDisplay = null;
+
         function updateReactionLines() {
             const v1 = new THREE.Vector3(), v2 = new THREE.Vector3();
             reactionLines.forEach(({ line, m1, m2 }) => {
@@ -241,6 +249,23 @@ export const TSEditorUI = {
                 pos.needsUpdate = true;
                 line.computeLineDistances();
             });
+
+            if (liveDistanceDisplay) {
+                if (picked.length === 2) {
+                    const g1 = moleculeGroups[picked[0].fi], g2 = moleculeGroups[picked[1].fi];
+                    const m1 = g1?.userData.atomMeshes[picked[0].ai];
+                    const m2 = g2?.userData.atomMeshes[picked[1].ai];
+                    if (m1 && m2) {
+                        m1.getWorldPosition(v1);
+                        m2.getWorldPosition(v2);
+                        const d = v1.distanceTo(v2).toFixed(3);
+                        liveDistanceDisplay.style.display = 'block';
+                        liveDistanceDisplay.textContent = `📏 Distance ${atomLabel(picked[0].fi, picked[0].ai)} ... ${atomLabel(picked[1].fi, picked[1].ai)}: ${d} Å`;
+                    }
+                } else {
+                    liveDistanceDisplay.style.display = 'none';
+                }
+            }
         }
 
         // Rebuild in place, keeping whatever the user has moved
@@ -253,6 +278,26 @@ export const TSEditorUI = {
         }
 
         buildMolecules(ui.reactants_3d);
+
+        // --- STATE HISTORY (UNDO / REVERT) ---
+        let historyStack = [];
+        let undoBtn = null;
+        function pushHistory() {
+            const current = TSEditorUI.extractData ? TSEditorUI.extractData() : [...currentDockedMolblocks];
+            historyStack.push(current.map(s => s));
+            if (historyStack.length > 15) historyStack.shift();
+            if (undoBtn) undoBtn.disabled = historyStack.length === 0;
+        }
+        function popHistory() {
+            if (historyStack.length === 0) return;
+            const prev = historyStack.pop();
+            if (undoBtn) undoBtn.disabled = historyStack.length === 0;
+            currentDockedMolblocks = prev;
+            picked = [];
+            buildMolecules(prev);
+            optStatus.style.color = '#4f6ef7';
+            optStatus.textContent = 'Undid last geometry modification.';
+        }
 
         // --- UI CONTROLS ---
         const card = (title) => {
@@ -268,25 +313,13 @@ export const TSEditorUI = {
         rxnCard.appendChild(pre);
         controlsContainer.appendChild(rxnCard);
 
-        // Main actions
-        const actCard = card('Transition state');
-        const optBtn = styledButton('⚡ Find TS (automatic scan)', true);
-        const refineBtn = styledButton('🎯 Refine my guess as TS');
-        const nextPoseBtn = styledButton('↻ Next docking pose');
-        const optStatus = el('div', { fontWeight: '600', color: '#4f6ef7', marginTop: '6px', fontSize: '13px' });
-        actCard.appendChild(optBtn);
-        actCard.appendChild(refineBtn);
-        if (moleculeGroups.length > 1) actCard.appendChild(nextPoseBtn);
-        actCard.appendChild(el('div', { fontSize: '11.5px', color: '#777', marginTop: '4px' },
-            'Scan: starts from reactant-like distances of the current pose, drives the reacting bonds, ' +
-            'takes the energy maximum. Refine: your current geometry is the TS guess (reacting bonds ' +
-            'frozen while the rest relaxes, then saddle search) - use after placing fragments by hand.'));
-        actCard.appendChild(optStatus);
-        controlsContainer.appendChild(actCard);
-
         // Reacting bonds editor (semi-automatic fallback)
         const bondCard = card('Reacting bonds');
         const bondList = el('pre', { margin: '0 0 6px 0', fontSize: '12px', whiteSpace: 'pre-wrap', color: '#333' });
+        liveDistanceDisplay = el('div', {
+            fontSize: '12px', fontWeight: '600', color: '#2a5bd7', margin: '4px 0 6px 0', padding: '5px 8px',
+            background: '#eef3ff', borderRadius: '5px', display: 'none', border: '1px solid #d5e2ff'
+        });
         const pickBtn = styledButton('Pick atoms: OFF');
         const formBtn = styledButton('+ Forming');
         const breakBtn = styledButton('+ Breaking');
@@ -294,7 +327,7 @@ export const TSEditorUI = {
         const resetBondsBtn = styledButton('Reset to mapping');
         const pickInfo = el('div', { fontSize: '11.5px', color: '#777' },
             'Turn picking on, click two atoms, then mark them. Overrides the mapping for scan, refine and re-docking.');
-        [bondList, pickBtn, formBtn, breakBtn, removeBtn, resetBondsBtn, pickInfo].forEach(x => bondCard.appendChild(x));
+        [bondList, liveDistanceDisplay, pickBtn, formBtn, breakBtn, removeBtn, resetBondsBtn, pickInfo].forEach(x => bondCard.appendChild(x));
         controlsContainer.appendChild(bondCard);
 
         const atomLabel = (fi, ai) => {
@@ -364,24 +397,148 @@ export const TSEditorUI = {
             refreshBondList();
         });
 
-        // Optional fine-tuning
-        const tuneCard = card('Optional fine-tuning');
-        tuneCard.appendChild(el('div', { fontSize: '12px', color: '#666', marginBottom: '6px' },
-            'Select a reactant, move/rotate it with the gizmo. Left-drag: rotate view · right-drag: pan · scroll: zoom.'));
+        // Reactants & Geometry Cleaners
+        const tuneCard = card('Reactants & Geometry Cleaners');
+        tuneCard.appendChild(el('div', { fontSize: '12px', color: '#666', marginBottom: '8px' },
+            'Select a reactant to reposition with the 3D gizmo. Clean distorted geometries in-place with MMFF94 or GFN2-xTB.'));
+
+        async function refineFragment(idx, method) {
+            pushHistory();
+            optStatus.style.color = '#4f6ef7';
+            optStatus.textContent = `Refining Reactant ${idx + 1} with ${method.toUpperCase()}...`;
+            const data = TSEditorUI.extractData ? TSEditorUI.extractData() : currentDockedMolblocks;
+            const mb = data[idx];
+            try {
+                const res = await fetch('/api/step/step_3_ts/custom', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: 'refine_fragment',
+                        fragment_index: idx,
+                        method: method,
+                        molblock: mb
+                    })
+                });
+                const r = await res.json();
+                if (r.success) {
+                    data[idx] = r.molblock;
+                    currentDockedMolblocks = [...data];
+                    buildMolecules(currentDockedMolblocks);
+                    optStatus.style.color = '#18a558';
+                    optStatus.textContent = r.message;
+                } else {
+                    optStatus.style.color = '#e0245e';
+                    optStatus.textContent = r.error;
+                }
+            } catch (err) {
+                optStatus.style.color = '#e0245e';
+                optStatus.textContent = 'Refine error: ' + err.message;
+            }
+        }
+
         ui.reactants_3d.forEach((_, idx) => {
-            const btn = styledButton(`Reactant ${idx + 1}`);
-            btn.onclick = () => { if (moleculeGroups[idx]) transformControl.attach(moleculeGroups[idx]); };
-            tuneCard.appendChild(btn);
+            const row = el('div', { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', flexWrap: 'wrap' });
+            const selBtn = styledButton(`Select Reactant ${idx + 1}`, false, true);
+            selBtn.onclick = () => { if (moleculeGroups[idx]) transformControl.attach(moleculeGroups[idx]); };
+
+            const mmffBtn = styledButton('Clean (MMFF)', false, true);
+            mmffBtn.title = 'Relax bond lengths and angles with MMFF94 in-place without losing position';
+            mmffBtn.onclick = () => refineFragment(idx, 'mmff');
+
+            const xtbBtn = styledButton('Relax (xTB)', false, true);
+            xtbBtn.title = 'Quantum geometry relaxation with GFN2-xTB in-place without losing position';
+            xtbBtn.onclick = () => refineFragment(idx, 'xtb');
+
+            row.appendChild(selBtn);
+            row.appendChild(mmffBtn);
+            row.appendChild(xtbBtn);
+            tuneCard.appendChild(row);
         });
-        const transBtn = styledButton('Move (T)');
+
+        const gizmoRow = el('div', { marginTop: '6px' });
+        const transBtn = styledButton('Move (T)', false, true);
         transBtn.onclick = () => transformControl.setMode('translate');
-        const rotBtn = styledButton('Rotate (R)');
+        const rotBtn = styledButton('Rotate (R)', false, true);
         rotBtn.onclick = () => transformControl.setMode('rotate');
-        const hideBtn = styledButton('Hide gizmo');
+        const hideBtn = styledButton('Hide gizmo', false, true);
         hideBtn.onclick = () => transformControl.detach();
-        tuneCard.appendChild(el('br'));
-        [transBtn, rotBtn, hideBtn].forEach(b => tuneCard.appendChild(b));
+        gizmoRow.appendChild(transBtn);
+        gizmoRow.appendChild(rotBtn);
+        gizmoRow.appendChild(hideBtn);
+        tuneCard.appendChild(gizmoRow);
+
+        // Undo & Reset controls
+        const recoveryRow = el('div', { marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #e1e4ea', display: 'flex', gap: '6px', flexWrap: 'wrap' });
+        undoBtn = styledButton('↩ Undo Last Change', false, true);
+        undoBtn.disabled = true;
+        undoBtn.onclick = () => popHistory();
+
+        const resetCleanBtn = styledButton('↺ Reset to Clean Reactants', false, true);
+        resetCleanBtn.onclick = async () => {
+            pushHistory();
+            if (ui.clean_reactants_3d && ui.clean_reactants_3d.length) {
+                currentDockedMolblocks = [...ui.clean_reactants_3d];
+                picked = [];
+                buildMolecules(currentDockedMolblocks);
+                optStatus.style.color = '#4f6ef7';
+                optStatus.textContent = 'Reset scene to clean reactant conformers.';
+            } else {
+                try {
+                    const res = await fetch('/api/step/step_3_ts/custom', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action_type: 'reset_clean' })
+                    });
+                    const r = await res.json();
+                    if (r.success) {
+                        currentDockedMolblocks = r.molblocks;
+                        picked = [];
+                        buildMolecules(currentDockedMolblocks);
+                        optStatus.style.color = '#4f6ef7';
+                        optStatus.textContent = r.message;
+                    }
+                } catch (e) {
+                    optStatus.style.color = '#e0245e';
+                    optStatus.textContent = 'Reset failed: ' + e.message;
+                }
+            }
+        };
+        recoveryRow.appendChild(undoBtn);
+        recoveryRow.appendChild(resetCleanBtn);
+        tuneCard.appendChild(recoveryRow);
         controlsContainer.appendChild(tuneCard);
+
+        // Main actions: Strategy Selector & TS Finder
+        const actCard = card('Transition State Optimization');
+        
+        const stratLabel = el('div', { fontSize: '12px', fontWeight: '600', color: '#444', marginBottom: '4px' }, 'Optimization Strategy:');
+        const stratSelect = el('select', {
+            padding: '7px 10px', borderRadius: '6px', border: '1px solid #c7ccd6',
+            width: '100%', marginBottom: '10px', fontSize: '12.5px', background: '#fff', color: '#222'
+        });
+        const strats = [
+            { id: 'drive', name: 'Constrained Scan (Drive R → P) → Sella (Recommended)' },
+            { id: 'neb', name: 'Climbing Image NEB (CI-NEB with IDPP)' },
+            { id: 'dimer', name: 'Dimer Method (ase.mep.dimer)' },
+            { id: 'sella', name: 'Pre-Relaxation → Seeded Sella (v₀)' }
+        ];
+        strats.forEach(s => {
+            const opt = el('option', {}, s.name);
+            opt.value = s.id;
+            stratSelect.appendChild(opt);
+        });
+
+        const runBtn = styledButton('⚡ Find TS (Run Strategy)', true);
+        const nextPoseBtn = styledButton('↻ Next docking pose');
+        const optStatus = el('div', { fontWeight: '600', color: '#4f6ef7', marginTop: '8px', fontSize: '13px' });
+
+        actCard.appendChild(stratLabel);
+        actCard.appendChild(stratSelect);
+        actCard.appendChild(runBtn);
+        if (moleculeGroups.length > 1) actCard.appendChild(nextPoseBtn);
+        actCard.appendChild(el('div', { fontSize: '11.5px', color: '#777', marginTop: '6px' },
+            'Dimer: dynamically seeks saddle mode via force replicas; robust to crude manual guesses without Hessian inversion. ' +
+            'Scan: restrained interpolation along reacting bonds. Pre-Relax: soft relaxation with locked distance before Sella.'));
+        actCard.appendChild(optStatus);
+        controlsContainer.appendChild(actCard);
 
         // Profile + log
         const profCanvas = el('canvas', { width: '100%', border: '1px solid #e1e4ea', borderRadius: '8px', background: '#fff', display: 'none' });
@@ -397,6 +554,7 @@ export const TSEditorUI = {
         controlsContainer.appendChild(logBox);
 
         nextPoseBtn.onclick = async () => {
+            pushHistory();
             dockVariant += 1;
             nextPoseBtn.disabled = true;
             try {
@@ -428,31 +586,33 @@ export const TSEditorUI = {
             } catch (e) { }
         }
 
-        async function runOptimization(mode) {
-            const buttons = [optBtn, refineBtn, nextPoseBtn];
-            const activeBtn = mode === 'refine' ? refineBtn : optBtn;
-            const label = activeBtn.textContent;
+        async function runOptimization() {
+            pushHistory();
+            const strategy = stratSelect.value;
+            const buttons = [runBtn, nextPoseBtn, undoBtn, resetCleanBtn];
+            const label = runBtn.textContent;
             buttons.forEach(b => b.disabled = true);
-            activeBtn.textContent = 'Searching…';
+            runBtn.textContent = 'Searching…';
             optStatus.style.color = '#4f6ef7';
-            optStatus.textContent = mode === 'refine'
-                ? 'Constrained relax → Sella → frequency check'
-                : 'Bond drive → Sella → frequency check';
-            logBox.value = 'Starting GFN2-xTB…\n';
+            optStatus.textContent = `Running ${strategy.toUpperCase()} TS optimization...`;
+            logBox.value = `Starting ${strategy.toUpperCase()} TS optimization…\n`;
             const logInterval = setInterval(fetchLog, 700);
 
-            const data = TSEditorUI.extractData();
+            const data = TSEditorUI.extractData ? TSEditorUI.extractData() : currentDockedMolblocks;
             try {
                 const res = await fetch('/api/step/step_3_ts/custom', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        action_type: 'optimize_ts', mode, docked_molblocks: data,
+                        action_type: 'optimize_ts',
+                        strategy: strategy,
+                        docked_molblocks: data,
                         reaction_override: overridden ? rxnBonds : null
                     })
                 });
                 const result = await res.json();
                 await fetchLog();
                 if (result.success) {
+                    optStatus.style.color = '#18a558';
                     optStatus.textContent = result.message;
                     currentDockedMolblocks = result.optimized_molblocks;
                     picked = [];
@@ -463,9 +623,13 @@ export const TSEditorUI = {
                     } else {
                         profCanvas.style.display = 'none';
                     }
+                } else if (result.diverged) {
+                    optStatus.style.color = '#d97706';
+                    optStatus.textContent = '⚠️ ' + result.error;
+                    // Retain coordinates - do not destroy user setup
                 } else {
                     optStatus.style.color = '#e0245e';
-                    optStatus.textContent = 'Error: ' + result.error;
+                    optStatus.textContent = '❌ Error: ' + (result.error || 'Optimization failed');
                 }
             } catch (e) {
                 optStatus.style.color = '#e0245e';
@@ -473,12 +637,12 @@ export const TSEditorUI = {
             } finally {
                 clearInterval(logInterval);
                 buttons.forEach(b => b.disabled = false);
-                activeBtn.textContent = label;
+                undoBtn.disabled = historyStack.length === 0;
+                runBtn.textContent = label;
                 refreshBondList();
             }
         }
-        optBtn.onclick = () => runOptimization('auto');
-        refineBtn.onclick = () => runOptimization('refine');
+        runBtn.onclick = () => runOptimization();
 
         if (!keyHandlerInstalled) {
             window.addEventListener('keydown', (event) => {

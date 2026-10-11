@@ -50,8 +50,10 @@ class Step3TS(PipelineStep):
             return {"message": "Invalid reaction smiles."}
 
         r_part, p_part = raw_smiles.split(">>")
+        r_smiles_list = r_part.split(".") if r_part else []
         p_smiles_list = p_part.split(".") if p_part else []
         p_blocks = [self._generate_3d_molblock(s) for s in p_smiles_list]
+        r_clean_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
 
         # Automatic docking from the mapping (cached: /api/plugins is polled often)
         key = (raw_smiles, tuple(sorted(mapping_data.get("final_mapping", {}).items())))
@@ -63,19 +65,18 @@ class Step3TS(PipelineStep):
                 self._dock_cache.clear()
                 self._dock_cache[key] = (blocks, n_var, model.reaction_info())
             r_blocks, n_var, info = self._dock_cache[key]
-            msg = ("Reactants were docked automatically from the atom mapping "
-                   "(green dashes = bonds that will form, red = bonds that will break). "
-                   "Just press 'Find TS' - manual adjustment is optional.")
+            msg = ("Reactants docked from atom mapping. "
+                   "Choose an optimization strategy or refine fragments if needed.")
         except Exception as e:
-            r_smiles_list = r_part.split(".") if r_part else []
-            r_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
-            n_var, info = 1, {"forming": [], "breaking": [], "summary": [f"Auto-dock failed: {e}"]}
-            msg = ("Automatic docking failed - arrange the reactants manually, "
-                   "pick the reacting bonds in 3D and use 'Refine my guess'.")
+            r_blocks = r_clean_blocks
+            n_var, info = 1, {"forming": [], "breaking": [], "order_changed": [], "summary": [f"Auto-dock note: {e}"]}
+            msg = ("Auto-dock could not align fragments automatically. "
+                   "Position them in 3D and select an optimization strategy.")
 
         return {
             "type": "ts_editor_ui",
             "reactants_3d": r_blocks,
+            "clean_reactants_3d": r_clean_blocks,
             "products_3d": p_blocks,
             "reaction_info": info,
             "n_dock_variants": n_var,
@@ -118,6 +119,35 @@ class Step3TS(PipelineStep):
             except Exception as e:
                 return {"error": f"Auto-dock failed: {e}"}
 
+        if action_type == "refine_fragment":
+            try:
+                from .ts_builder import refine_fragment_shape
+                frag_idx = int(user_input.get("fragment_index", 0))
+                mb = user_input.get("molblock")
+                method = user_input.get("method", "mmff")
+                model = self._model(global_state)
+                chg, mult = 0, 1
+                if frag_idx < len(model.r_mols):
+                    m = model.r_mols[frag_idx]
+                    chg = int(sum(a.GetFormalCharge() for a in m.GetAtoms()))
+                    mult = int(sum(a.GetNumRadicalElectrons() for a in m.GetAtoms())) + 1
+                new_mb = refine_fragment_shape(mb, method=method, charge=chg, mult=mult)
+                return {"success": True, "molblock": new_mb, "fragment_index": frag_idx,
+                        "message": f"Reactant {frag_idx + 1} refined via {method.upper()} in-place."}
+            except Exception as e:
+                return {"error": f"Fragment refinement failed: {e}"}
+
+        if action_type == "reset_clean":
+            try:
+                raw_smiles = global_state.get("step_1_input", {}).get("raw_smiles", "")
+                r_part = raw_smiles.split(">>")[0]
+                r_smiles_list = r_part.split(".") if r_part else []
+                clean_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
+                return {"success": True, "molblocks": clean_blocks,
+                        "message": "Reset scene to clean reactant conformers."}
+            except Exception as e:
+                return {"error": f"Reset failed: {e}"}
+
         if action_type == "optimize_ts":
             return self._optimize_ts(user_input, global_state)
 
@@ -127,11 +157,15 @@ class Step3TS(PipelineStep):
         import numpy as np
         from ase import Atoms
         from .ts_builder import (molblocks_to_positions, positions_to_molblocks,
-                                 bond_drive, refine_guess, refine_ts, analyse_mode,
-                                 EV_TO_KCAL, DOCK_EXTRA)
+                                 run_dimer_ts, run_drive_sella_ts, run_seeded_sella_ts,
+                                 run_neb_ts, check_geometry_sanity, analyse_mode)
 
         docked = user_input.get("docked_molblocks", [])
         mode = user_input.get("mode", "auto")
+        strategy = user_input.get("strategy")
+        if not strategy:
+            strategy = "dimer" if mode == "refine" else "drive"
+
         if not docked:
             return {"error": "No molblocks provided"}
 
@@ -156,62 +190,62 @@ class Step3TS(PipelineStep):
             for line in model.summary_lines():
                 log(line)
 
-            ts_report = None
             profile = []
-            if mode == "refine":
-                log("\n=== Manual mode: your geometry is the TS guess ===")
-                for i, j in model.formed:
-                    d = np.linalg.norm(positions[i] - positions[j])
-                    if d > model.d0(i, j) + DOCK_EXTRA + 0.2:
-                        log(f"  WARNING: forming bond {model.label(i)}...{model.label(j)} is "
-                            f"{d:.2f} A - this looks like a reactant complex, not a TS. "
-                            f"Sella may fall back to a minimum; consider 'Find TS (scan)' "
-                            f"or move the fragments closer (~{model.d0(i, j) + 0.45:.1f} A).")
-                refine_guess(atoms, model, log)
-            elif model.formed or model.broken:
-                log("\n=== Bond drive: restrained GFN2-xTB scan R -> P ===")
-                frames, energies, lams = bond_drive(atoms, model, log)
-                profile = [[l, (e - energies[0]) * EV_TO_KCAL] for l, e in zip(lams, energies)]
-                i_max = int(np.argmax(energies))
-                if i_max == 0:
-                    log("  WARNING: energy only decreases along the drive (barrierless?). "
-                        "Using the second point.")
-                    i_max = min(1, len(frames) - 1)
-                elif i_max == len(frames) - 1:
-                    log("  WARNING: maximum at the end of the scan - guess may be product-like.")
-                atoms.set_positions(frames[i_max])
-                log(f"  -> TS guess at lambda={lams[i_max]:.2f}, "
-                    f"barrier estimate {(energies[i_max] - energies[0]) * EV_TO_KCAL:.1f} kcal/mol")
-            else:
-                log("\nWARNING: no bond changes found; running Sella directly from the input geometry.")
+            log(f"\nOptimization Strategy: {strategy.upper()}")
 
-            log("\n=== Sella saddle-point refinement (order=1) ===")
-            converged = refine_ts(atoms, model, log_fh, log)
+            if strategy == "dimer":
+                run_dimer_ts(atoms, model, log)
+            elif strategy == "drive":
+                profile = run_drive_sella_ts(atoms, model, log)
+            elif strategy == "sella":
+                profile = run_seeded_sella_ts(atoms, model, log)
+            elif strategy == "neb":
+                profile = run_neb_ts(atoms, model, log)
+            else:
+                run_dimer_ts(atoms, model, log)
+
+            # Sanity verification: protect against bond tearing / unphysical distortion
+            is_sane = check_geometry_sanity(atoms, model, log)
+            if not is_sane:
+                log("\n❌ SANITY GATE TRIGGERED: Spectator bonds were broken or severely stretched.")
+                log("   Retaining original input coordinates to protect your setup.")
+                return {
+                    "success": False,
+                    "diverged": True,
+                    "error": "Optimization distorted spectator bonds beyond sanity threshold. Previous coordinates preserved.",
+                    "profile": profile,
+                }
+
             e_ts = atoms.get_potential_energy()
-            log(f"  Sella {'converged' if converged else 'did NOT converge'}; E = {e_ts:.4f} eV")
+            log(f"\nFinal geometry energy: E = {e_ts:.4f} eV")
             for i, j in model.formed + model.broken:
                 d = np.linalg.norm(atoms.positions[i] - atoms.positions[j])
                 log(f"  {model.label(i)}-{model.label(j)}: {d:.3f} A")
+            for i, j, ro, po in model.order_changed:
+                d = np.linalg.norm(atoms.positions[i] - atoms.positions[j])
+                log(f"  Order changed {model.label(i)}-{model.label(j)} ({ro:.1f}->{po:.1f}): {d:.3f} A")
 
             log("\n=== Frequency check ===")
+            ts_report = None
             try:
                 ts_report = analyse_mode(atoms, model, log)
             except Exception as e:
-                log(f"  frequency check failed: {e}")
+                log(f"  frequency check note: {e}")
 
             opt_blocks = positions_to_molblocks(mols, atoms.get_positions())
             verdict = ""
             if ts_report:
                 if ts_report.get("n_imag") == 1 and ts_report.get("mode_consistent", True):
-                    verdict = f" | 1 imaginary freq ({ts_report['imag_freqs'][0]:.0f}i cm-1) - looks like the right TS"
+                    verdict = f" | 1 imag freq ({ts_report['imag_freqs'][0]:.0f}i cm-1) - TS confirmed"
                 else:
-                    verdict = f" | {ts_report.get('n_imag')} imaginary freq(s) - check the log"
+                    verdict = f" | {ts_report.get('n_imag', 0)} imag freq(s) - check log"
+
             return {
                 "success": True,
                 "optimized_molblocks": opt_blocks,
                 "profile": profile,
                 "ts_report": ts_report,
-                "message": f"TS search finished. E = {e_ts:.3f} eV{verdict}",
+                "message": f"TS optimization finished ({strategy}). E = {e_ts:.3f} eV{verdict}",
             }
         except Exception as e:
             import traceback
