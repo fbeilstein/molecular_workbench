@@ -104,11 +104,43 @@ def auto_map_atoms(reactants_smi, products_smi):
                         continue
 
                     patt = Chem.MolFromSmarts(mcs.smartsString)
+                    # FindMCS writes the SMARTS with the bond orders of the first
+                    # molecule; make bonds generic so e.g. C=C can match C-C.
+                    qp = Chem.AdjustQueryParameters.NoAdjustments()
+                    qp.makeBondsGeneric = True
+                    patt = Chem.AdjustQueryProperties(patt, qp)
                     r_match = rmol.GetSubstructMatch(patt)
-                    p_match = pmol.GetSubstructMatch(patt)
+                    p_matches = pmol.GetSubstructMatches(patt, uniquify=False,
+                                                         maxMatches=5000)
 
-                    if r_match and p_match:
-                        for r_ai, p_ai in zip(r_match, p_match):
+                    # Minimum chemical distance: among all equivalent placements
+                    # pick the one with fewest bond-order / H-count changes and
+                    # which does not reuse product atoms already claimed.
+                    best_pairs, best_cost = None, None
+                    for p_match in p_matches:
+                        pairs = [(ra, pa) for ra, pa in zip(r_match, p_match)
+                                 if ('R', ri, ra) not in mapping]
+                        if not pairs or any((pi, pa) in claimed_p for _, pa in pairs):
+                            continue
+                        cost = 0.0
+                        for ra, pa in pairs:
+                            # a moved H = one bond broken + one formed
+                            cost += 2.0 * abs(rmol.GetAtomWithIdx(ra).GetTotalNumHs() -
+                                              pmol.GetAtomWithIdx(pa).GetTotalNumHs())
+                        for x in range(len(pairs)):
+                            for y in range(x + 1, len(pairs)):
+                                rb = rmol.GetBondBetweenAtoms(pairs[x][0], pairs[y][0])
+                                pb = pmol.GetBondBetweenAtoms(pairs[x][1], pairs[y][1])
+                                if rb is not None and pb is not None:
+                                    cost += abs(rb.GetBondTypeAsDouble() -
+                                                pb.GetBondTypeAsDouble())
+                                elif (rb is None) != (pb is None):
+                                    cost += 2.0
+                        if best_cost is None or cost < best_cost:
+                            best_pairs, best_cost = pairs, cost
+
+                    if r_match and best_pairs:
+                        for r_ai, p_ai in best_pairs:
                             key = ('R', ri, r_ai)
                             p_key = (pi, p_ai)
                             if key not in mapping and p_key not in claimed_p:

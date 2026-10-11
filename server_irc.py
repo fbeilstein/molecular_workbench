@@ -33,6 +33,20 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
             self.path = '/.ketcher/' + rel
             return super().do_GET()
             
+        elif parsed.path == '/api/log':
+            try:
+                with open('optimization.log', 'r') as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(content.encode())
+            except FileNotFoundError:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"")
+            return
+            
         elif parsed.path == '/api/plugins':
             plugins = get_plugins()
             resp = [
@@ -107,13 +121,16 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                 
                 elif action == 'custom':
                     # Custom action does not modify global state and returns arbitrary data
-                    result_data = plugin.custom_action(user_input) if hasattr(plugin, 'custom_action') else {}
+                    result_data = plugin.custom_action(user_input, pipeline_state) if hasattr(plugin, 'custom_action') else {}
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')
                     self.end_headers()
                     self.wfile.write(json.dumps(result_data).encode())
                     return
                 
+        elif parsed.path == '/api/log':
+            pass # Removed from do_POST
+            
         elif parsed.path == '/api/reset':
             pipeline_state = {}
             self.send_response(200)
@@ -125,7 +142,9 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
 if __name__ == '__main__':
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), IRCHandler) as httpd:
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    socketserver.ThreadingTCPServer.daemon_threads = True
+    # Threaded so /api/log can be polled while a long optimization runs
+    with socketserver.ThreadingTCPServer(("", PORT), IRCHandler) as httpd:
         print(f"IRC Master Tool server running at http://localhost:{PORT}")
         httpd.serve_forever()
