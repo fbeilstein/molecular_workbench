@@ -23,6 +23,8 @@ data/
 # Local configuration & state
 .env
 reaction_state.json
+irc_trajectory.json
+*_trajectory.json
 *.rxnbundle
 *.rxnbundle.zip
 *.cube
@@ -41,6 +43,9 @@ tools/rits_repo/
 *.pth
 *.ckpt
 *.onnx
+
+# Downloaded vendor libraries
+static_irc/libs/3Dmol-min.js
 
 # Computational chemistry scratch files
 *.traj

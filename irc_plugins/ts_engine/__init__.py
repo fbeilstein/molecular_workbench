@@ -18,6 +18,7 @@ from .manual_valley import run_guided_manual_ts
 from .pose_sampler import run_genetic_swarm_ts
 from .orca_runner import run_orca_dft_ts
 from .vibrations import analyse_mode
+from .irc_runner import run_irc_path
 
 __all__ = [
     "ReactionModel",
@@ -41,8 +42,8 @@ __all__ = [
     "run_dimer_ts",
     "run_drive_sella_ts",
     "run_seeded_sella_ts",
-    "run_neb_ts",
     "analyse_mode",
+    "run_irc_path",
     "rcov",
     "rvdw",
     "EV_TO_KCAL",

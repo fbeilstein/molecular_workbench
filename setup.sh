@@ -115,11 +115,21 @@ else
     info "✓ xTB installed successfully at $XTB_DIR/bin/xtb"
 fi
 
-# ── 4. Setup Directories ─────────────────────────────────────────────────────
-step "Step 4: Preparing directories..."
+# ── 4. Setup Directories & Frontend Libraries ────────────────────────────────
+step "Step 4: Preparing directories & frontend libraries..."
 mkdir -p "$OUTPUT_DIR"
 mkdir -p "$ML_DIR"
-info "✓ Verified output and model directories."
+mkdir -p "$SCRIPT_DIR/static_irc/libs"
+
+if [ ! -f "$SCRIPT_DIR/static_irc/libs/3Dmol-min.js" ]; then
+    info "Downloading 3Dmol.js (3Dmol-min.js) for offline molecular viewer..."
+    curl -sSL "https://3Dmol.org/build/3Dmol-min.js" -o "$SCRIPT_DIR/static_irc/libs/3Dmol-min.js" || \
+    wget -qO "$SCRIPT_DIR/static_irc/libs/3Dmol-min.js" "https://3Dmol.org/build/3Dmol-min.js" || \
+    warn "Could not download 3Dmol-min.js offline; browser will use CDN fallback."
+else
+    info "✓ 3Dmol.js library present at static_irc/libs/3Dmol-min.js"
+fi
+info "✓ Verified directories and frontend assets."
 
 # ── 5. Optional Machine Learning Stack (RitS) ────────────────────────────────
 if [ "$WITH_ML" = true ]; then

@@ -1,0 +1,121 @@
+export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick) {
+    if (!canvas || !trajectory || !trajectory.frames || trajectory.frames.length === 0) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const padLeft = 45;
+    const padRight = 20;
+    const padTop = 20;
+    const padBottom = 30;
+    const plotW = w - padLeft - padRight;
+    const plotH = h - padTop - padBottom;
+
+    const frames = trajectory.frames;
+    const s_vals = frames.map(f => f.s_arc);
+    const e_vals = frames.map(f => f.rel_energy_kcal);
+
+    const minS = Math.min(...s_vals);
+    const maxS = Math.max(...s_vals);
+    const minE = Math.min(...e_vals, 0);
+    const maxE = Math.max(...e_vals, 0);
+    const rangeS = (maxS - minS) || 1.0;
+    const rangeE = (maxE - minE) || 1.0;
+
+    const toX = s => padLeft + ((s - minS) / rangeS) * plotW;
+    const toY = e => padTop + plotH - ((e - minE) / rangeE) * plotH;
+
+    // Grid lines & Axes
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padLeft, padTop);
+    ctx.lineTo(padLeft, padTop + plotH);
+    ctx.lineTo(padLeft + plotW, padTop + plotH);
+    ctx.stroke();
+
+    // Zero energy line
+    const y0 = toY(0);
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(padLeft, y0);
+    ctx.lineTo(padLeft + plotW, y0);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Curve
+    ctx.strokeStyle = '#4f6ef7';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    frames.forEach((f, idx) => {
+        const x = toX(f.s_arc);
+        const y = toY(f.rel_energy_kcal);
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Points on curve
+    frames.forEach((f, idx) => {
+        const x = toX(f.s_arc);
+        const y = toY(f.rel_energy_kcal);
+        ctx.fillStyle = idx === trajectory.ts_frame_index ? '#e11d48' : '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(x, y, idx === trajectory.ts_frame_index ? 4.5 : 2.5, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // Active Frame Highlight
+    if (frames[currentIdx]) {
+        const curF = frames[currentIdx];
+        const curX = toX(curF.s_arc);
+        const curY = toY(curF.rel_energy_kcal);
+
+        // Vertical highlight bar
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(curX, padTop);
+        ctx.lineTo(curX, padTop + plotH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Active Ring
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(curX, curY, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    // Text Labels
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10.5px monospace';
+    ctx.fillText(`${maxE.toFixed(1)} kcal`, 4, padTop + 10);
+    ctx.fillText(`${minE.toFixed(1)} kcal`, 4, padTop + plotH);
+    ctx.fillText(`s: ${minS.toFixed(1)}`, padLeft, h - 8);
+    ctx.fillText(`s: 0 (TS)`, toX(0) - 20, h - 8);
+    ctx.fillText(`s: +${maxS.toFixed(1)}`, padLeft + plotW - 45, h - 8);
+
+    // Interactive Click
+    canvas.onclick = e => {
+        const rect = canvas.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        let closestIdx = 0;
+        let minDist = 9999;
+        frames.forEach((f, idx) => {
+            const x = toX(f.s_arc);
+            const dist = Math.abs(x - clickX);
+            if (dist < minDist) {
+                minDist = dist;
+                closestIdx = idx;
+            }
+        });
+        if (onPointClick) onPointClick(closestIdx);
+    };
+}

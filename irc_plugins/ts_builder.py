@@ -33,6 +33,7 @@ from .ts_engine import (
     run_drive_sella_ts,
     run_seeded_sella_ts,
     run_neb_ts,
+    run_irc_path,
     analyse_mode,
     rcov,
     rvdw,

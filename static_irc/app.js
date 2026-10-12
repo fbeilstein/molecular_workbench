@@ -3,12 +3,14 @@ import { KetcherUI } from './ui_plugins/ketcher_ui.js';
 import { FieldsUI } from './ui_plugins/fields_ui.js';
 import { MappingUI } from './ui_plugins/mapping_ui.js';
 import { TSEditorUI } from './ui_plugins/ts_editor_ui.js';
+import { IRCViewerUI } from './ui_plugins/irc_viewer_ui.js';
 
 const UIRegistry = {
     'ketcher': KetcherUI,
     'mapping_ui': MappingUI,
     'fields': FieldsUI,
-    'ts_editor_ui': TSEditorUI
+    'ts_editor_ui': TSEditorUI,
+    'irc_viewer_ui': IRCViewerUI
 };
 
 async function executeStepRun(stepId, userInput) {
@@ -100,9 +102,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         if (state[plugin.step_id]) {
-            const pre = document.createElement('pre');
-            pre.innerText = "Current State: " + JSON.stringify(state[plugin.step_id], null, 2);
-            schemaContainer.appendChild(pre);
             runBtn.innerText = "Re-Run / Correct";
         } else {
             runBtn.innerText = "Run & Continue";
