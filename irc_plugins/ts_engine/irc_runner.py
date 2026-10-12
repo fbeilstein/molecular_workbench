@@ -242,7 +242,25 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03):
     log(f"  Reverse Barrier  ΔE‡_rev = {barrier_rev:.2f} kcal/mol")
     log(f"  Reaction Energy  ΔE_rxn  = {reaction_e:+.2f} kcal/mol")
 
-    bonds = [list(pair) for pair in sorted(model.r_bonds | model.p_bonds)]
+    bonds = []
+    for pair in sorted(model.r_bonds | model.p_bonds):
+        i, j = pair
+        r_ord = int(round(model.r_bond_orders.get(pair, 0)))
+        p_ord = int(round(model.p_bond_orders.get(pair, 0)))
+        b_type = "spectator"
+        if pair in model.formed:
+            b_type = "forming"
+        elif pair in model.broken:
+            b_type = "breaking"
+        elif pair in [(b[0], b[1]) for b in model.order_changed]:
+            b_type = "order_changed"
+        bonds.append({
+            "from": i,
+            "to": j,
+            "r_order": max(1, r_ord) if r_ord > 0 else 1,
+            "p_order": max(1, p_ord) if p_ord > 0 else 1,
+            "type": b_type
+        })
 
     result_json = {
         "reaction_smiles": f"{'.'.join(model.r_smiles)}>>{'.'.join(model.p_smiles)}",

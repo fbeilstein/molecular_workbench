@@ -101,10 +101,11 @@ document.addEventListener('DOMContentLoaded', () => {
             schemaContainer.innerText = "Unknown UI schema type: " + handlerType;
         }
         
-        if (state[plugin.step_id]) {
-            runBtn.innerText = "Re-Run / Correct";
+        if (activeStepIndex < plugins.length - 1) {
+            runBtn.style.display = 'inline-block';
+            runBtn.innerText = "Next";
         } else {
-            runBtn.innerText = "Run & Continue";
+            runBtn.style.display = 'none';
         }
     }
 
