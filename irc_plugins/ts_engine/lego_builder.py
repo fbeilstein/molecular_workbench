@@ -1,10 +1,11 @@
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from ase import Atoms
+from scipy.optimize import minimize
+from ase.optimize import LBFGS
 from sella import Sella
-from .calculators import make_xtb
-from .common import rcov
+from .calculators import make_xtb, _make_restrained_calc
+
 
 def _kabsch_align(P_pts, R_pts, indices):
     """Rigidly align points P onto R using the specified indices via Kabsch SVD."""
@@ -21,8 +22,9 @@ def _kabsch_align(P_pts, R_pts, indices):
     R_mat = V @ U.T
     return (P_pts - c_P) @ R_mat.T + c_R
 
-def _embed_product_positions(model):
-    """Generate aligned 3D conformers for product molecules."""
+
+def _embed_aligned_products(model, pos_R):
+    """Generate 3D conformers for product molecules and align fragments to reactants."""
     p_coords = []
     for pmol in model.p_mols:
         m = Chem.Mol(pmol)
@@ -32,96 +34,104 @@ def _embed_product_positions(model):
         except Exception:
             pass
         p_coords.append(m.GetConformer().GetPositions())
+
     pos_P = np.zeros((model.n_atoms, 3))
-    for ci in range(model.n_atoms):
-        pfi, pai = model.r2p[ci]
-        pos_P[ci] = p_coords[pfi][pai]
+    for pfi in range(len(model.p_mols)):
+        r_atoms = [ci for ci in range(model.n_atoms) if model.r2p[ci][0] == pfi]
+        p_atoms = [model.r2p[ci][1] for ci in r_atoms]
+        coords_sub = p_coords[pfi][p_atoms]
+        if len(r_atoms) >= 3:
+            aligned = _kabsch_align(coords_sub, pos_R[r_atoms], list(range(len(r_atoms))))
+            for idx, ci in enumerate(r_atoms):
+                pos_P[ci] = aligned[idx]
+        elif len(r_atoms) == 1:
+            ci = r_atoms[0]
+            broken_partners = [i for i, k in model.broken if k == ci] + [k for i, k in model.broken if i == ci]
+            if broken_partners:
+                partner = broken_partners[0]
+                u = pos_R[ci] - pos_R[partner]
+                u_norm = np.linalg.norm(u)
+                dir_u = u / u_norm if u_norm > 1e-4 else np.array([1.0, 0.0, 0.0])
+                pos_P[ci] = pos_R[partner] + dir_u * (model.d0(ci, partner) + 2.5)
+            else:
+                pos_P[ci] = pos_R[ci]
+        else:
+            for idx, ci in enumerate(r_atoms):
+                pos_P[ci] = pos_R[ci]
     return pos_P
 
+
 def build_lego_ts_guess(pos_R, model):
-    """Synthesize intermediate TS guess from Reactant (R) and Product (P) geometries."""
-    pos_P = _embed_product_positions(model)
-    pos_ts = pos_R.copy()
+    """Universal Dual-Endpoint reaction midpoint interpolation via IDPP pair potential."""
+    pos_P = _embed_aligned_products(model, pos_R)
+    D_R = np.linalg.norm(pos_R[:, None, :] - pos_R[None, :, :], axis=2)
+    D_P = np.linalg.norm(pos_P[:, None, :] - pos_P[None, :, :], axis=2)
+    D_target = 0.5 * (D_R + D_P)
 
-    if model.formed and len(model.r_mols) > 1:
-        i_center, j_reag = model.formed[0]
-        fi_center = model.frag_of[i_center]
-        fj_reag = model.frag_of[j_reag]
+    # Universal TS bond target metrics across all reaction classes
+    for i, j in model.formed:
+        D_target[i, j] = D_target[j, i] = model.d0(i, j) + 0.65
+    for i, j in model.broken:
+        D_target[i, j] = D_target[j, i] = model.d0(i, j) + 0.35
 
-        # Primary substrate fragment containing inverting/reaction center
-        frag_A_atoms = [ci for ci in range(model.n_atoms) if model.frag_of[ci] == fi_center]
-        leaving_atoms = {k for i, k in model.broken if model.frag_of[k] == fi_center}
-        scaffold_A = [ci for ci in frag_A_atoms if ci not in leaving_atoms]
-        if len(scaffold_A) < 3:
-            scaffold_A = frag_A_atoms
+    def idpp_obj(x):
+        X = x.reshape(-1, 3)
+        D = np.linalg.norm(X[:, None, :] - X[None, :, :], axis=2)
+        diff = D - D_target
+        np.fill_diagonal(diff, 0.0)
+        w = 1.0 / (D_target**4 + 1e-4)
+        np.fill_diagonal(w, 0.0)
+        val = np.sum(w * (diff**2))
+        grad = np.zeros_like(X)
+        for a in range(len(X)):
+            for b in range(len(X)):
+                if a == b:
+                    continue
+                dist = D[a, b] + 1e-7
+                grad[a] += 4.0 * w[a, b] * diff[a, b] * (X[a] - X[b]) / dist
+        return val, grad.ravel()
 
-        # Align Product strictly onto Substrate Fragment A scaffold
-        pos_P_aligned = _kabsch_align(pos_P, pos_R, scaffold_A)
-
-        # 1. Substrate inverting center and spectator ligands:
-        # Interpolate between R and P (flattens umbrella from sp3 to planar sp2)
-        for ci in scaffold_A:
-            pos_ts[ci] = 0.5 * (pos_R[ci] + pos_P_aligned[ci])
-
-        # 2. Leaving group(s) on substrate: elongate along breaking vector
-        for i, k in model.broken:
-            u_bk = pos_R[k] - pos_R[i]
-            norm_bk = np.linalg.norm(u_bk)
-            dir_bk = u_bk / norm_bk if norm_bk > 1e-4 else np.array([1.0, 0.0, 0.0])
-            d_target = model.d0(i, k) + 0.35
-            pos_ts[k] = pos_ts[i] + dir_bk * d_target
-
-        # 3. Attacking reagent fragment:
-        # Take orientation and internal coordinates from aligned Product!
-        # Shift the entire reagent fragment as a rigid body along attack vector
-        frag_B_atoms = [ci for ci in range(model.n_atoms) if model.frag_of[ci] == fj_reag]
-        u_att = pos_P_aligned[j_reag] - pos_P_aligned[i_center]
-        norm_att = np.linalg.norm(u_att)
-        dir_att = u_att / norm_att if norm_att > 1e-4 else np.array([1.0, 0.0, 0.0])
-        d_form_target = model.d0(i_center, j_reag) + 0.65
-
-        current_j_pos = pos_P_aligned[j_reag]
-        target_j_pos = pos_ts[i_center] + dir_att * d_form_target
-        shift_B = target_j_pos - current_j_pos
-
-        for cj in frag_B_atoms:
-            pos_ts[cj] = pos_P_aligned[cj] + shift_B
-    else:
-        # Unimolecular reaction or elimination: elongate leaving group
-        for i, k in model.broken:
-            u_bk = pos_R[k] - pos_R[i]
-            norm_bk = np.linalg.norm(u_bk)
-            dir_bk = u_bk / norm_bk if norm_bk > 1e-4 else np.array([1.0, 0.0, 0.0])
-            extra = 0.55 if not model.formed else 0.35
-            pos_ts[k] = pos_ts[i] + dir_bk * (model.d0(i, k) + extra)
-
-    return pos_ts
+    x0 = 0.5 * (pos_R + pos_P).ravel()
+    res = minimize(idpp_obj, x0, jac=True, method="L-BFGS-B", options={"maxiter": 250})
+    return res.x.reshape(-1, 3)
 
 
 def run_lego_ts(atoms, model, log):
-    """Run Lego Dual-Endpoint TS guess synthesis followed by Sella DLC saddle polish."""
-    log("=== Strategy: Lego Dual-Endpoint Superposition ===")
-    log("  Step 1: Superimposing Product onto Reactant substrate scaffold...")
+    """Universal Dual-Endpoint IDPP interpolation -> Valley Relax -> Sella saddle polish."""
+    log("=== Strategy: Dual-Endpoint IDPP Reaction Interpolation ===")
+    log("  Step 1: Generating aligned Product conformers and reaction distance metric...")
     pos_guess = build_lego_ts_guess(atoms.positions.copy(), model)
     atoms.set_positions(pos_guess)
-    log("  Step 2: Synthesized intermediate TS geometry (sp2 flattened, rigid reagent attack).")
+    log(f"  Step 2: IDPP geometric midpoint synthesized for {len(model.formed)} forming & {len(model.broken)} breaking bonds.")
 
-    log("  Step 3: Polishing saddle point with Sella in internal coordinates...")
+    # Stage 2: Quantum Valley Internal Relaxation
+    log("  Step 3: Quantum valley relaxation of internal coordinates...")
+    base = atoms.copy()
+    base.calc = make_xtb(model.charge, model.multiplicity)
+    targets = [(i, j, model.d0(i, j) + 0.65) for i, j in model.formed]
+    targets += [(i, j, model.d0(i, j) + 0.35) for i, j in model.broken]
+    pos_cur = atoms.positions.copy()
+    spec = [(i, j, float(np.linalg.norm(pos_cur[i] - pos_cur[j]))) for i, j in model.spectator_bonds]
+    calc = _make_restrained_calc(base, targets, k=30.0, spectator_restraints=spec, model=model)
+    atoms.calc = calc
+    opt_valley = LBFGS(atoms, logfile=None, maxstep=0.12)
+    opt_valley.run(fmax=0.08, steps=35)
+    log(f"  Internal valley relaxation finished in {opt_valley.nsteps} steps.")
+
+    # Stage 3: Sella DLC Saddle Point Polish (guarded)
+    log("  Step 4: Polishing saddle point with Sella in internal coordinates...")
+    from .calculators import guard_saddle_polish
+    from .vibrations import analyse_mode
     atoms.calc = make_xtb(model.charge, model.multiplicity)
-    opt_sella = Sella(atoms, internal=True, order=1, logfile=None)
-    profile = []
+    ts_rep = None
+    try:
+        ts_rep = analyse_mode(atoms, model, log)
+    except Exception:
+        pass
 
-    def on_step():
-        try:
-            profile.append({
-                "step": opt_sella.nsteps,
-                "energy_ev": float(atoms.get_potential_energy()),
-                "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))
-            })
-        except Exception:
-            pass
+    if ts_rep and ts_rep.get("n_imag") == 1 and ts_rep.get("mode_consistent", True):
+        log(f"  ✓ Saddle point confirmed by vibrational analysis ({ts_rep['imag_freqs'][0]:.0f}i cm-1).")
+        return [{"step": 1, "energy_ev": float(atoms.get_potential_energy()), "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))}]
 
-    opt_sella.attach(on_step)
-    converged = opt_sella.run(fmax=0.03, steps=60)
-    log(f"  Sella Polish {'Converged' if converged else 'Finished'} in {opt_sella.nsteps} steps.")
-    return profile
+    return guard_saddle_polish(atoms, model, log, max_steps=20, max_drift=0.15)
+

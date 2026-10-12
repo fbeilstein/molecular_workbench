@@ -3,15 +3,24 @@ from .common import EV_TO_KCAL, DOCK_EXTRA, BREAK_EXTRA
 from .calculators import make_xtb, _make_restrained_calc, build_reaction_eigenvector
 
 
-def _polish_with_sella(atoms, model, log, max_steps=120):
-    """Polish a candidate saddle point using Sella in internal coordinates."""
-    from sella import Sella
+def _polish_with_sella(atoms, model, log, max_steps=40):
+    """Polish a candidate saddle point using Sella with TS trust zone guarding."""
+    from .calculators import guard_saddle_polish
+    from .vibrations import analyse_mode
     atoms.calc = make_xtb(model.charge, model.multiplicity)
+    ts_rep = None
     try:
-        opt = Sella(atoms, internal=True, order=1, logfile=None)
-        opt.run(fmax=0.03, steps=max_steps)
-    except Exception as e:
-        log(f"  Sella polish note: {e}")
+        ts_rep = analyse_mode(atoms, model, log)
+    except Exception:
+        pass
+
+    if ts_rep and ts_rep.get("n_imag") == 1 and ts_rep.get("mode_consistent", True):
+        log(f"  ✓ Saddle point confirmed by vibrational analysis ({ts_rep['imag_freqs'][0]:.0f}i cm-1).")
+        return [{"step": 1, "energy_ev": float(atoms.get_potential_energy()), "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))}]
+
+    return guard_saddle_polish(atoms, model, log, max_steps=max_steps, max_drift=0.15)
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +92,23 @@ def run_drive_sella_ts(atoms, model, log, n_points=11, k=25.0):
 # Strategy 2: Climbing Image NEB (CI-NEB with IDPP)
 # ---------------------------------------------------------------------------
 def _build_relaxed_product_endpoint(atoms, model):
-    """Build product endpoint P via restrained GFN2-xTB relaxation."""
+    """Build product endpoint P via true Product conformer Kabsch SO(3) alignment."""
+    try:
+        from .lego_builder import _embed_product_positions, _kabsch_align
+        pos_P = _embed_product_positions(model)
+        if model.formed:
+            fi_center = model.frag_of[model.formed[0][0]]
+            scaffold = [k for k in range(model.n_atoms) if model.frag_of[k] == fi_center]
+            pos_aligned = _kabsch_align(pos_P, atoms.get_positions(), scaffold)
+            for i, k in model.broken:
+                u_bk = atoms.positions[k] - atoms.positions[i]
+                norm_bk = np.linalg.norm(u_bk)
+                dir_bk = u_bk / norm_bk if norm_bk > 1e-4 else np.array([1.0, 0.0, 0.0])
+                pos_aligned[k] = pos_aligned[i] + dir_bk * (model.d0(i, k) + 1.25)
+            return pos_aligned
+    except Exception:
+        pass
+
     from ase.optimize import LBFGS
     p_atoms = atoms.copy()
     p_targets = [(i, j, model.d0(i, j)) for i, j in model.formed]
@@ -146,7 +171,7 @@ def _precondition_dimer_guess(atoms, model, log):
     base.calc = make_xtb(model.charge, model.multiplicity)
     targets = [(i, j, model.d0(i, j) + 0.65) for i, j in model.formed]
     spec = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in model.spectator_bonds]
-    atoms.calc = _make_restrained_calc(base, targets, 35.0, spectator_restraints=spec)
+    atoms.calc = _make_restrained_calc(base, targets, 35.0, spectator_restraints=spec, model=model)
     pre_opt = LBFGS(atoms, logfile=None, maxstep=0.2)
     pre_opt.run(fmax=0.1, steps=25)
     atoms.set_positions(atoms.get_positions())

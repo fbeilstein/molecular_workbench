@@ -123,7 +123,10 @@ export class TSEditorActions {
             if (r.success) {
                 this.state.molblocks = r.molblocks;
                 this.viewer.buildMolecules(r.molblocks);
-                this.setStatus(r.message, '#4f6ef7');
+                this.viewer.updateDynamicBonds(this.state.rxnBonds);
+                this.viewer.flashAtoms(0x4f6ef7);
+                if (this.onGeometryUpdated) this.onGeometryUpdated();
+                this.setStatus(r.message + ' (Reactant docking input — click "Run / Refine TS" to optimize)', '#4f6ef7');
             } else {
                 this.setStatus(r.error, '#e0245e');
             }
@@ -175,6 +178,9 @@ export class TSEditorActions {
             this.setStatus(result.message, '#18a558');
             this.state.molblocks = result.optimized_molblocks;
             this.viewer.buildMolecules(this.state.molblocks);
+            this.viewer.updateDynamicBonds(this.state.rxnBonds);
+            this.viewer.flashAtoms(0x22c55e);
+            if (this.onGeometryUpdated) this.onGeometryUpdated();
             if (result.profile && result.profile.length > 1 && this.optCard.profCanvas) {
                 this.optCard.profCanvas.style.display = 'block';
                 drawProfile(this.optCard.profCanvas, result.profile);
@@ -183,6 +189,7 @@ export class TSEditorActions {
         }
         if (result.diverged) {
             this.setStatus('⚠️ ' + result.error, '#d97706');
+            if (this.viewer.flashAtoms) this.viewer.flashAtoms(0xd97706);
             return;
         }
         this.setStatus('❌ Error: ' + (result.error || 'Optimization failed'), '#e0245e');

@@ -222,4 +222,17 @@ export class TSEditorViewer {
         const g = this.moleculeGroups[fi];
         if (g) this.transformControl.attach(g);
     }
+
+    flashAtoms(hex = 0x22c55e) {
+        this.moleculeGroups.forEach(g => {
+            (g.userData.atomMeshes || []).forEach(m => {
+                if (m.material) {
+                    m.material.emissive.setHex(hex);
+                    setTimeout(() => {
+                        if (m.material) m.material.emissive.setHex(0x000000);
+                    }, 400);
+                }
+            });
+        });
+    }
 }

@@ -23,28 +23,25 @@ def run_guided_manual_ts(atoms, model, log):
         d_eq = float(np.linalg.norm(pos_init[i] - pos_init[j]))
         spec.append((i, j, d_eq))
 
-    calc = _make_restrained_calc(base, targets, k=35.0, spectator_restraints=spec)
+    calc = _make_restrained_calc(base, targets, k=35.0, spectator_restraints=spec, model=model)
     atoms.calc = calc
     opt_stage1 = LBFGS(atoms, logfile=None, maxstep=0.15)
     opt_stage1.run(fmax=0.05, steps=70)
     log(f"  Stage 1 finished in {opt_stage1.nsteps} steps. Fragments aligned into reaction valley.")
 
-    log("  Stage 2: Releasing restraints and polishing saddle point with Sella DLC...")
+    log("  Stage 2: Polishing saddle point with Sella DLC (guarded)...")
+    from .calculators import guard_saddle_polish
+    from .vibrations import analyse_mode
     atoms.calc = make_xtb(model.charge, model.multiplicity)
-    opt_sella = Sella(atoms, internal=True, order=1, logfile=None)
-    profile = []
+    ts_rep = None
+    try:
+        ts_rep = analyse_mode(atoms, model, log)
+    except Exception:
+        pass
 
-    def on_step():
-        try:
-            profile.append({
-                "step": opt_sella.nsteps,
-                "energy_ev": float(atoms.get_potential_energy()),
-                "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))
-            })
-        except Exception:
-            pass
+    if ts_rep and ts_rep.get("n_imag") == 1 and ts_rep.get("mode_consistent", True):
+        log(f"  ✓ Saddle point confirmed by vibrational analysis ({ts_rep['imag_freqs'][0]:.0f}i cm-1).")
+        return [{"step": 1, "energy_ev": float(atoms.get_potential_energy()), "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))}]
 
-    opt_sella.attach(on_step)
-    converged = opt_sella.run(fmax=0.03, steps=60)
-    log(f"  Sella Polish {'Converged' if converged else 'Finished'} in {opt_sella.nsteps} steps.")
-    return profile
+    return guard_saddle_polish(atoms, model, log, max_steps=20, max_drift=0.15)
+

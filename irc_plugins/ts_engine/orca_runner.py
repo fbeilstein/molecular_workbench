@@ -14,19 +14,17 @@ def run_orca_dft_ts(atoms, model, log, method="r2SCAN-3c"):
         return []
 
     # Check if geometry is in the transition zone or needs pre-conditioning
+    # Pre-condition geometry into the quadratic TS basin before starting heavy DFT
     far_forming = [pair for pair in model.formed
-                   if np.linalg.norm(atoms.positions[pair[0]] - atoms.positions[pair[1]]) > model.d0(pair[0], pair[1]) + 0.85]
+                   if np.linalg.norm(atoms.positions[pair[0]] - atoms.positions[pair[1]]) > model.d0(pair[0], pair[1]) + 0.50]
     if far_forming or getattr(model, "overridden", False):
-        log("  Step 1: Pre-conditioning geometry into the transition zone before ORCA...")
+        log("  Step 1: Pre-conditioning geometry into the quadratic TS basin before ORCA...")
         try:
-            from .lego_builder import build_lego_ts_guess
-            pos_guess = build_lego_ts_guess(atoms.positions.copy(), model)
-            atoms.set_positions(pos_guess)
-            log("  Dual-endpoint Lego scaffold synthesized planar TS basin.")
+            from .lego_builder import run_lego_ts
+            run_lego_ts(atoms, model, log)
         except Exception:
-            from .manual_valley import run_guided_manual_ts
-            run_guided_manual_ts(atoms, model, log)
-            log("  Quantum valley relaxation completed.")
+            from .pose_sampler import run_genetic_swarm_ts
+            run_genetic_swarm_ts(atoms, model, log)
 
     log("  Step 2: Setting up ORCA input with OptTS...")
     tmpdir = tempfile.mkdtemp(prefix="orca_ts_")
@@ -38,6 +36,7 @@ def run_orca_dft_ts(atoms, model, log, method="r2SCAN-3c"):
         positions = atoms.get_positions()
         with open(inp_file, "w") as f:
             f.write(f"! {method} OptTS\n")
+            f.write("%geom\n  MaxIter 30\nend\n")
             f.write(f"* xyz {model.charge} {model.multiplicity}\n")
             for sym, pos in zip(symbols, positions):
                 f.write(f"  {sym:<2} {pos[0]:12.6f} {pos[1]:12.6f} {pos[2]:12.6f}\n")
@@ -47,13 +46,15 @@ def run_orca_dft_ts(atoms, model, log, method="r2SCAN-3c"):
         with open(out_file, "w") as out_fh:
             proc = subprocess.run([ORCA_BIN, inp_file], stdout=out_fh, stderr=subprocess.STDOUT, cwd=tmpdir)
 
-        if proc.returncode != 0:
-            log(f"  ORCA exited with status {proc.returncode}. Inspect logs for details.")
-            return []
+        converged = False
+        if os.path.exists(out_file):
+            with open(out_file, "r") as of:
+                out_txt = of.read()
+                converged = ("*** THE OPTIMIZATION HAS CONVERGED ***" in out_txt or
+                             "OPTIMIZATION RUN DONE" in out_txt)
 
-        # Parse optimized xyz if exists
         xyz_opt = os.path.join(tmpdir, "orca_ts.xyz")
-        if os.path.exists(xyz_opt):
+        if converged and os.path.exists(xyz_opt):
             with open(xyz_opt, "r") as xf:
                 lines = [line.strip() for line in xf if line.strip()]
             if len(lines) > 2:
@@ -64,6 +65,8 @@ def run_orca_dft_ts(atoms, model, log, method="r2SCAN-3c"):
                     new_pos.append([float(parts[1]), float(parts[2]), float(parts[3])])
                 atoms.set_positions(np.array(new_pos))
                 log("  ORCA OptTS successfully converged! Geometry updated in viewer.")
+        elif not converged:
+            log("  ⚠️ ORCA reached maximum cycles without converging. Preserving pre-conditioned TS.")
 
         # Parse energy and vibrational frequencies from orca output
         if os.path.exists(out_file):

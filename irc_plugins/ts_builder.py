@@ -27,6 +27,7 @@ from .ts_engine import (
     run_rits_ts,
     run_lego_ts,
     run_guided_manual_ts,
+    run_genetic_swarm_ts,
     run_orca_dft_ts,
     run_dimer_ts,
     run_drive_sella_ts,

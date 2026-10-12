@@ -1,3 +1,4 @@
+# Core Dependencies
 rdkit
 numpy
 scipy
@@ -5,3 +6,10 @@ pyscf
 scikit-image
 trimesh
 geometric
+ase
+sella
+tblite[ase]
+
+# Optional Machine Learning TS Predictors (see docs/ML_MODELS.md):
+# torch
+# torch-geometric

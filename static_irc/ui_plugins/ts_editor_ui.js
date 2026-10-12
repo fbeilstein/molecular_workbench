@@ -140,14 +140,15 @@ export function renderTSEditor(arg1, arg2) {
     controlsContainer.appendChild(refineCard.card);
 
     const strats = [
-        { id: 'rits', name: '⚡ RitS: Flow-Matching Generative TS (Default)' },
-        { id: 'lego', name: '🧱 Lego: Dual-Endpoint Superposition (R + P)' },
-        { id: 'manual_valley', name: '⛰️ Quantum Valley: Refine Crude Manual 3D Guess' },
+        { id: 'genetic_swarm', name: '🧬 Genetic Swarm: Multi-Cycle SE(3) Rigid-Body Evolution (Recommended)' },
+        { id: 'lego', name: '🧱 Dual-Endpoint IDPP: Universal Reaction Interpolation → Sella' },
+        { id: 'neb', name: '⛰️ Climbing Image NEB (CI-NEB with IDPP)' },
+        { id: 'manual_valley', name: 'Quantum Valley: Refine Crude Manual 3D Guess' },
         { id: 'auto_dock', name: '🎯 Auto-Dock: 32-Start Geometric Align → Sella' },
         { id: 'orca_dft', name: '🔬 ORCA 6.1: High-Level r2SCAN-3c DFT Refinement' },
         { id: 'drive', name: 'Constrained Scan (1D Drive) → Sella' },
-        { id: 'neb', name: 'Climbing Image NEB (CI-NEB with IDPP)' },
-        { id: 'dimer', name: 'Dimer Method (ase.mep.dimer)' }
+        { id: 'dimer', name: 'Dimer Method (ase.mep.dimer)' },
+        { id: 'rits', name: '⚡ RitS: Flow-Matching ML (Requires Checkpoint)' }
     ];
 
     optCard = createOptimizationCard({
@@ -163,6 +164,7 @@ export function renderTSEditor(arg1, arg2) {
     controlsContainer.appendChild(optCard.logBox);
 
     activeActions = new TSEditorActions(state, optCard, refineCard, activeViewer);
+    activeActions.onGeometryUpdated = () => updateLiveHUD();
     activeViewer.buildMolecules(state.molblocks);
     activeViewer.updateDynamicBonds(state.rxnBonds);
 
@@ -172,13 +174,6 @@ export function renderTSEditor(arg1, arg2) {
         if (e.key.toLowerCase() === 'r') activeViewer.setGizmoMode('rotate');
         if (e.key === 'Escape') activeViewer.setGizmoMode('detach');
     });
-
-    // Run default RitS optimization immediately on open so user sees geometry right away
-    if (state.molblocks.length > 0 && !ui._alreadyOptimized) {
-        setTimeout(() => {
-            activeActions.runOptimization('rits');
-        }, 150);
-    }
 }
 
 export const TSEditorUI = {

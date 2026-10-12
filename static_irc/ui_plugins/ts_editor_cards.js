@@ -127,7 +127,8 @@ export function createOptimizationCard({ strats, showNextPose, onRun, onNextPose
     });
 
     const runBtn = styledButton('⚡ Run / Refine TS', true);
-    const nextPoseBtn = styledButton('↻ Next docking pose');
+    const nextPoseBtn = styledButton('↻ Cycle Reactant Pose (Input)');
+    nextPoseBtn.title = 'Cycle through initial reactant docking poses before running TS optimization.';
     const optStatus = el('div', { fontWeight: '600', color: '#4f6ef7', marginTop: '8px', fontSize: '13px' });
 
     actCard.appendChild(stratLabel);
