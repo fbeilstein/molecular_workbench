@@ -104,36 +104,6 @@ export class TSEditorActions {
         }
     }
 
-    async nextDockingPose() {
-        this.pushHistory();
-        this.dockVariant += 1;
-        if (this.optCard.nextPoseBtn) this.optCard.nextPoseBtn.disabled = true;
-        try {
-            const payload = {
-                action_type: 'auto_dock',
-                variant: this.dockVariant,
-                reaction_override: this.state.overridden ? this.state.rxnBonds : null
-            };
-            const res = await fetch('/api/step/step_3_ts/custom', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            const r = await res.json();
-            if (r.success) {
-                this.state.molblocks = r.molblocks;
-                this.viewer.buildMolecules(r.molblocks);
-                this.viewer.updateDynamicBonds(this.state.rxnBonds);
-                this.viewer.flashAtoms(0x4f6ef7);
-                if (this.onGeometryUpdated) this.onGeometryUpdated();
-                this.setStatus(r.message + ' (Reactant docking input — click "Run / Refine TS" to optimize)', '#4f6ef7');
-            } else {
-                this.setStatus(r.error, '#e0245e');
-            }
-        } finally {
-            if (this.optCard.nextPoseBtn) this.optCard.nextPoseBtn.disabled = false;
-        }
-    }
 
     async runOptimization(strategy, onDone) {
         this.pushHistory();

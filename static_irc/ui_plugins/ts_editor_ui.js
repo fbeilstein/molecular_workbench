@@ -153,9 +153,7 @@ export function renderTSEditor(arg1, arg2) {
 
     optCard = createOptimizationCard({
         strats,
-        showNextPose: state.molblocks.length > 1,
         onRun: s => activeActions.runOptimization(s),
-        onNextPose: () => activeActions.nextDockingPose(),
         el, styledButton, card
     });
     controlsContainer.appendChild(optCard.card);

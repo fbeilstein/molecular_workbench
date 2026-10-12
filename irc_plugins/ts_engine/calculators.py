@@ -9,7 +9,7 @@ def make_xtb(charge: int, multiplicity: int):
                   electronic_temperature=1000.0, max_iterations=600, mixer_damping=0.2)
 
 
-def _apply_reaction_restraints(pos, f, restraints, k, model=None):
+def _apply_reaction_restraints(pos, f, restraints, k, model=None, k_angle=8.0):
     er = 0.0
     for i, j, t in restraints:
         r = pos[j] - pos[i]
@@ -35,12 +35,12 @@ def _apply_reaction_restraints(pos, f, restraints, k, model=None):
                     cos_ang = float(np.dot(ua, ub))
                     if cos_ang > -0.90:
                         diff = cos_ang - (-0.90)
-                        er += 0.5 * k * diff * diff
+                        er += 0.5 * k_angle * diff * diff
                         grad_a = (ub - cos_ang * ua) / (na + 1e-9)
                         grad_b = (ua - cos_ang * ub) / (nb + 1e-9)
-                        f[a] -= k * diff * grad_a
-                        f[b] -= k * diff * grad_b
-                        f[shared] += k * diff * (grad_a + grad_b)
+                        f[a] -= k_angle * diff * grad_a
+                        f[b] -= k_angle * diff * grad_b
+                        f[shared] += k_angle * diff * (grad_a + grad_b)
     return er
 
 
@@ -149,7 +149,11 @@ def guard_saddle_polish(atoms, model, log, max_steps=25, max_drift=0.15):
 
     try:
         from sella import Sella
-        opt = Sella(atoms, internal=True, order=1, logfile=None)
+        v0 = build_reaction_eigenvector(atoms, model)
+        sella_kwargs = {"internal": True, "order": 1, "logfile": None}
+        if v0 is not None:
+            sella_kwargs["v0"] = v0
+        opt = Sella(atoms, **sella_kwargs)
         for step in range(max_steps):
             opt.step()
             cur_pos = atoms.positions.copy()

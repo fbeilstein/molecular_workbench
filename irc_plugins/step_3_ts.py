@@ -20,7 +20,9 @@ def _format_frequency_verdict(ts_report):
         return ""
     if ts_report.get("n_imag") == 1 and ts_report.get("mode_consistent", True):
         return f" | 1 imag freq ({ts_report['imag_freqs'][0]:.0f}i cm-1) - TS confirmed"
-    return f" | {ts_report.get('n_imag', 0)} imag freq(s) - check log"
+    if ts_report.get("n_imag") == 0:
+        return " | ⚠️ 0 imag freqs (Local Minimum - Not a TS)"
+    return f" | ⚠️ {ts_report.get('n_imag', 0)} imag freq(s) - check log"
 
 
 class Step3TS(PipelineStep):
@@ -288,11 +290,8 @@ class Step3TS(PipelineStep):
             log_fh.close()
 
     def run(self, global_state: Dict[str, Any], user_input: Dict[str, Any]) -> StepResult:
-        # Save the final coordinates for the next step (IRC)
-        docked_molblocks = user_input.get("docked_molblocks", [])
-        return StepResult(success=True, data={
-            "docked_reactants": docked_molblocks
-        })
+        return StepResult(success=True, data={"docked_reactants": user_input.get("docked_molblocks", [])})
 
     def validate(self, step_data: Dict[str, Any]) -> bool:
         return "docked_reactants" in step_data
+

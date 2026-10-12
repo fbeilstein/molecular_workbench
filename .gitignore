@@ -20,10 +20,44 @@ data/
 # Ketcher
 .ketcher/
 
-# Local configuration
+# Local configuration & state
 .env
+reaction_state.json
 *.rxnbundle
 *.rxnbundle.zip
 *.cube
+
+# Logs & scratch
+*.log
+optimization.log
+scratch/
+
+# External tools & ML model weights
 tools/xtb/
 tools/gsm/
+tools/ml_models/
+tools/rits_repo/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Computational chemistry scratch files
+*.traj
+*.gbw
+*.densities
+*.engrad
+*.scfp
+xtbopt.*
+xtbtopo.mol
+charges
+wbo
+vibfreqs
+vibspectrum
+
+# General OS & Editor
+.DS_Store
+*.swp
+*.swo
+*~
+.pytest_cache/

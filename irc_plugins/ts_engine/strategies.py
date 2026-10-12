@@ -18,6 +18,9 @@ def _polish_with_sella(atoms, model, log, max_steps=40):
         log(f"  ✓ Saddle point confirmed by vibrational analysis ({ts_rep['imag_freqs'][0]:.0f}i cm-1).")
         return [{"step": 1, "energy_ev": float(atoms.get_potential_energy()), "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))}]
 
+    if ts_rep and ts_rep.get("n_imag") == 0:
+        log("  ℹ️ Local minimum detected in scan: steering along reaction coordinate into saddle region...")
+
     return guard_saddle_polish(atoms, model, log, max_steps=max_steps, max_drift=0.15)
 
 
@@ -94,18 +97,10 @@ def run_drive_sella_ts(atoms, model, log, n_points=11, k=25.0):
 def _build_relaxed_product_endpoint(atoms, model):
     """Build product endpoint P via true Product conformer Kabsch SO(3) alignment."""
     try:
-        from .lego_builder import _embed_product_positions, _kabsch_align
-        pos_P = _embed_product_positions(model)
-        if model.formed:
-            fi_center = model.frag_of[model.formed[0][0]]
-            scaffold = [k for k in range(model.n_atoms) if model.frag_of[k] == fi_center]
-            pos_aligned = _kabsch_align(pos_P, atoms.get_positions(), scaffold)
-            for i, k in model.broken:
-                u_bk = atoms.positions[k] - atoms.positions[i]
-                norm_bk = np.linalg.norm(u_bk)
-                dir_bk = u_bk / norm_bk if norm_bk > 1e-4 else np.array([1.0, 0.0, 0.0])
-                pos_aligned[k] = pos_aligned[i] + dir_bk * (model.d0(i, k) + 1.25)
-            return pos_aligned
+        from .lego_builder import _embed_aligned_products
+        pos_P = _embed_aligned_products(model, atoms.get_positions())
+        if pos_P is not None and not np.allclose(pos_P, 0.0):
+            return pos_P
     except Exception:
         pass
 

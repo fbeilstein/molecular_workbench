@@ -133,5 +133,8 @@ def run_lego_ts(atoms, model, log):
         log(f"  ✓ Saddle point confirmed by vibrational analysis ({ts_rep['imag_freqs'][0]:.0f}i cm-1).")
         return [{"step": 1, "energy_ev": float(atoms.get_potential_energy()), "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))}]
 
+    if ts_rep and ts_rep.get("n_imag") == 0:
+        log("  ℹ️ Local minimum detected in scan: steering along reaction coordinate into saddle region...")
+
     return guard_saddle_polish(atoms, model, log, max_steps=20, max_drift=0.15)
 

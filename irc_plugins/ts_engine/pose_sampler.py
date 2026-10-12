@@ -48,6 +48,9 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
             if i_b == i_sub:
                 u_back = - _unit(atoms.positions[k_b] - atoms.positions[i_b])
                 break
+            elif k_b == i_sub:
+                u_back = - _unit(atoms.positions[i_b] - atoms.positions[k_b])
+                break
 
     p_sub_local = atoms.positions[sub_idx] - atoms.positions[i_sub]
     p_nuc_local = atoms.positions[nuc_idx] - atoms.positions[j_nuc]
@@ -65,9 +68,11 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
         return pos
 
     def evaluate(pos):
-        for a in sub_idx:
-            for b in nuc_idx:
-                if (a, b) in model.formed:
+        for a in range(model.n_atoms):
+            for b in range(a + 1, model.n_atoms):
+                if (a, b) in model.formed or (b, a) in model.formed:
+                    continue
+                if (a, b) in model.r_bonds or (b, a) in model.r_bonds:
                     continue
                 d = np.linalg.norm(pos[a] - pos[b])
                 if d < 0.75 * (rcov(atoms.symbols[a]) + rcov(atoms.symbols[b])):
@@ -80,17 +85,28 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
         except Exception:
             return 1e6
 
-        # Collinearity penalty to guarantee collinear backside attack (180 deg)
         e_pen = 0.0
+        # Multi-bond guidance: penalize deviation for all forming bonds
+        for a, b in model.formed:
+            if (a in sub_idx and b in nuc_idx) or (b in sub_idx and a in nuc_idx):
+                d_ab = np.linalg.norm(pos[a] - pos[b])
+                d_tgt = 1.45 * (rcov(atoms.symbols[a]) + rcov(atoms.symbols[b]))
+                e_pen += 15.0 * (d_ab - d_tgt) ** 2
+
+        # Collinearity penalty to guarantee collinear backside attack (180 deg)
         if u_back is not None:
             for i_b, k_b in model.broken:
                 if i_b == i_sub:
                     v_leaving = pos[k_b] - pos[i_sub]
-                    v_incoming = pos[j_nuc] - pos[i_sub]
-                    d_l = np.linalg.norm(v_leaving) + 1e-9
-                    d_in = np.linalg.norm(v_incoming) + 1e-9
-                    cos_theta = np.dot(v_leaving, v_incoming) / (d_l * d_in)
-                    e_pen += 30.0 * max(0.0, cos_theta + 0.90) ** 2
+                elif k_b == i_sub:
+                    v_leaving = pos[i_b] - pos[i_sub]
+                else:
+                    continue
+                v_incoming = pos[j_nuc] - pos[i_sub]
+                d_l = np.linalg.norm(v_leaving) + 1e-9
+                d_in = np.linalg.norm(v_incoming) + 1e-9
+                cos_theta = np.dot(v_leaving, v_incoming) / (d_l * d_in)
+                e_pen += 30.0 * max(0.0, cos_theta + 0.90) ** 2
         return e_base + e_pen
 
     pop = []
@@ -194,6 +210,9 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
     if ts_rep and ts_rep.get("n_imag") == 1 and ts_rep.get("mode_consistent", True):
         log(f"  ✓ Saddle point confirmed by vibrational analysis ({ts_rep['imag_freqs'][0]:.0f}i cm-1).")
         return [{"step": 1, "energy_ev": float(atoms.get_potential_energy()), "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))}]
+
+    if ts_rep and ts_rep.get("n_imag") == 0:
+        log("  ℹ️ Local minimum detected in scan: steering along reaction coordinate into saddle region...")
 
     return guard_saddle_polish(atoms, model, log, max_steps=20, max_drift=0.15)
 

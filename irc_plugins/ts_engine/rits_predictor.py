@@ -194,7 +194,15 @@ def run_rits_ts(atoms, model, log):
     log("  Step 3: Quantum valley relaxation of internal coordinates...")
     base = atoms.copy()
     base.calc = make_xtb(model.charge, model.multiplicity)
-    targets = [(i, j, float(np.linalg.norm(pos_ts[i] - pos_ts[j]))) for i, j in model.formed + model.broken]
+    targets = []
+    for i, j in model.formed:
+        d_pred = float(np.linalg.norm(pos_ts[i] - pos_ts[j]))
+        target_d = float(np.clip(d_pred, model.d0(i, j) + 0.35, model.d0(i, j) + 0.95))
+        targets.append((i, j, target_d))
+    for i, j in model.broken:
+        d_pred = float(np.linalg.norm(pos_ts[i] - pos_ts[j]))
+        target_d = float(np.clip(d_pred, model.d0(i, j) + 0.20, model.d0(i, j) + 0.70))
+        targets.append((i, j, target_d))
     pos_cur = atoms.positions.copy()
     spec = [(i, j, float(np.linalg.norm(pos_cur[i] - pos_cur[j]))) for i, j in model.spectator_bonds]
     calc = _make_restrained_calc(base, targets, k=35.0, spectator_restraints=spec, model=model)

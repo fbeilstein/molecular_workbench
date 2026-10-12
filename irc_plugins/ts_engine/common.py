@@ -18,9 +18,17 @@ def rvdw(sym: str) -> float:
     return _PT.GetRvdw(_PT.GetAtomicNumber(sym))
 
 
-def _unit(v: np.ndarray) -> np.ndarray:
+def _unit(v: np.ndarray, fallback: np.ndarray = None) -> np.ndarray:
     n = np.linalg.norm(v)
-    return v / n if n > 1e-9 else v * 0.0
+    if n > 1e-9:
+        return v / n
+    if fallback is not None:
+        fb_n = np.linalg.norm(fallback)
+        if fb_n > 1e-9:
+            return fallback / fb_n
+    if v.ndim == 1 and len(v) == 3:
+        return np.array([1.0, 0.0, 0.0])
+    return v * 0.0
 
 
 def dir_pen(mode, R, u):

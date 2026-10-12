@@ -112,7 +112,7 @@ export function createRefinementCard({ numReactants, onSelect, onRefine, onGizmo
     return { card: tuneCard, undoBtn, resetCleanBtn };
 }
 
-export function createOptimizationCard({ strats, showNextPose, onRun, onNextPose, el, styledButton, card }) {
+export function createOptimizationCard({ strats, onRun, el, styledButton, card }) {
     const actCard = card('Transition State Optimization');
     const stratLabel = el('div', { fontSize: '12px', fontWeight: '600', color: '#444', marginBottom: '4px' }, 'Optimization Strategy:');
     const stratSelect = el('select', {
@@ -127,14 +127,11 @@ export function createOptimizationCard({ strats, showNextPose, onRun, onNextPose
     });
 
     const runBtn = styledButton('⚡ Run / Refine TS', true);
-    const nextPoseBtn = styledButton('↻ Cycle Reactant Pose (Input)');
-    nextPoseBtn.title = 'Cycle through initial reactant docking poses before running TS optimization.';
     const optStatus = el('div', { fontWeight: '600', color: '#4f6ef7', marginTop: '8px', fontSize: '13px' });
 
     actCard.appendChild(stratLabel);
     actCard.appendChild(stratSelect);
     actCard.appendChild(runBtn);
-    if (showNextPose) actCard.appendChild(nextPoseBtn);
 
     actCard.appendChild(el('div', { fontSize: '11.5px', color: '#777', marginTop: '6px' },
         'RitS: Generative flow-matching TS predictor. ' +
@@ -169,7 +166,6 @@ export function createOptimizationCard({ strats, showNextPose, onRun, onNextPose
     logBox.value = 'Ready.';
 
     runBtn.onclick = () => onRun(stratSelect.value);
-    nextPoseBtn.onclick = () => onNextPose();
 
-    return { card: actCard, profCanvas, logBox, logHeader, runBtn, nextPoseBtn, optStatus };
+    return { card: actCard, profCanvas, logBox, logHeader, runBtn, optStatus };
 }
