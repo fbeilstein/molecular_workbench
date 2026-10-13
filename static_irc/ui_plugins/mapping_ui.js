@@ -6,14 +6,12 @@
 function createAtomCircle(side, fragIdx, atomIdx, pt, onAtomClick) {
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('cx', pt.x); circle.setAttribute('cy', pt.y);
-    circle.setAttribute('r', '15'); circle.setAttribute('fill', 'transparent');
-    circle.setAttribute('stroke', 'transparent');
+    circle.setAttribute('r', '15'); circle.setAttribute('fill', 'transparent'); circle.setAttribute('stroke', 'transparent');
     Object.assign(circle.style, { cursor: 'pointer', pointerEvents: 'all' });
     circle.id = `atom_${side}_${fragIdx}_${atomIdx}`;
-    circle.dataset.side = side;
-    circle.dataset.key = `${side}_${fragIdx}_${atomIdx}`;
+    circle.dataset.side = side; circle.dataset.key = `${side}_${fragIdx}_${atomIdx}`;
     circle.addEventListener('mouseover', () => circle.setAttribute('stroke', '#3b82f6'));
-    circle.addEventListener('mouseout', () => circle.setAttribute('stroke', 'transparent'));
+    circle.addEventListener('mouseout', () => { if (!circle.dataset.selected) circle.setAttribute('stroke', 'transparent'); });
     circle.addEventListener('click', () => onAtomClick(circle, circle.dataset.key));
     return circle;
 }
@@ -28,13 +26,11 @@ function createFragCard(side, svgStr, fragIdx, coords, startX, getScale, onAtomC
     });
     wrapper.innerHTML = svgStr;
 
-    let fx = startX;
-    let fy = 50 + fragIdx * 300;
+    let fx = startX, fy = 50 + fragIdx * 300, isDragging = false;
     wrapper.style.transform = `translate(${fx}px, ${fy}px)`;
-    let isDragging = false;
 
     wrapper.addEventListener('mousedown', (e) => {
-        if (e.target.tagName === 'circle') return;
+        if (e.target.tagName.toLowerCase() === 'circle') return;
         e.stopPropagation();
         isDragging = true;
         wrapper.style.cursor = 'grabbing';
@@ -50,9 +46,7 @@ function createFragCard(side, svgStr, fragIdx, coords, startX, getScale, onAtomC
     });
 
     window.addEventListener('mouseup', () => {
-        if (!isDragging) return;
-        isDragging = false;
-        wrapper.style.cursor = 'grab';
+        if (isDragging) { isDragging = false; wrapper.style.cursor = 'grab'; }
     });
 
     const svgEl = wrapper.querySelector('svg');
@@ -61,7 +55,6 @@ function createFragCard(side, svgStr, fragIdx, coords, startX, getScale, onAtomC
             svgEl.appendChild(createAtomCircle(side, fragIdx, atomIdx, pt, onAtomClick));
         });
     }
-
     return wrapper;
 }
 
@@ -74,20 +67,24 @@ function createWirePath(rKey, pKey, rEl, pEl, zoomRect, scale, isApproved, onTog
     const x2 = (pRect.left + pRect.width / 2 - zoomRect.left) / scale;
     const y2 = (pRect.top + pRect.height / 2 - zoomRect.top) / scale;
 
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const r = 16;
+    const sx = x1 + (dx / len) * r, sy = y1 + (dy / len) * r;
+    const ex = x2 - (dx / len) * r, ey = y2 - (dy / len) * r;
+
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    line.setAttribute('d', `M ${x1} ${y1} C ${x1 + 100} ${y1} ${x2 - 100} ${y2} ${x2} ${y2}`);
-    line.setAttribute('stroke', isApproved ? 'rgba(0,180,0,0.5)' : 'rgba(255,165,0,0.7)');
+    line.setAttribute('d', `M ${sx} ${sy} C ${sx + 80} ${sy} ${ex - 80} ${ey} ${ex} ${ey}`);
+    line.setAttribute('stroke', isApproved ? 'rgba(0,180,0,0.6)' : 'rgba(255,165,0,0.75)');
     line.setAttribute('stroke-width', '4');
     line.setAttribute('fill', 'none');
-    line.style.pointerEvents = 'all';
+    line.style.pointerEvents = 'stroke';
     line.style.cursor = 'pointer';
 
     line.addEventListener('mouseover', () => {
         line.setAttribute('stroke-width', '6');
-        rEl.setAttribute('stroke', 'red');
-        rEl.setAttribute('stroke-width', '3');
-        pEl.setAttribute('stroke', 'red');
-        pEl.setAttribute('stroke-width', '3');
+        rEl.setAttribute('stroke', 'red'); rEl.setAttribute('stroke-width', '3');
+        pEl.setAttribute('stroke', 'red'); pEl.setAttribute('stroke-width', '3');
     });
 
     line.addEventListener('mouseout', () => {
@@ -97,11 +94,8 @@ function createWirePath(rKey, pKey, rEl, pEl, zoomRect, scale, isApproved, onTog
     });
 
     line.addEventListener('click', (e) => {
-        if (e.shiftKey) {
-            onDeleteMapping(rKey);
-            return;
-        }
-        onToggleApproved(rKey);
+        if (e.shiftKey) { onToggleApproved(rKey); return; }
+        onDeleteMapping(rKey);
     });
 
     line.addEventListener('contextmenu', (e) => {
@@ -120,7 +114,6 @@ function setupPanZoom(container, zoomContainer, onPanZoom) {
         const factor = e.deltaY > 0 ? 0.9 : 1.1;
         const rect = container.getBoundingClientRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-
         panX = mx - (mx - panX) * factor;
         panY = my - (my - panY) * factor;
         scale *= factor;
@@ -129,33 +122,32 @@ function setupPanZoom(container, zoomContainer, onPanZoom) {
     });
 
     container.addEventListener('mousedown', (e) => {
-        if (e.target.tagName === 'circle' || e.target.tagName === 'path') return;
+        const tag = e.target.tagName.toLowerCase();
+        if (tag === 'circle' || tag === 'path') return;
         isPanning = true;
         container.style.cursor = 'move';
     });
 
     window.addEventListener('mousemove', (e) => {
         if (!isPanning) return;
-        panX += e.movementX;
-        panY += e.movementY;
+        panX += e.movementX; panY += e.movementY;
         zoomContainer.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
         onPanZoom(scale);
     });
 
     window.addEventListener('mouseup', () => {
-        if (!isPanning) return;
-        isPanning = false;
-        container.style.cursor = 'default';
+        if (isPanning) { isPanning = false; container.style.cursor = 'default'; }
     });
 
     return () => scale;
 }
 
 function connectAtoms(rk, pk) {
-    for (let k in window.currentMapping) {
-        if (k !== rk && window.currentMapping[k] !== pk) continue;
-        delete window.currentMapping[k];
-        delete window.approvedMappings[k];
+    for (let k of Object.keys(window.currentMapping)) {
+        if (k === rk || window.currentMapping[k] === pk) {
+            delete window.currentMapping[k];
+            delete window.approvedMappings[k];
+        }
     }
     window.currentMapping[rk] = pk;
 }
@@ -196,49 +188,64 @@ function renderMappingUI(schemaContainer, ui, state, step_id) {
     schemaContainer.appendChild(btnBar);
 
     const container = document.createElement('div');
-    container.style.position = 'relative';
-    container.style.width = '100%';
-    container.style.minHeight = '600px';
-    container.style.overflow = 'hidden';
-    container.style.border = '1px solid #ccc';
-    container.style.backgroundColor = '#f4f4f4';
+    Object.assign(container.style, {
+        position: 'relative', width: '100%', minHeight: '600px',
+        overflow: 'hidden', border: '1px solid #ccc', backgroundColor: '#f4f4f4'
+    });
 
     const zoomContainer = document.createElement('div');
-    zoomContainer.style.position = 'absolute';
-    zoomContainer.style.top = '0';
-    zoomContainer.style.left = '0';
-    zoomContainer.style.width = '100%';
-    zoomContainer.style.height = '100%';
-    zoomContainer.style.transformOrigin = '0 0';
+    Object.assign(zoomContainer.style, {
+        position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', transformOrigin: '0 0'
+    });
 
     const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    overlay.style.position = 'absolute';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100%';
-    overlay.style.height = '100%';
-    overlay.style.overflow = 'visible';
-    overlay.style.pointerEvents = 'none';
-    overlay.style.zIndex = '100';
+    Object.assign(overlay.style, {
+        position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
+        overflow: 'visible', pointerEvents: 'none', zIndex: '100'
+    });
     zoomContainer.appendChild(overlay);
 
     const getScale = setupPanZoom(container, zoomContainer, () => drawWires());
 
+    function clearSelection() {
+        if (selectedNode) {
+            delete selectedNode.el.dataset.selected;
+            selectedNode.el.setAttribute('fill', 'transparent');
+            selectedNode.el.setAttribute('stroke', 'transparent');
+            selectedNode = null;
+        }
+    }
+
+    function setSelection(circle, key) {
+        selectedNode = { key, el: circle };
+        circle.dataset.selected = 'true';
+        circle.setAttribute('fill', 'rgba(59, 130, 246, 0.4)');
+        circle.setAttribute('stroke', '#2563eb');
+        circle.setAttribute('stroke-width', '3');
+    }
+
     function handleAtomClick(circle, key) {
         if (!selectedNode) {
-            selectedNode = { key, el: circle };
-            circle.setAttribute('fill', 'rgba(0,0,255,0.2)');
+            setSelection(circle, key);
             return;
         }
-
+        if (selectedNode.key === key) {
+            clearSelection();
+            drawWires();
+            return;
+        }
+        if ((selectedNode.key.startsWith('R') && key.startsWith('R')) ||
+            (selectedNode.key.startsWith('P') && key.startsWith('P'))) {
+            clearSelection();
+            setSelection(circle, key);
+            return;
+        }
         if (selectedNode.key.startsWith('R') && key.startsWith('P')) {
             connectAtoms(selectedNode.key, key);
         } else if (selectedNode.key.startsWith('P') && key.startsWith('R')) {
             connectAtoms(key, selectedNode.key);
         }
-
-        selectedNode.el.setAttribute('fill', 'transparent');
-        selectedNode = null;
+        clearSelection();
         drawWires();
     }
 
@@ -251,7 +258,6 @@ function renderMappingUI(schemaContainer, ui, state, step_id) {
 
     buildSideCards('R', ui.reactants, 50);
     buildSideCards('P', ui.products, 600);
-
     container.appendChild(zoomContainer);
     schemaContainer.appendChild(container);
 
@@ -272,15 +278,8 @@ function renderMappingUI(schemaContainer, ui, state, step_id) {
 
             const path = createWirePath(
                 rKey, pKey, rEl, pEl, zoomRect, scale, isApproved,
-                (rk) => {
-                    window.approvedMappings[rk] = !window.approvedMappings[rk];
-                    drawWires();
-                },
-                (rk) => {
-                    delete window.currentMapping[rk];
-                    delete window.approvedMappings[rk];
-                    drawWires();
-                }
+                (rk) => { window.approvedMappings[rk] = !window.approvedMappings[rk]; drawWires(); },
+                (rk) => { delete window.currentMapping[rk]; delete window.approvedMappings[rk]; drawWires(); }
             );
             overlay.appendChild(path);
         }

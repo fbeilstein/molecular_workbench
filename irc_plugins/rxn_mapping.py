@@ -100,58 +100,9 @@ def _score_alignment_pairs(pairs, rmol, pmol):
     return cost
 
 
-def _find_best_mcs_alignment(rmol, pmol, r_match, p_matches, ri, pi, mapping, claimed_p):
-    best_pairs, best_cost = None, None
-    for p_match in p_matches:
-        pairs = [(ra, pa) for ra, pa in zip(r_match, p_match) if ('R', ri, ra) not in mapping]
-        if not pairs or any((pi, pa) in claimed_p for _, pa in pairs):
-            continue
-        cost = _score_alignment_pairs(pairs, rmol, pmol)
-        if best_cost is None or cost < best_cost:
-            best_pairs, best_cost = pairs, cost
-    return best_pairs
-
-
-def _align_mol_pair_mcs(rmol, pmol, ri, pi, mapping, claimed_p, rdFMCS, Chem):
-    try:
-        mcs = rdFMCS.FindMCS([rmol, pmol],
-                             atomCompare=rdFMCS.AtomCompare.CompareElements,
-                             bondCompare=rdFMCS.BondCompare.CompareAny,
-                             timeout=10)
-    except Exception as e:
-        return [f"  Warning: MCS failed for R{ri+1}↔P{pi+1}: {e}"]
-
-    if mcs.numAtoms == 0:
-        return []
-
-    patt = Chem.MolFromSmarts(mcs.smartsString)
-    qp = Chem.AdjustQueryParameters.NoAdjustments()
-    qp.makeBondsGeneric = True
-    patt = Chem.AdjustQueryProperties(patt, qp)
-    r_match = rmol.GetSubstructMatch(patt)
-    p_matches = pmol.GetSubstructMatches(patt, uniquify=False, maxMatches=5000)
-
-    best_pairs = _find_best_mcs_alignment(rmol, pmol, r_match, p_matches, ri, pi, mapping, claimed_p)
-    if not r_match or not best_pairs:
-        return []
-
-    new_mappings = []
-    for r_ai, p_ai in best_pairs:
-        key = ('R', ri, r_ai)
-        p_key = (pi, p_ai)
-        if key in mapping or p_key in claimed_p:
-            continue
-        mapping[key] = ('P', pi, p_ai)
-        claimed_p.add(p_key)
-        rsym = rmol.GetAtomWithIdx(r_ai).GetSymbol()
-        psym = pmol.GetAtomWithIdx(p_ai).GetSymbol()
-        new_mappings.append(f"  R{ri+1}:{rsym}({r_ai}) → P{pi+1}:{psym}({p_ai})")
-    return new_mappings
-
-
 def auto_map_atoms(reactants_smi, products_smi):
     """
-    Attempt automatic atom mapping using RDKit atom map numbers or MCS-based matching.
+    Attempt automatic atom mapping using RDKit atom map numbers or global multi-fragment MCS matching.
     """
     Chem, _, rdFMCS, _ = _get_rdkit()
 
@@ -164,21 +115,62 @@ def auto_map_atoms(reactants_smi, products_smi):
         mapping, summary_lines = _map_from_atom_numbers(r_mols, p_mols)
         return mapping, '\n'.join(summary_lines) if summary_lines else "  No mapping found"
 
+    r_valid = [(i, m) for i, m in enumerate(r_mols) if m is not None]
+    p_valid = [(i, m) for i, m in enumerate(p_mols) if m is not None]
+
+    # Collect candidate MCS matches for each reactant fragment
+    r_cands = []
+    for ri, rmol in r_valid:
+        cands = []
+        for pi, pmol in p_valid:
+            try:
+                mcs = rdFMCS.FindMCS([rmol, pmol], atomCompare=rdFMCS.AtomCompare.CompareElements,
+                                     bondCompare=rdFMCS.BondCompare.CompareAny, timeout=5)
+            except Exception:
+                continue
+            if mcs.numAtoms == 0:
+                continue
+            patt = Chem.MolFromSmarts(mcs.smartsString)
+            qp = Chem.AdjustQueryParameters.NoAdjustments()
+            qp.makeBondsGeneric = True
+            patt = Chem.AdjustQueryProperties(patt, qp)
+            r_match = rmol.GetSubstructMatch(patt)
+            p_matches = pmol.GetSubstructMatches(patt, uniquify=False, maxMatches=200)
+            for p_match in p_matches:
+                pairs = list(zip(r_match, p_match))
+                cost = _score_alignment_pairs(pairs, rmol, pmol)
+                cands.append((pi, pairs, cost))
+        cands.sort(key=lambda x: x[2])
+        r_cands.append((ri, rmol, cands))
+
+    best_sol, best_score = {}, (-1, 999999.0)
+
+    def search(idx, claimed_p, cur_map, n_mapped, cost):
+        nonlocal best_sol, best_score
+        if idx == len(r_cands):
+            score = (n_mapped, -cost)
+            if score > best_score:
+                best_score = score
+                best_sol = dict(cur_map)
+            return
+        ri, rmol, cands = r_cands[idx]
+        for pi, pairs, c in cands:
+            p_set = set((pi, pa) for _, pa in pairs)
+            if not p_set.isdisjoint(claimed_p):
+                continue
+            nxt_map = dict(cur_map)
+            for ra, pa in pairs:
+                nxt_map[("R", ri, ra)] = ("P", pi, pa)
+            search(idx + 1, claimed_p | p_set, nxt_map, n_mapped + len(pairs), cost + c)
+        search(idx + 1, claimed_p, cur_map, n_mapped, cost + 50.0)
+
+    search(0, set(), {}, 0, 0.0)
     summary_lines = ["  (Auto-mapped via MCS — please verify)"]
-    r_mols_sorted = sorted([(i, m) for i, m in enumerate(r_mols) if m is not None],
-                           key=lambda x: x[1].GetNumHeavyAtoms(), reverse=True)
-    p_mols_sorted = sorted([(i, m) for i, m in enumerate(p_mols) if m is not None],
-                           key=lambda x: x[1].GetNumHeavyAtoms(), reverse=True)
-
-    claimed_p = set()
-    mapping = {}
-    for ri, rmol in r_mols_sorted:
-        for pi, pmol in p_mols_sorted:
-            msgs = _align_mol_pair_mcs(rmol, pmol, ri, pi, mapping, claimed_p, rdFMCS, Chem)
-            summary_lines.extend(msgs)
-
-    summary = '\n'.join(summary_lines) if summary_lines else "  No mapping found"
-    return mapping, summary
+    for (r_tag, ri, ra), (p_tag, pi, pa) in sorted(best_sol.items()):
+        rsym = r_mols[ri].GetAtomWithIdx(ra).GetSymbol()
+        psym = p_mols[pi].GetAtomWithIdx(pa).GetSymbol()
+        summary_lines.append(f"  R{ri+1}:{rsym}({ra}) → P{pi+1}:{psym}({pa})")
+    return best_sol, "\n".join(summary_lines) if len(summary_lines) > 1 else "  No mapping found"
 
 
 def _collect_pt_candidates(r_to_p, r_mols, p_mols):

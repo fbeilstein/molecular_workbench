@@ -47,6 +47,9 @@ class Step3TS(PipelineStep):
         if not raw or ">>" not in raw:
             raise ValueError(f"No valid reaction SMILES in state: '{raw}'")
         mapping = state.get("step_2_mapping", {}).get("final_mapping", {})
+        if not mapping:
+            from .step_2_mapping import Step2Mapping
+            mapping = Step2Mapping().get_ui_schema(state).get("initial_mapping", {})
         return ReactionModel(raw, mapping, solvent=state.get("solvent", "water"))
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -65,7 +68,11 @@ class Step3TS(PipelineStep):
         r_clean_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
 
         # Automatic docking from the mapping (cached: /api/plugins is polled often)
-        key = (raw_smiles, tuple(sorted(mapping_data.get("final_mapping", {}).items())))
+        mapping = mapping_data.get("final_mapping", {})
+        if not mapping:
+            from .step_2_mapping import Step2Mapping
+            mapping = Step2Mapping().get_ui_schema(current_state).get("initial_mapping", {})
+        key = (raw_smiles, tuple(sorted(mapping.items())))
         try:
             if key not in self._dock_cache:
                 from .ts_builder import auto_dock_molblocks
@@ -89,6 +96,7 @@ class Step3TS(PipelineStep):
             "products_3d": p_blocks,
             "reaction_info": info,
             "n_dock_variants": n_var,
+            "solvent": current_state.get("solvent", "water"),
             "message": msg,
         }
 
@@ -217,6 +225,8 @@ class Step3TS(PipelineStep):
             log_fh.flush()
 
         try:
+            if user_input.get("solvent"):
+                global_state["solvent"] = user_input["solvent"]
             model = self._model(global_state)
             overridden = model.apply_override(user_input.get("reaction_override"))
             mols, pos_list = molblocks_to_positions(docked)

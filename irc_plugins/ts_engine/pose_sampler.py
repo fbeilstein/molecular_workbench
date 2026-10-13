@@ -96,6 +96,7 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
     log("=== Strategy: Genetic Swarm SE(3) Dual-Rigid-Body Evolution ===")
     if not model.formed or len(model.r_mols) < 2:
         return _run_unimolecular_rotamer_swarm(atoms, model, log)
+    solvent = getattr(model, "solvent", "water")
 
     i_sub, j_nuc = model.formed[0]
     fi_sub = model.frag_of[i_sub]
@@ -148,7 +149,7 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
                     return 1e6
         test = atoms.copy()
         test.set_positions(pos)
-        test.calc = make_xtb(model.charge, model.multiplicity)
+        test.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
         try:
             e_base = float(test.get_potential_energy())
         except Exception:
@@ -254,7 +255,7 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
     # Stage 2: Quantum Valley Internal Relaxation (relaxing umbrella & dihedrals)
     log("  Stage 2: Quantum valley relaxation of internal coordinates...")
     base = atoms.copy()
-    base.calc = make_xtb(model.charge, model.multiplicity)
+    base.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
     targets = [(i, j, model.d0(i, j) + 0.65) for i, j in model.formed]
     targets += [(i, j, model.d0(i, j) + 0.35) for i, j in model.broken]
     pos_cur = atoms.positions.copy()
@@ -269,7 +270,7 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
     log("  Stage 3: Polishing saddle point with Sella in internal coordinates...")
     from .calculators import guard_saddle_polish
     from .vibrations import analyse_mode
-    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
     ts_rep = None
     try:
         ts_rep = analyse_mode(atoms, model, log)

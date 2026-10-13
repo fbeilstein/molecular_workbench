@@ -26,14 +26,17 @@ def _kabsch_align(P_pts, R_pts, indices):
 def _embed_aligned_products(model, pos_R):
     """Generate 3D conformers for product molecules and align fragments to reactants."""
     p_coords = []
-    for pmol in model.p_mols:
-        m = Chem.Mol(pmol)
-        AllChem.EmbedMolecule(m, randomSeed=42)
-        try:
-            AllChem.MMFFOptimizeMolecule(m)
-        except Exception:
-            pass
-        p_coords.append(m.GetConformer().GetPositions())
+    from .docking import generate_lowest_energy_molblock
+    for s in getattr(model, "p_smiles", []):
+        mb = generate_lowest_energy_molblock(s, seed=42)
+        m = Chem.MolFromMolBlock(mb, removeHs=False) if mb else None
+        if m is not None:
+            p_coords.append(m.GetConformer().GetPositions())
+    if not p_coords:
+        for pmol in model.p_mols:
+            m = Chem.Mol(pmol)
+            AllChem.EmbedMolecule(m, randomSeed=42)
+            p_coords.append(m.GetConformer().GetPositions())
 
     pos_P = np.zeros((model.n_atoms, 3))
     for pfi in range(len(model.p_mols)):

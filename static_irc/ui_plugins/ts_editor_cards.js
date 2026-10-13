@@ -112,8 +112,29 @@ export function createRefinementCard({ numReactants, onSelect, onRefine, onGizmo
     return { card: tuneCard, undoBtn, resetCleanBtn };
 }
 
-export function createOptimizationCard({ strats, onRun, el, styledButton, card }) {
+export function createOptimizationCard({ strats, currentSolvent, onSolventChange, onRun, el, styledButton, card }) {
     const actCard = card('Transition State Optimization');
+    const solvLabel = el('div', { fontSize: '12px', fontWeight: '600', color: '#444', marginBottom: '4px' }, 'Solvent / Environment:');
+    const solventSelect = el('select', {
+        padding: '7px 10px', borderRadius: '6px', border: '1px solid #c7ccd6',
+        width: '100%', marginBottom: '10px', fontSize: '12.5px', background: '#fff', color: '#222'
+    });
+    const solvOptions = [
+        { val: 'water', label: 'Water (ALPB, ε=80.4)' },
+        { val: 'gas', label: 'Gas Phase (Vacuum)' },
+        { val: 'acetonitrile', label: 'Acetonitrile (ε=37.5)' },
+        { val: 'ch2cl2', label: 'DCM (ε=8.9)' }
+    ];
+    solvOptions.forEach(opt => {
+        const o = el('option', {}, opt.label);
+        o.value = opt.val;
+        solventSelect.appendChild(o);
+    });
+    solventSelect.value = currentSolvent || 'water';
+    if (onSolventChange) {
+        solventSelect.onchange = () => onSolventChange(solventSelect.value);
+    }
+
     const stratLabel = el('div', { fontSize: '12px', fontWeight: '600', color: '#444', marginBottom: '4px' }, 'Optimization Strategy:');
     const stratSelect = el('select', {
         padding: '7px 10px', borderRadius: '6px', border: '1px solid #c7ccd6',
@@ -129,6 +150,8 @@ export function createOptimizationCard({ strats, onRun, el, styledButton, card }
     const runBtn = styledButton('⚡ Run / Refine TS', true);
     const optStatus = el('div', { fontWeight: '600', color: '#4f6ef7', marginTop: '8px', fontSize: '13px' });
 
+    actCard.appendChild(solvLabel);
+    actCard.appendChild(solventSelect);
     actCard.appendChild(stratLabel);
     actCard.appendChild(stratSelect);
     actCard.appendChild(runBtn);
@@ -165,7 +188,7 @@ export function createOptimizationCard({ strats, onRun, el, styledButton, card }
     logBox.readOnly = true;
     logBox.value = 'Ready.';
 
-    runBtn.onclick = () => onRun(stratSelect.value);
+    runBtn.onclick = () => onRun(stratSelect.value, solventSelect.value);
 
-    return { card: actCard, profCanvas, logBox, logHeader, runBtn, optStatus };
+    return { card: actCard, profCanvas, logBox, logHeader, runBtn, optStatus, solventSelect };
 }

@@ -153,7 +153,20 @@ export function renderTSEditor(arg1, arg2) {
 
     optCard = createOptimizationCard({
         strats,
-        onRun: s => activeActions.runOptimization(s),
+        currentSolvent: state.solvent || ui.solvent || 'water',
+        onSolventChange: async (s) => {
+            state.solvent = s;
+            const g = document.getElementById('global-solvent-select');
+            if (g) g.value = s;
+            try {
+                await fetch('/api/environment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ solvent: s })
+                });
+            } catch (e) {}
+        },
+        onRun: (strat, solv) => activeActions.runOptimization(strat, solv),
         el, styledButton, card
     });
     controlsContainer.appendChild(optCard.card);

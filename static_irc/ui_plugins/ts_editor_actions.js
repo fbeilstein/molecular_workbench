@@ -59,8 +59,9 @@ export class TSEditorActions {
         this.setStatus(`Refining Reactant ${fi + 1} with ${method.toUpperCase()}...`);
         const g = this.viewer.moleculeGroups[fi];
         const currentBlock = updateMolBlockPositions(this.state.molblocks[fi], g);
+        const solv = this.optCard.solventSelect ? this.optCard.solventSelect.value : (this.state.solvent || 'water');
         try {
-            const payload = { action_type: 'refine_fragment', fragment_index: fi, method, molblock: currentBlock };
+            const payload = { action_type: 'refine_fragment', fragment_index: fi, method, molblock: currentBlock, solvent: solv };
             const res = await fetch('/api/step/step_3_ts/custom', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -105,13 +106,14 @@ export class TSEditorActions {
     }
 
 
-    async runOptimization(strategy, onDone) {
+    async runOptimization(strategy, solvent, onDone) {
         this.pushHistory();
+        const solv = solvent || (this.optCard.solventSelect ? this.optCard.solventSelect.value : (this.state.solvent || 'water'));
         const runBtn = this.optCard.runBtn;
         const origLabel = runBtn ? runBtn.textContent : '';
         if (runBtn) { runBtn.disabled = true; runBtn.textContent = 'Searching…'; }
-        this.setStatus(`Running ${strategy.toUpperCase()} TS optimization...`);
-        if (this.optCard.logBox) this.optCard.logBox.value = `Starting ${strategy.toUpperCase()} TS optimization…\n`;
+        this.setStatus(`Running ${strategy.toUpperCase()} TS optimization (${solv})...`);
+        if (this.optCard.logBox) this.optCard.logBox.value = `Starting ${strategy.toUpperCase()} TS optimization (${solv})…\n`;
 
         const logTimer = setInterval(() => this.fetchLog(), 700);
         const currentData = this.state.molblocks.map((mb, fi) => {
@@ -124,7 +126,8 @@ export class TSEditorActions {
                 action_type: 'optimize_ts',
                 strategy,
                 docked_molblocks: currentData,
-                reaction_override: this.state.overridden ? this.state.rxnBonds : null
+                reaction_override: this.state.overridden ? this.state.rxnBonds : null,
+                solvent: solv
             };
             const res = await fetch('/api/step/step_3_ts/custom', {
                 method: 'POST',

@@ -121,6 +121,9 @@ class Step2Mapping(PipelineStep):
 
     def run(self, global_state: Dict[str, Any], user_input: Dict[str, Any]) -> StepResult:
         mapping = user_input.get("mapping", {})
+        if not mapping:
+            schema = self.get_ui_schema(global_state)
+            mapping = schema.get("initial_mapping", {})
         
         # Keep keys as strings (e.g. "R_0_1") because JSON requires string keys
         return StepResult(success=True, data={

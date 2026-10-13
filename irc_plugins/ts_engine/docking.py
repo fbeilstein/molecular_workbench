@@ -20,17 +20,28 @@ def _select_lowest_energy_conf(mol, cids, solvent="water"):
             pass
     try:
         from ase import Atoms
+        from ase.optimize import BFGS
         from .calculators import make_xtb
         mult = int(sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())) + 1
         calc = make_xtb(chg, mult, solvent=solvent or "water")
         syms = [a.GetSymbol() for a in mol.GetAtoms()]
-        xtb_energies = []
+        pruned = []
         for cid in cids:
-            p = mol.GetConformer(cid).GetPositions()
-            at = Atoms(symbols=syms, positions=p)
+            pos = mol.GetConformer(cid).GetPositions()
+            if not any(np.sqrt(np.mean(np.sum((pos - mol.GetConformer(k).GetPositions())**2, axis=1))) < 0.35 for k in pruned):
+                pruned.append(cid)
+        scored = []
+        for cid in pruned:
+            at = Atoms(symbols=syms, positions=mol.GetConformer(cid).GetPositions())
             at.calc = calc
-            xtb_energies.append(float(at.get_potential_energy()))
-        return int(np.argmin(xtb_energies))
+            try:
+                opt = BFGS(at, logfile=None)
+                opt.run(fmax=0.1, steps=15)
+                mol.GetConformer(cid).SetPositions(at.get_positions())
+            except Exception:
+                pass
+            scored.append((float(at.get_potential_energy()), cid))
+        return min(scored, key=lambda s: s[0])[1]
     except Exception:
         return cids[0]
 
