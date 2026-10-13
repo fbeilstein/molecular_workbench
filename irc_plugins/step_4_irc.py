@@ -47,6 +47,7 @@ class Step4IRC(PipelineStep):
             "type": "irc_viewer_ui",
             "ts_molblocks": ts_molblocks,
             "trajectory": existing_traj,
+            "solvent": current_state.get("solvent", "water"),
             "message": "Step 4: Intrinsic Reaction Coordinate (IRC) path connecting Reactants -> TS -> Products."
         }
 
@@ -61,6 +62,8 @@ class Step4IRC(PipelineStep):
 
         max_steps = int(user_input.get("max_steps", 30))
         dx = float(user_input.get("step_size", 0.08))
+        solvent = user_input.get("solvent") or global_state.get("solvent", "water")
+        relax_fragments = bool(user_input.get("relax_fragments", True))
 
         log_fh = open(LOG_PATH, 'w', buffering=1)
 
@@ -70,7 +73,7 @@ class Step4IRC(PipelineStep):
 
         try:
             mapping = global_state.get("step_2_mapping", {}).get("final_mapping", {})
-            model = ReactionModel(raw_smiles, mapping)
+            model = ReactionModel(raw_smiles, mapping, solvent=solvent)
             mols, pos_list = molblocks_to_positions(ts_blocks)
             positions = np.vstack(pos_list)
             symbols = [a.GetSymbol() for m in mols for a in m.GetAtoms()]
@@ -78,8 +81,9 @@ class Step4IRC(PipelineStep):
             atoms = Atoms(symbols=symbols, positions=positions)
             log(f"=== Starting IRC Calculation for {raw_smiles} ===")
             log(f"  System: {len(symbols)} atoms, charge = {model.charge}, multiplicity = {model.multiplicity}")
+            log(f"  Environment: {solvent.upper() if solvent else 'GAS PHASE'}")
 
-            traj = run_irc_path(atoms, model, log, max_steps=max_steps, dx=dx)
+            traj = run_irc_path(atoms, model, log, max_steps=max_steps, dx=dx, relax_fragments=relax_fragments)
 
             # Persist trajectory JSON to root
             try:

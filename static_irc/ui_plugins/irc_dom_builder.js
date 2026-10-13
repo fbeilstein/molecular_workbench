@@ -178,10 +178,62 @@ export function buildIRCLayout(container) {
     btnRow.appendChild(loopCheckLabel);
     playerCard.appendChild(btnRow);
 
+    // Solvent & Endpoint Controls
+    const optRow = document.createElement('div');
+    optRow.style.display = 'flex';
+    optRow.style.gap = '8px';
+    optRow.style.alignItems = 'center';
+    optRow.style.flexWrap = 'wrap';
+    optRow.style.padding = '4px 0';
+    optRow.style.fontSize = '12px';
+
+    const solvLabel = document.createElement('span');
+    solvLabel.style.color = '#475569';
+    solvLabel.style.fontWeight = '500';
+    solvLabel.textContent = 'Solvent:';
+
+    const solventSelect = document.createElement('select');
+    solventSelect.style.padding = '3px 6px';
+    solventSelect.style.fontSize = '12px';
+    solventSelect.style.borderRadius = '4px';
+    solventSelect.style.border = '1px solid #cbd5e1';
+    solventSelect.style.background = '#f8fafc';
+
+    const solvOptions = [
+        { val: 'water', label: 'Water (ALPB, ε=80.4)' },
+        { val: 'gas', label: 'Gas Phase (Vacuum)' },
+        { val: 'acetonitrile', label: 'Acetonitrile (ε=37.5)' },
+        { val: 'ch2cl2', label: 'DCM (ε=8.9)' }
+    ];
+    for (const opt of solvOptions) {
+        const el = document.createElement('option');
+        el.value = opt.val;
+        el.textContent = opt.label;
+        solventSelect.appendChild(el);
+    }
+
+    const relaxLabel = document.createElement('label');
+    relaxLabel.style.display = 'flex';
+    relaxLabel.style.alignItems = 'center';
+    relaxLabel.style.gap = '4px';
+    relaxLabel.style.color = '#475569';
+    relaxLabel.style.cursor = 'pointer';
+
+    const relaxCheckbox = document.createElement('input');
+    relaxCheckbox.type = 'checkbox';
+    relaxCheckbox.checked = true;
+    relaxLabel.appendChild(relaxCheckbox);
+    relaxLabel.appendChild(document.createTextNode('Relax to isolated products'));
+
+    optRow.appendChild(solvLabel);
+    optRow.appendChild(solventSelect);
+    optRow.appendChild(relaxLabel);
+    playerCard.appendChild(optRow);
+
     const actionRow = document.createElement('div');
     actionRow.style.display = 'flex';
     actionRow.style.gap = '8px';
-    actionRow.style.marginTop = '6px';
+    actionRow.style.marginTop = '4px';
 
     const calcBtn = document.createElement('button');
     calcBtn.className = 'primary';
@@ -225,6 +277,7 @@ export function buildIRCLayout(container) {
         fwdBadge, revBadge, rxnBadge,
         energyCanvas, frameSlider, frameCountLabel,
         playBtn, prevBtn, nextBtn, loopCheckbox,
+        solventSelect, relaxCheckbox,
         calcBtn, downloadBtn, logBox
     };
 }

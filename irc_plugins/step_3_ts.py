@@ -37,21 +37,8 @@ class Step3TS(PipelineStep):
         return "3. 3D Editor & TS Guess"
 
     def _generate_3d_molblock(self, smiles: str) -> str:
-        mol = Chem.MolFromSmiles(smiles)
-        if not mol:
-            return ""
-        mol = Chem.AddHs(mol)
-        params = AllChem.ETKDGv3()
-        params.randomSeed = 42
-        if AllChem.EmbedMolecule(mol, params) != 0:
-            AllChem.Compute2DCoords(mol)
-            return Chem.MolToMolBlock(mol)
-
-        try:
-            AllChem.MMFFOptimizeMolecule(mol)
-        except Exception:
-            pass
-        return Chem.MolToMolBlock(mol)
+        from .ts_engine.docking import generate_lowest_energy_molblock
+        return generate_lowest_energy_molblock(smiles)
 
     @staticmethod
     def _model(state: Dict[str, Any]):
@@ -60,7 +47,7 @@ class Step3TS(PipelineStep):
         if not raw or ">>" not in raw:
             raise ValueError(f"No valid reaction SMILES in state: '{raw}'")
         mapping = state.get("step_2_mapping", {}).get("final_mapping", {})
-        return ReactionModel(raw, mapping)
+        return ReactionModel(raw, mapping, solvent=state.get("solvent", "water"))
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
         mapping_data = current_state.get("step_2_mapping")
@@ -257,7 +244,7 @@ class Step3TS(PipelineStep):
 
             if atoms.calc is None:
                 from .ts_engine.calculators import make_xtb
-                atoms.calc = make_xtb(model.charge, model.multiplicity)
+                atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=getattr(model, "solvent", "water"))
             try:
                 e_ts = atoms.get_potential_energy()
             except Exception:

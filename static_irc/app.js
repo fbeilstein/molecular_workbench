@@ -42,6 +42,21 @@ document.addEventListener('DOMContentLoaded', () => {
         plugins = await pluginsRes.json();
         state = await stateRes.json();
         
+        const globalSolv = document.getElementById('global-solvent-select');
+        if (globalSolv) {
+            globalSolv.value = state.solvent || 'water';
+            globalSolv.onchange = async () => {
+                const newSolv = globalSolv.value;
+                state.solvent = newSolv;
+                await fetch('/api/environment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ solvent: newSolv })
+                });
+                renderActiveStep();
+            };
+        }
+
         determineActiveStep();
         renderTabs();
         renderActiveStep();
@@ -84,6 +99,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const plugin = plugins[activeStepIndex];
         const ui = plugin.ui_schema;
         
+        const envBar = document.querySelector('.env-bar');
+        if (envBar) {
+            const isCalcStep = plugin.step_id === 'step_3_ts' || plugin.step_id === 'step_4_irc';
+            envBar.style.display = isCalcStep ? 'flex' : 'none';
+        }
+
         const msg = document.createElement('p');
         msg.innerText = ui.message || '';
         schemaContainer.appendChild(msg);

@@ -97,6 +97,22 @@ export const IRCViewerUI = {
             a.remove();
         };
 
+        const curSolv = state.solvent || ui.solvent || 'water';
+        if (dom.solventSelect) {
+            dom.solventSelect.value = curSolv;
+            dom.solventSelect.onchange = async () => {
+                const s = dom.solventSelect.value;
+                state.solvent = s;
+                const g = document.getElementById('global-solvent-select');
+                if (g) g.value = s;
+                await fetch('/api/environment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ solvent: s })
+                });
+            };
+        }
+
         // Calculate IRC Action
         dom.calcBtn.onclick = async () => {
             dom.calcBtn.disabled = true;
@@ -120,7 +136,9 @@ export const IRCViewerUI = {
                         action_type: 'calculate_irc',
                         max_steps: 30,
                         step_size: 0.08,
-                        ts_molblocks: ui.ts_molblocks
+                        ts_molblocks: ui.ts_molblocks,
+                        solvent: dom.solventSelect.value,
+                        relax_fragments: dom.relaxCheckbox.checked
                     })
                 });
                 const r = await res.json();

@@ -172,6 +172,13 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
             save_current_state()
             return self._send_json({})
 
+        if path == '/api/environment':
+            data = self._read_json_body()
+            solvent = data.get("solvent", "water")
+            pipeline_state["solvent"] = solvent
+            save_current_state()
+            return self._send_json({"success": True, "solvent": solvent})
+
         self.send_response(404)
         self.end_headers()
 

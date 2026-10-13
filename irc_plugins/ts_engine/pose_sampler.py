@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.spatial.transform import Rotation, Slerp
+from ase import Atoms
 from ase.optimize import LBFGS
 from sella import Sella
 from .common import rcov, _unit
@@ -20,13 +21,81 @@ def _random_cone_vector(v_axis, max_angle_rad):
     return _unit(rot_align.apply(v_local))
 
 
+def _run_unimolecular_rotamer_swarm(atoms, model, log, n_confs=16):
+    """Explore rotamer conformations in the reaction valley for unimolecular steps."""
+    log("  Unimolecular reaction detected: exploring internal rotamer ensemble in reaction valley...")
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from .calculators import make_xtb, _make_restrained_calc, guard_saddle_polish
+    from .vibrations import analyse_mode
+    from ase.optimize import LBFGS
+
+    mol_ref = model.r_mols[0] if model.r_mols else None
+    confs_pos = []
+    if mol_ref is not None:
+        try:
+            m = Chem.Mol(mol_ref)
+            m = Chem.AddHs(m)
+            cids = list(AllChem.EmbedMultipleConfs(m, n_confs, AllChem.ETKDGv3()))
+            for cid in cids:
+                confs_pos.append(m.GetConformer(cid).GetPositions())
+        except Exception:
+            pass
+
+    if not confs_pos:
+        confs_pos = [atoms.positions.copy()]
+
+    targets = [(i, j, model.d0(i, j) + 0.35) for i, j in model.broken]
+    for i, j in model.formed:
+        targets.append((i, j, model.d0(i, j) + 0.65))
+
+    solvent = getattr(model, "solvent", "water")
+    candidates = []
+
+    for idx, p in enumerate(confs_pos):
+        at = Atoms(symbols=model.symbols, positions=p)
+        base = at.copy()
+        base.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
+        spec = [(i, j, float(np.linalg.norm(p[i] - p[j]))) for i, j in model.spectator_bonds]
+        at.calc = _make_restrained_calc(base, targets, k=35.0, spectator_restraints=spec, model=model)
+        opt = LBFGS(at, logfile=None, maxstep=0.15)
+        try:
+            opt.run(fmax=0.08, steps=30)
+            base.set_positions(at.get_positions())
+            e = float(base.get_potential_energy())
+            candidates.append((e, at.get_positions().copy(), idx))
+        except Exception:
+            pass
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0])
+        best_e, best_pos, best_idx = candidates[0]
+        atoms.set_positions(best_pos)
+        de_kcal = (candidates[-1][0] - best_e) * 23.06
+        log(f"  ✓ Rotamer swarm evaluated {len(candidates)} conformers: selected lowest-energy valley pose ({best_e:.3f} eV, {de_kcal:.1f} kcal/mol lower).")
+    else:
+        log("  Proceeding with current geometry.")
+
+    log("  Polishing saddle point with Sella DLC...")
+    atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
+    ts_rep = None
+    try:
+        ts_rep = analyse_mode(atoms, model, log)
+    except Exception:
+        pass
+
+    if ts_rep and ts_rep.get("n_imag") == 1 and ts_rep.get("mode_consistent", True):
+        log(f"  ✓ Saddle point confirmed by vibrational analysis ({ts_rep['imag_freqs'][0]:.0f}i cm-1).")
+        return [{"step": 1, "energy_ev": float(atoms.get_potential_energy()), "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))}]
+
+    return guard_saddle_polish(atoms, model, log, max_steps=20, max_drift=0.15)
+
+
 def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
     """Multi-generation Genetic Algorithm exploring SE(3) x SO(3) poses -> Valley Relax -> Sella."""
     log("=== Strategy: Genetic Swarm SE(3) Dual-Rigid-Body Evolution ===")
     if not model.formed or len(model.r_mols) < 2:
-        log("  Unimolecular or no forming bond: proceeding with quantum valley polish.")
-        from .manual_valley import run_guided_manual_ts
-        return run_guided_manual_ts(atoms, model, log)
+        return _run_unimolecular_rotamer_swarm(atoms, model, log)
 
     i_sub, j_nuc = model.formed[0]
     fi_sub = model.frag_of[i_sub]

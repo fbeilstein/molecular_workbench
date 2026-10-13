@@ -1,9 +1,64 @@
+import os
+import subprocess
+import tempfile
 import numpy as np
+from ase.calculators.calculator import Calculator, all_changes
 from .common import _unit
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+XTB_BIN = os.path.abspath(os.path.join(_HERE, "..", "..", "tools", "xtb", "bin", "xtb"))
 
-def make_xtb(charge: int, multiplicity: int):
-    """Factory for GFN2-xTB calculator with convergence parameters for charged/anion systems."""
+
+class XtbCalculator(Calculator):
+    """ASE Calculator wrapper for xTB binary supporting ALPB implicit solvation."""
+    implemented_properties = ["energy", "forces"]
+
+    def __init__(self, charge=0, multiplicity=1, solvent="water", **kwargs):
+        super().__init__(**kwargs)
+        self.charge = int(charge)
+        self.multiplicity = int(multiplicity)
+        self.solvent = solvent.lower() if solvent and solvent.lower() not in ("gas", "none", "vacuum", "") else None
+        self._tempdir = tempfile.TemporaryDirectory(prefix="xtb_calc_")
+        self._workdir = self._tempdir.name
+
+    def calculate(self, atoms=None, properties=("energy", "forces"), system_changes=all_changes):
+        super().calculate(atoms, properties, system_changes)
+        xyz_file = os.path.join(self._workdir, "input.xyz")
+        symbols = self.atoms.get_chemical_symbols()
+        positions = self.atoms.get_positions()
+        with open(xyz_file, "w") as f:
+            f.write(f"{len(symbols)}\n\n")
+            for s, (x, y, z) in zip(symbols, positions):
+                f.write(f"{s} {x:.8f} {y:.8f} {z:.8f}\n")
+
+        cmd = [XTB_BIN, "input.xyz", "--grad", "--chrg", str(self.charge), "--uhf", str(self.multiplicity - 1)]
+        if self.solvent:
+            cmd += ["--alpb", self.solvent]
+
+        res = subprocess.run(cmd, cwd=self._workdir, capture_output=True, text=True)
+        e = None
+        for line in res.stdout.splitlines():
+            if "TOTAL ENERGY" in line:
+                e = float(line.split()[3]) * 27.211386245988
+                break
+
+        grad_file = os.path.join(self._workdir, "gradient")
+        forces = np.zeros((len(symbols), 3))
+        if os.path.exists(grad_file):
+            with open(grad_file) as f:
+                lines = f.readlines()
+            n = len(symbols)
+            grad_lines = lines[2 + n : 2 + 2 * n]
+            grads = [[float(x.replace("D", "e")) for x in gl.split()[:3]] for gl in grad_lines]
+            forces = - np.array(grads) * 51.4220674763
+
+        self.results = {"energy": e, "forces": forces}
+
+
+def make_xtb(charge: int, multiplicity: int, solvent: str = None):
+    """Factory for GFN2-xTB calculator with optional implicit solvent (e.g. 'water', 'alpb')."""
+    if solvent and solvent.lower() not in ("gas", "none", "vacuum", ""):
+        return XtbCalculator(charge=charge, multiplicity=multiplicity, solvent=solvent)
     from tblite.ase import TBLite
     return TBLite(method="GFN2-xTB", charge=charge, multiplicity=multiplicity, verbosity=0,
                   electronic_temperature=1000.0, max_iterations=600, mixer_damping=0.2)
@@ -138,7 +193,7 @@ def guard_saddle_polish(atoms, model, log, max_steps=25, max_drift=0.15):
     target_dists = {(i, j): float(np.linalg.norm(atoms.positions[i] - atoms.positions[j]))
                     for i, j in model.formed + model.broken}
     best_pos = atoms.positions.copy()
-    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=getattr(model, "solvent", None))
     try:
         best_fmax = float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))
     except Exception:
@@ -151,7 +206,7 @@ def guard_saddle_polish(atoms, model, log, max_steps=25, max_drift=0.15):
         from sella import Sella
         v0 = build_reaction_eigenvector(atoms, model)
         sella_kwargs = {"internal": True, "order": 1, "logfile": None}
-        if v0 is not None:
+        if v0 is not None and not sella_kwargs.get("internal"):
             sella_kwargs["v0"] = v0
         opt = Sella(atoms, **sella_kwargs)
         for step in range(max_steps):

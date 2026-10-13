@@ -6,8 +6,51 @@ from scipy.optimize import minimize
 from .common import rvdw, _unit, dir_pen, set_positions, DOCK_EXTRA
 
 
+def _select_lowest_energy_conf(mol, cids):
+    if not cids or len(cids) <= 1:
+        return cids[0] if cids else 0
+    try:
+        res = AllChem.MMFFOptimizeMoleculeConfs(mol)
+        energies = [e for _, e in res]
+        if energies and max(energies) - min(energies) > 1e-4:
+            return int(np.argmin(energies))
+    except Exception:
+        pass
+    try:
+        from ase import Atoms
+        from .calculators import make_xtb
+        chg = int(sum(a.GetFormalCharge() for a in mol.GetAtoms()))
+        mult = int(sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())) + 1
+        calc = make_xtb(chg, mult)
+        syms = [a.GetSymbol() for a in mol.GetAtoms()]
+        xtb_energies = []
+        for cid in cids:
+            p = mol.GetConformer(cid).GetPositions()
+            at = Atoms(symbols=syms, positions=p)
+            at.calc = calc
+            xtb_energies.append(float(at.get_potential_energy()))
+        return int(np.argmin(xtb_energies))
+    except Exception:
+        return cids[0]
+
+
+def generate_lowest_energy_molblock(smiles: str, seed=42) -> str:
+    mol = Chem.MolFromSmiles(smiles)
+    if not mol:
+        return ""
+    mol = Chem.AddHs(mol)
+    params = AllChem.ETKDGv3()
+    params.randomSeed = seed
+    cids = list(AllChem.EmbedMultipleConfs(mol, 16, params))
+    if not cids:
+        AllChem.Compute2DCoords(mol)
+        return Chem.MolToMolBlock(mol)
+    best = _select_lowest_energy_conf(mol, cids)
+    return Chem.MolToMolBlock(mol, confId=best)
+
+
 def embed_fragments(model, seed=42):
-    """Generate 3D conformers for each reactant fragment."""
+    """Generate 3D conformers for each reactant fragment, selecting ground-state rotamers."""
     out = []
     for fi, m0 in enumerate(model.r_mols):
         mol = Chem.Mol(m0)
@@ -17,7 +60,7 @@ def embed_fragments(model, seed=42):
 
         params = AllChem.ETKDGv3()
         params.randomSeed = seed
-        nconf = 30 if intra else 1
+        nconf = 30 if intra else 16
         cids = list(AllChem.EmbedMultipleConfs(mol, nconf, params))
 
         if not cids:
@@ -25,17 +68,13 @@ def embed_fragments(model, seed=42):
             out.append(mol)
             continue
 
-        try:
-            AllChem.MMFFOptimizeMoleculeConfs(mol)
-        except Exception:
-            pass
-
-        best = cids[0]
         if intra:
             def score(cid):
                 p = mol.GetConformer(cid).GetPositions()
                 return sum(np.linalg.norm(p[i] - p[j]) for i, j in intra)
             best = min(cids, key=score)
+        else:
+            best = _select_lowest_energy_conf(mol, cids)
 
         out.append(Chem.Mol(mol, False, best))
     return out

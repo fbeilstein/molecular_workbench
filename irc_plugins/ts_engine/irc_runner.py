@@ -85,7 +85,8 @@ def _run_sella_branch(atoms_in, model, direction, max_steps, dx, fmax, log):
     try:
         import sella
         atoms = atoms_in.copy()
-        atoms.calc = make_xtb(model.charge, model.multiplicity)
+        solvent = getattr(model, "solvent", "water")
+        atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
         irc = sella.IRC(atoms, dx=dx, ninner_iter=25, keep_going=True, logfile=None)
         frames = []
 
@@ -108,24 +109,25 @@ def _run_sella_branch(atoms_in, model, direction, max_steps, dx, fmax, log):
     return None
 
 
-def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03):
+def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03, relax_fragments=True):
     """Compute bidirectional Intrinsic Reaction Coordinate (IRC) downhill from Transition State."""
     log("=== Intrinsic Reaction Coordinate (IRC) Integration ===")
-    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    solvent = getattr(model, "solvent", "water")
+    log(f"  Implicit Solvent Model: {solvent.upper() if solvent else 'GAS PHASE'}")
+    atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
 
     pos_ts = atoms.positions.copy()
     e_ts = float(atoms.get_potential_energy())
     fmax_ts = float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))
     log(f"  Reference Geometry: E = {e_ts:.4f} eV, max|F| = {fmax_ts:.4f} eV/A")
 
-    # If non-stationary, check for genuine saddle point on a copy without mutating atoms
     if fmax_ts > 0.08:
         log(f"  ℹ️ Geometry has non-zero gradient (max|F| = {fmax_ts:.3f} eV/A > 0.05 eV/A). Checking for saddle point...")
         try:
             import sella
             from ..ts_builder import analyse_mode
             atoms_check = atoms.copy()
-            atoms_check.calc = make_xtb(model.charge, model.multiplicity)
+            atoms_check.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
             opt_sella = sella.Sella(atoms_check, order=1, logfile=None)
             opt_sella.run(fmax=0.05, steps=15)
             f_opt = atoms_check.get_forces()
@@ -137,11 +139,10 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03):
                 fmax_ts = fmax_opt
                 log(f"  ✓ Saddle geometry confirmed with Sella: E = {e_ts:.4f} eV, max|F| = {fmax_ts:.4f} eV/A (1 imag freq).")
             else:
-                log(f"  ℹ️ No transition state saddle point found on this PES region (max|F| = {fmax_ts:.3f} eV/A). Tracing directed reaction coordinate from current geometry.")
+                log(f"  ℹ️ Tracing reaction coordinate from current geometry.")
         except Exception:
             pass
 
-    # Reaction eigenvector for directed bifurcation
     v0 = build_reaction_eigenvector(atoms, model)
     if v0 is None:
         v0 = np.random.normal(size=atoms.positions.shape)
@@ -158,7 +159,6 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03):
     log("\n  Integrating Forward Path (towards Products)...")
     fwd_frames = _run_sella_branch(atoms, model, 'forward', max_steps, dx, fmax, log)
 
-    # Validate whether Sella properly bifurcated
     use_fallback = False
     if not rev_frames or not fwd_frames:
         use_fallback = True
@@ -173,26 +173,33 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03):
 
     if use_fallback:
         atoms_rev = atoms.copy()
-        atoms_rev.calc = make_xtb(model.charge, model.multiplicity)
+        atoms_rev.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
         rev_frames = _step_mass_weighted_descent(
             atoms_rev, pos_ts, -v0, max_steps, dx, fmax, log, "Reverse", model=model, direction_sign=-1.0
         )
 
         atoms_fwd = atoms.copy()
-        atoms_fwd.calc = make_xtb(model.charge, model.multiplicity)
+        atoms_fwd.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
         fwd_frames = _step_mass_weighted_descent(
             atoms_fwd, pos_ts, v0, max_steps, dx, fmax, log, "Forward", model=model, direction_sign=+1.0
         )
 
-    # 3. Assemble full continuous trajectory
     ts_frame = {
         "positions": pos_ts.tolist(),
         "energy_ev": e_ts,
         "fmax": fmax_ts
     }
 
-    full_raw = rev_frames[::-1] + [ts_frame] + fwd_frames
-    ts_index = len(rev_frames)
+    asymp_r, asymp_p = [], []
+    if relax_fragments:
+        from .fragment_relax import extend_to_asymptotic_fragments
+        if len(model.r_mols) > 1 and rev_frames:
+            asymp_r = extend_to_asymptotic_fragments(rev_frames[-1], model, solvent, log, is_product=False)
+        if len(model.p_mols) > 1 and fwd_frames:
+            asymp_p = extend_to_asymptotic_fragments(fwd_frames[-1], model, solvent, log, is_product=True)
+
+    full_raw = asymp_r[::-1] + rev_frames[::-1] + [ts_frame] + fwd_frames + asymp_p
+    ts_index = len(asymp_r) + len(rev_frames)
 
     # 4. Compute mass-weighted arc length coordinate s
     masses = atoms.get_masses()
@@ -236,32 +243,21 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03):
     p_end = np.array(frames[-1]["positions"])
     sep_dist = float(np.linalg.norm(p_start - p_end))
 
-    log(f"\n✓ Reaction Path Complete: {len(frames)} frames ({len(rev_frames)} reverse + ref + {len(fwd_frames)} forward).")
+    log(f"\n✓ Reaction Path Complete: {len(frames)} frames ({len(rev_frames)} rev + ref + {len(fwd_frames)} fwd).")
     log(f"  Endpoint Separation (Reactant vs Product): {sep_dist:.2f} A")
     log(f"  Forward Barrier  ΔE‡_fwd = {barrier_fwd:.2f} kcal/mol")
     log(f"  Reverse Barrier  ΔE‡_rev = {barrier_rev:.2f} kcal/mol")
     log(f"  Reaction Energy  ΔE_rxn  = {reaction_e:+.2f} kcal/mol")
 
     bonds = []
+    ch_pairs = [(b[0], b[1]) for b in model.order_changed]
     for pair in sorted(model.r_bonds | model.p_bonds):
-        i, j = pair
         r_ord = int(round(model.r_bond_orders.get(pair, 0)))
         p_ord = int(round(model.p_bond_orders.get(pair, 0)))
-        b_type = "spectator"
-        if pair in model.formed:
-            b_type = "forming"
-        elif pair in model.broken:
-            b_type = "breaking"
-        elif pair in [(b[0], b[1]) for b in model.order_changed]:
-            b_type = "order_changed"
-        bonds.append({
-            "from": i,
-            "to": j,
-            "r_order": max(1, r_ord) if r_ord > 0 else 1,
-            "p_order": max(1, p_ord) if p_ord > 0 else 1,
-            "type": b_type
-        })
+        b_type = "forming" if pair in model.formed else "breaking" if pair in model.broken else "order_changed" if pair in ch_pairs else "spectator"
+        bonds.append({"from": pair[0], "to": pair[1], "r_order": max(1, r_ord), "p_order": max(1, p_ord), "type": b_type})
 
+    from .fragment_relax import build_fragments_meta
     result_json = {
         "reaction_smiles": f"{'.'.join(model.r_smiles)}>>{'.'.join(model.p_smiles)}",
         "symbols": model.symbols,
@@ -277,6 +273,7 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03):
             "reaction_energy_kcal": round(reaction_e, 2),
             "endpoint_separation_A": round(sep_dist, 2)
         },
+        "fragments": build_fragments_meta(model),
         "frames": frames
     }
 
