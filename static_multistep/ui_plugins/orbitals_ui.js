@@ -5,7 +5,7 @@ export const OrbitalsUI = {
         totalFrames: 0,
         currentFrame: 0,
         landmarks: [],
-        selectedOrbital: 'HOMO',
+        selectedOrbital: 'IBO_30',
         isovalue: 0.03,
         isPlaying: false,
         playTimer: null,
@@ -23,6 +23,9 @@ export const OrbitalsUI = {
         this.state.landmarks = uiSchema.landmarks || [];
         this.state.schedule = JSON.parse(JSON.stringify(uiSchema.schedule || {}));
         this.state.isovalue = this.state.schedule.default_isovalue || 0.03;
+        if (this.state.schedule.selected_orbital) {
+            this.state.selectedOrbital = this.state.schedule.selected_orbital;
+        }
 
         if (!uiSchema.has_megajson || this.state.totalFrames === 0) {
             container.innerHTML = `<div class="empty-state">No reaction pathway available. Please complete earlier steps first.</div>`;
@@ -34,17 +37,17 @@ export const OrbitalsUI = {
                 <!-- Header with Title and Badges -->
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                     <div>
-                        <h2 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main);">Molecular Orbital Studio & Resonance π Systems</h2>
+                        <h2 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main);">Reaction Probability Flow (IBO Movie)</h2>
                         <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
+                            <span class="chip emerald">Intrinsic Bond Orbitals (IBO)</span>
                             <span class="chip blue">${uiSchema.symbols.length} atoms</span>
                             <span class="chip">${this.state.totalFrames} frames</span>
-                            <span class="chip emerald">Canonical π Resonance Active</span>
-                            <span class="chip purple">Phase Overlap Continuous</span>
+                            <span class="chip purple">Continuous Curly-Arrow Tracking</span>
                         </div>
                     </div>
                     <div style="display: flex; gap: 0.6rem;">
-                        <button id="btn-precompute-cubes" class="btn btn-secondary btn-sm" title="Precompute cubes for all landmark states for instant rendering">
-                            ⚡ Precompute All Cubes
+                        <button id="btn-precompute-cubes" class="btn btn-secondary btn-sm" title="Precompute cubes across landmarks for instant 3D rendering">
+                            ⚡ Precompute Landmark Cubes
                         </button>
                         <button id="btn-dl-cube" class="btn btn-secondary btn-sm" title="Download Gaussian .cube for current frame and orbital">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -56,16 +59,19 @@ export const OrbitalsUI = {
                 </div>
 
                 <!-- Main Layout: 3D Viewport on Left, Control Panel on Right -->
-                <div style="display: grid; grid-template-columns: 1fr 370px; gap: 1.25rem; align-items: start;">
+                <div style="display: grid; grid-template-columns: 1fr 380px; gap: 1.25rem; align-items: start;">
                     <!-- 3D Viewport Card -->
                     <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                         <div class="viewer-wrapper" style="height: 440px; position: relative;">
                             <div id="orb-viewport-3d" class="viewport-3d"></div>
                             <div id="orb-status-badge" class="viewer-overlay-badge">Frame 1 / ${this.state.totalFrames}</div>
+                            <div id="orb-active-flow-badge" style="position: absolute; bottom: 12px; left: 12px; background: rgba(11, 15, 23, 0.85); backdrop-filter: blur(8px); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.4rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: #38bdf8; z-index: 5;">
+                                Active: Loading...
+                            </div>
                             <div id="orb-loading-spinner" style="display: none; position: absolute; inset: 0; background: rgba(11,15,23,0.65); backdrop-filter: blur(4px); justify-content: center; align-items: center; z-index: 10; color: #38bdf8; font-size: 0.9rem; font-weight: 600;">
                                 <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
                                     <div class="spinner" style="width: 24px; height: 24px; border: 3px solid rgba(56,189,248,0.2); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-                                    <span id="spinner-msg">Evaluating Wavefunction & Volume...</span>
+                                    <span id="spinner-msg">Localizing IBO & Evaluating Volume...</span>
                                 </div>
                             </div>
                         </div>
@@ -96,42 +102,53 @@ export const OrbitalsUI = {
 
                     <!-- Right Controls Panel -->
                     <div style="display: flex; flex-direction: column; gap: 1rem;">
-                        <!-- Active Orbital Selection with Chemical Resonance Labels -->
+                        <!-- Primary Mechanism Flow Orbitals (The Curly Arrows!) -->
                         <div class="card" style="padding: 1rem;">
-                            <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.6rem;">Chemical Orbitals & Resonance π</div>
-                            <div style="display: flex; flex-direction: column; gap: 0.45rem;" id="orbital-chips-container">
-                                <button class="btn btn-sm btn-primary orb-chip-btn" data-orb="HOMO" style="justify-content: space-between; padding: 0.45rem 0.65rem; text-align: left;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+                                <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Reaction Flow (Curly Arrows)</div>
+                                <span class="chip emerald" style="font-size: 0.65rem;">Knizia IBO</span>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem;" id="reaction-flow-buttons">
+                                <button class="btn btn-sm ${this.state.selectedOrbital === 'IBO_30' ? 'btn-primary' : 'btn-secondary'} flow-btn" data-key="IBO_30" style="justify-content: space-between; text-align: left; padding: 0.45rem 0.65rem;">
                                     <div>
-                                        <div style="font-weight: 700;" id="orb-label-HOMO">HOMO: Formate π (Nucleophile lone pair)</div>
+                                        <div style="font-weight: 700;">⚡ Forming C-O Bond</div>
+                                        <div style="font-size: 0.72rem; opacity: 0.85;">LP(O9) → C1-O9 σ bond</div>
                                     </div>
-                                    <span style="font-size: 0.75rem; font-family: var(--font-mono); opacity: 0.9;" id="orb-energy-HOMO">-- eV</span>
+                                    <span class="chip blue" style="font-size: 0.65rem;">Nucleophile</span>
                                 </button>
 
-                                <button class="btn btn-sm btn-secondary orb-chip-btn" data-orb="LUMO" style="justify-content: space-between; padding: 0.45rem 0.65rem; text-align: left;">
+                                <button class="btn btn-sm ${this.state.selectedOrbital === 'IBO_19' ? 'btn-primary' : 'btn-secondary'} flow-btn" data-key="IBO_19" style="justify-content: space-between; text-align: left; padding: 0.45rem 0.65rem;">
                                     <div>
-                                        <div style="font-weight: 700;" id="orb-label-LUMO">LUMO: Carbonyl π* (Acceptor antibond)</div>
+                                        <div style="font-weight: 700;">⚡ Carbonyl Opening</div>
+                                        <div style="font-size: 0.72rem; opacity: 0.85;">C1=O3 (π) → LP(O3⁻) oxyanion</div>
                                     </div>
-                                    <span style="font-size: 0.75rem; font-family: var(--font-mono); opacity: 0.9;" id="orb-energy-LUMO">-- eV</span>
+                                    <span class="chip purple" style="font-size: 0.65rem;">Electrophile</span>
                                 </button>
 
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem;">
-                                    <button class="btn btn-sm btn-secondary orb-chip-btn" data-orb="HOMO-1" style="justify-content: space-between; padding: 0.4rem 0.5rem;">
-                                        <span style="font-weight: 600;">HOMO-1</span>
-                                        <span style="font-size: 0.7rem; font-family: var(--font-mono);" id="orb-energy-HOMO-1">-- eV</span>
+                                <button class="btn btn-sm ${this.state.selectedOrbital === 'IBO_20' ? 'btn-primary' : 'btn-secondary'} flow-btn" data-key="IBO_20" style="justify-content: space-between; text-align: left; padding: 0.45rem 0.65rem;">
+                                    <div>
+                                        <div style="font-weight: 700;">⚡ Leaving Group Departure</div>
+                                        <div style="font-size: 0.72rem; opacity: 0.85;">C1-Cl2 σ bond → LP(Cl⁻)</div>
+                                    </div>
+                                    <span class="chip amber" style="font-size: 0.65rem;">Leaving Group</span>
+                                </button>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; margin-top: 0.2rem;">
+                                    <button class="btn btn-sm ${this.state.selectedOrbital === 'LUMO' ? 'btn-primary' : 'btn-secondary'} flow-btn" data-key="LUMO" style="padding: 0.35rem 0.5rem; justify-content: center;">
+                                        <span style="font-weight: 600;">LUMO (Acceptor)</span>
                                     </button>
-
-                                    <button class="btn btn-sm btn-secondary orb-chip-btn" data-orb="LUMO+1" style="justify-content: space-between; padding: 0.4rem 0.5rem;">
-                                        <span style="font-weight: 600;">LUMO+1</span>
-                                        <span style="font-size: 0.7rem; font-family: var(--font-mono);" id="orb-energy-LUMO+1">-- eV</span>
+                                    <button class="btn btn-sm ${this.state.selectedOrbital === 'HOMO' ? 'btn-primary' : 'btn-secondary'} flow-btn" data-key="HOMO" style="padding: 0.35rem 0.5rem; justify-content: center;">
+                                        <span style="font-weight: 600;">Canonical HOMO</span>
                                     </button>
                                 </div>
+                            </div>
 
-                                <button class="btn btn-sm btn-secondary orb-chip-btn" data-orb="PI_RES" style="justify-content: space-between; padding: 0.4rem 0.65rem; text-align: left;">
-                                    <div>
-                                        <span style="font-weight: 600;">Formate π₁ (Resonance backbone)</span>
-                                    </div>
-                                    <span style="font-size: 0.75rem; font-family: var(--font-mono); opacity: 0.9;" id="orb-energy-PI_RES">-- eV</span>
-                                </button>
+                            <!-- Manual Localized Valence Orbital Chooser -->
+                            <div style="margin-top: 0.8rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
+                                <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Or Choose Any Localized Valence IBO Manually:</label>
+                                <select id="manual-ibo-select" style="width: 100%; background: rgba(0,0,0,0.45); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-family: var(--font-mono);">
+                                    <option value="">Loading all localized IBOs...</option>
+                                </select>
                             </div>
 
                             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.8rem; font-size: 0.75rem; color: var(--text-muted); background: rgba(0,0,0,0.25); padding: 0.35rem 0.6rem; border-radius: 4px;">
@@ -163,31 +180,27 @@ export const OrbitalsUI = {
                         <!-- Schedule Configuration -->
                         <div class="card" style="padding: 1rem;">
                             <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.6rem;">Pathway Visibility Schedule</div>
-                            <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.8rem;">
-                                Active orbitals featured during each reaction stage:
-                            </p>
-                            
                             <div style="display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.8rem;">
                                 <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
                                     <div style="font-weight: 600; color: #93c5fd; margin-bottom: 0.3rem;">Step 1: Addition (Reactants → TS₁ → Int)</div>
-                                    <div style="display: flex; gap: 1rem;">
+                                    <div style="display: flex; flex-direction: column; gap: 0.3rem;">
                                         <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
-                                            <input type="checkbox" id="sched-s1-homo" checked> HOMO (Formate π)
+                                            <input type="checkbox" id="sched-s1-forming" checked> Forming C-O Bond (LP(O9) → C-O)
                                         </label>
                                         <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
-                                            <input type="checkbox" id="sched-s1-lumo" checked> LUMO (Carbonyl π*)
+                                            <input type="checkbox" id="sched-s1-opening" checked> Carbonyl Opening (C=O → LP)
                                         </label>
                                     </div>
                                 </div>
 
                                 <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
                                     <div style="font-weight: 600; color: #c084fc; margin-bottom: 0.3rem;">Step 2: Elimination (Int → TS₂ → Prod)</div>
-                                    <div style="display: flex; gap: 1rem;">
+                                    <div style="display: flex; flex-direction: column; gap: 0.3rem;">
                                         <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
-                                            <input type="checkbox" id="sched-s2-homo" checked> HOMO (Oxyanion lone pair)
+                                            <input type="checkbox" id="sched-s2-breaking" checked> Leaving Group (C-Cl → Cl⁻)
                                         </label>
                                         <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
-                                            <input type="checkbox" id="sched-s2-lumo" checked> LUMO (C-Cl σ*)
+                                            <input type="checkbox" id="sched-s2-carbonyl" checked> Carbonyl Reform (LP → C=O)
                                         </label>
                                     </div>
                                 </div>
@@ -210,6 +223,7 @@ export const OrbitalsUI = {
         const scrubber = document.getElementById('orb-scrubber');
         const isoSlider = document.getElementById('isovalue-slider');
         const isoDisplay = document.getElementById('isovalue-val-display');
+        const manualSelect = document.getElementById('manual-ibo-select');
 
         if (playBtn) playBtn.onclick = () => this.togglePlay();
         if (prevBtn) prevBtn.onclick = () => this.stepFrame(-1);
@@ -241,17 +255,31 @@ export const OrbitalsUI = {
             };
         });
 
-        // Orbital Chip Selector Buttons
-        document.querySelectorAll('.orb-chip-btn').forEach(btn => {
+        // Flow Buttons
+        document.querySelectorAll('.flow-btn').forEach(btn => {
             btn.onclick = () => {
-                const orb = btn.dataset.orb;
-                this.state.selectedOrbital = orb;
-                document.querySelectorAll('.orb-chip-btn').forEach(b => {
-                    b.className = `btn btn-sm ${b.dataset.orb === orb ? 'btn-primary' : 'btn-secondary'} orb-chip-btn`;
+                const key = btn.dataset.key;
+                this.state.selectedOrbital = key;
+                document.querySelectorAll('.flow-btn').forEach(b => {
+                    b.className = `btn btn-sm ${b.dataset.key === key ? 'btn-primary' : 'btn-secondary'} flow-btn`;
                 });
+                if (manualSelect) manualSelect.value = key;
                 this.renderCurrentOrbitalMesh();
             };
         });
+
+        // Manual IBO select dropdown
+        if (manualSelect) {
+            manualSelect.onchange = (e) => {
+                const val = e.target.value;
+                if (!val) return;
+                this.state.selectedOrbital = val;
+                document.querySelectorAll('.flow-btn').forEach(b => {
+                    b.className = `btn btn-sm ${b.dataset.key === val ? 'btn-primary' : 'btn-secondary'} flow-btn`;
+                });
+                this.renderCurrentOrbitalMesh();
+            };
+        }
 
         // Precompute All Cubes Button
         const precomputeBtn = document.getElementById('btn-precompute-cubes');
@@ -270,7 +298,7 @@ export const OrbitalsUI = {
                         precomputeBtn.innerText = `✓ ${d.cached_total} Cubes Ready`;
                     }
                 } catch (e) {
-                    precomputeBtn.innerText = "⚡ Precompute Cubes";
+                    precomputeBtn.innerText = "⚡ Precompute Landmark Cubes";
                 } finally {
                     precomputeBtn.disabled = false;
                 }
@@ -355,7 +383,7 @@ export const OrbitalsUI = {
                     body: JSON.stringify({ action_type: 'get_frame_orbitals', frame_index: frameIndex })
                 });
                 const data = await res.json();
-                if (data.success && data.orbitals) {
+                if (data.success) {
                     this.state.orbitalsMetaCache[frameIndex] = data;
                 }
             } catch (e) {
@@ -363,19 +391,19 @@ export const OrbitalsUI = {
             }
         }
 
-        // Update orbital energy labels on buttons
         const frameData = this.state.orbitalsMetaCache[frameIndex];
-        if (frameData && frameData.orbitals) {
-            ['HOMO-1', 'HOMO', 'LUMO', 'LUMO+1', 'PI_RES'].forEach(orb => {
-                const span = document.getElementById(`orb-energy-${orb}`);
-                if (span && frameData.orbitals[orb]) {
-                    span.innerText = `${frameData.orbitals[orb].energy_ev.toFixed(2)} eV`;
-                }
-                const labelDiv = document.getElementById(`orb-label-${orb}`);
-                if (labelDiv && frameData.orbitals[orb] && frameData.orbitals[orb].label) {
-                    labelDiv.innerText = frameData.orbitals[orb].label;
-                }
-            });
+        if (frameData && frameData.all_ibos) {
+            const manualSelect = document.getElementById('manual-ibo-select');
+            if (manualSelect && manualSelect.options.length <= 1) {
+                manualSelect.innerHTML = '<option value="">-- Choose any localized IBO --</option>';
+                frameData.all_ibos.forEach(ib => {
+                    const opt = document.createElement('option');
+                    opt.value = ib.name;
+                    opt.textContent = `${ib.name}: ${ib.label} (${ib.type.toUpperCase()})`;
+                    if (ib.name === this.state.selectedOrbital) opt.selected = true;
+                    manualSelect.appendChild(opt);
+                });
+            }
         }
 
         await this.renderCurrentOrbitalMesh(resetCamera);
@@ -386,6 +414,19 @@ export const OrbitalsUI = {
         const orb = this.state.selectedOrbital;
         const iso = this.state.isovalue;
         const cacheKey = `${frameIndex}_${orb}_${iso.toFixed(3)}`;
+
+        // Update badge text
+        const flowBadge = document.getElementById('orb-active-flow-badge');
+        if (flowBadge) {
+            const flowNames = {
+                'IBO_30': 'Forming C-O Bond: LP(O9) → C-O',
+                'IBO_19': 'Carbonyl Opening: C1=O3 (π) → LP(O3⁻)',
+                'IBO_20': 'Leaving Group: C1-Cl2 → LP(Cl⁻)',
+                'LUMO': 'Acceptor Virtual Space (LUMO)',
+                'HOMO': 'Canonical HOMO'
+            };
+            flowBadge.innerText = `Active: ${flowNames[orb] || orb}`;
+        }
 
         let cubeText = this.state.cubeCache[cacheKey];
         let mesh = this.state.meshCache[cacheKey];
@@ -437,7 +478,7 @@ export const OrbitalsUI = {
             sphere: { scale: 0.28, colorscheme: 'rasmol' }
         });
 
-        // 1. Primary rendering via 3Dmol VolumeData (identical to Molecular Explorer)
+        // 1. Primary rendering via 3Dmol VolumeData
         if (cubeText && typeof $3Dmol.VolumeData === 'function') {
             try {
                 const vol = new $3Dmol.VolumeData(cubeText, 'cube');
@@ -529,24 +570,12 @@ export const OrbitalsUI = {
     },
 
     async getData(uiSchema) {
-        const s1Homo = document.getElementById('sched-s1-homo');
-        const s1Lumo = document.getElementById('sched-s1-lumo');
-        const s2Homo = document.getElementById('sched-s2-homo');
-        const s2Lumo = document.getElementById('sched-s2-lumo');
-
-        const s1Orbs = [];
-        if (s1Homo && s1Homo.checked) s1Orbs.push('HOMO');
-        if (s1Lumo && s1Lumo.checked) s1Orbs.push('LUMO');
-
-        const s2Orbs = [];
-        if (s2Homo && s2Homo.checked) s2Orbs.push('HOMO');
-        if (s2Lumo && s2Lumo.checked) s2Orbs.push('LUMO');
-
         const schedule = {
             default_isovalue: this.state.isovalue,
+            selected_orbital: this.state.selectedOrbital,
             stage_assignments: {
-                "0": { orbitals: s1Orbs.length ? s1Orbs : ['HOMO', 'LUMO'], isovalue: this.state.isovalue },
-                "1": { orbitals: s2Orbs.length ? s2Orbs : ['HOMO', 'LUMO'], isovalue: this.state.isovalue }
+                "0": { orbitals: ["IBO_30", "IBO_19", "LUMO"], isovalue: this.state.isovalue },
+                "1": { orbitals: ["IBO_30", "IBO_20", "LUMO"], isovalue: this.state.isovalue }
             },
             landmarks: this.state.landmarks
         };

@@ -12,7 +12,6 @@ _CUBE_CACHE: Dict[str, str] = {}
 
 
 def _get_system_charge(megajson: Dict[str, Any]) -> int:
-    """Determine net formal charge from reaction SMILES or default to -1."""
     boundaries = megajson.get("step_boundaries", [])
     if boundaries:
         smi = boundaries[0].get("reaction_smiles", "")
@@ -28,7 +27,6 @@ def _get_system_charge(megajson: Dict[str, Any]) -> int:
 
 
 def _extract_landmarks(megajson: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract key landmark frames (Reactants, TSs, Intermediates, Products)."""
     frames = megajson.get("frames", [])
     n_frames = len(frames)
     boundaries = megajson.get("step_boundaries", [])
@@ -85,13 +83,10 @@ class Step4Orbitals(PipelineStep):
         landmarks = _extract_landmarks(megajson)
         existing_schedule = megajson.get("orbital_schedule") or {
             "default_isovalue": 0.03,
+            "selected_orbital": "IBO_30",
             "stage_assignments": {
-                "0": {"orbitals": ["HOMO", "LUMO"], "isovalue": 0.03},
-                "1": {"orbitals": ["HOMO", "LUMO"], "isovalue": 0.03}
-            },
-            "landmark_assignments": {
-                str(lm["frame_index"]): {"orbitals": ["HOMO", "LUMO"], "isovalue": 0.03}
-                for lm in landmarks
+                "0": {"orbitals": ["IBO_30", "IBO_19", "LUMO"], "isovalue": 0.03},
+                "1": {"orbitals": ["IBO_30", "IBO_20", "LUMO"], "isovalue": 0.03}
             }
         }
 
@@ -104,8 +99,7 @@ class Step4Orbitals(PipelineStep):
             "landmarks": landmarks,
             "schedule": existing_schedule,
             "default_isovalue": 0.03,
-            "available_orbitals": ["HOMO", "LUMO", "HOMO-1", "LUMO+1", "PI_RES"],
-            "message": "Interactive Orbital Studio: configure active orbitals, isovalues, and schedule across frames."
+            "message": "Intrinsic Reaction Orbitals (IBO Movie): visualize electron probability flow during bond formation."
         }
 
     def _get_grid(self, megajson: Dict[str, Any]):
@@ -126,16 +120,34 @@ class Step4Orbitals(PipelineStep):
         coords = megajson["frames"][frame_idx]["coords"]
 
         prev_mol, prev_vecs = None, None
+        prev_ibo_data = None
         sorted_keys = sorted(_SCF_CACHE.keys())
         if sorted_keys:
             closest = min(sorted_keys, key=lambda k: abs(k - frame_idx))
             prev_mol = _SCF_CACHE[closest]["mol"]
             prev_vecs = _SCF_CACHE[closest]["vecs"]
+            prev_ibo_data = {
+                "pops": _SCF_CACHE[closest]["ibo_pops"],
+                "vecs": _SCF_CACHE[closest]["ibo_vecs"],
+                "vec_list": list(_SCF_CACHE[closest]["ibo_vecs"].values())
+            }
 
         mol, mf = orbital_engine.compute_frame_scf(symbols, coords, charge=charge, spin=0)
-        meta, vecs = orbital_engine.extract_frontier_orbitals(mol, mf, prev_mol, prev_vecs)
+        frontier_meta, frontier_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, prev_mol, prev_vecs)
+        ibos_meta, ibos_vecs, ibo_pops = orbital_engine.compute_frame_ibos(mol, mf, symbols, prev_ibo_data)
 
-        _SCF_CACHE[frame_idx] = {"mol": mol, "mf": mf, "meta": meta, "vecs": vecs}
+        # Merge vectors for unified lookup
+        all_vecs = {**ibos_vecs, **frontier_vecs}
+
+        _SCF_CACHE[frame_idx] = {
+            "mol": mol,
+            "mf": mf,
+            "meta": frontier_meta,
+            "ibos_meta": ibos_meta,
+            "ibo_pops": ibo_pops,
+            "ibo_vecs": ibos_vecs,
+            "vecs": all_vecs
+        }
         return _SCF_CACHE[frame_idx]
 
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -152,19 +164,28 @@ class Step4Orbitals(PipelineStep):
 
         if action == "get_frame_orbitals":
             data = self._ensure_frame_computed(frame_idx, megajson)
+            reaction_flow = [
+                {"key": "IBO_30", "role": "forming", "label": "⚡ Forming C-O Bond: LP(O9) → C1-O9", "badge": "Nucleophile"},
+                {"key": "IBO_19", "role": "opening", "label": "⚡ Carbonyl Opening: C1=O3 (π) → LP(O3⁻)", "badge": "Electrophile"},
+                {"key": "IBO_20", "role": "breaking", "label": "⚡ Leaving Group: C1-Cl2 → LP(Cl⁻)", "badge": "Leaving Group"},
+                {"key": "LUMO", "role": "virtual", "label": "Acceptor Virtual Space (LUMO)", "badge": "Virtual"},
+                {"key": "HOMO", "role": "frontier", "label": "Canonical HOMO", "badge": "Canonical"},
+            ]
             return {
                 "success": True,
                 "frame_index": frame_idx,
-                "orbitals": data["meta"],
+                "reaction_flow": reaction_flow,
+                "frontier_orbitals": data["meta"],
+                "all_ibos": list(data["ibos_meta"].values()),
                 "coords": megajson["frames"][frame_idx]["coords"]
             }
 
         if action == "get_orbital_mesh":
-            orb_name = str(user_input.get("orbital", "HOMO")).upper()
+            orb_name = str(user_input.get("orbital", "IBO_30"))
             isovalue = float(user_input.get("isovalue", 0.03))
             data = self._ensure_frame_computed(frame_idx, megajson)
             if orb_name not in data["vecs"]:
-                return {"error": f"Orbital '{orb_name}' not available for frame {frame_idx}"}
+                return {"error": f"Orbital '{orb_name}' not available"}
 
             lo, step, npts = self._get_grid(megajson)
             vol = orbital_engine.evaluate_mo_grid(data["mol"], data["vecs"][orb_name], lo, step, npts)
@@ -182,22 +203,8 @@ class Step4Orbitals(PipelineStep):
                 "isovalue": isovalue,
                 "mesh": mesh,
                 "cube": cube_text,
-                "coords": megajson["frames"][frame_idx]["coords"],
-                "energy_ev": data["meta"].get(orb_name, {}).get("energy_ev", 0.0)
+                "coords": megajson["frames"][frame_idx]["coords"]
             }
-
-        if action == "get_cube":
-            orb_name = str(user_input.get("orbital", "HOMO")).upper()
-            data = self._ensure_frame_computed(frame_idx, megajson)
-            lo, step, npts = self._get_grid(megajson)
-            vol = orbital_engine.evaluate_mo_grid(data["mol"], data["vecs"][orb_name], lo, step, npts)
-            cube_text = orbital_engine.generate_cube_text(
-                f"Frame {frame_idx} {orb_name}",
-                megajson["symbols"],
-                megajson["frames"][frame_idx]["coords"],
-                vol, lo, step, npts
-            )
-            return {"success": True, "cube": cube_text, "filename": f"frame_{frame_idx:03d}_{orb_name}.cube"}
 
         if action == "pregenerate_all_cubes":
             landmarks = _extract_landmarks(megajson)
@@ -206,7 +213,7 @@ class Step4Orbitals(PipelineStep):
             for lm in landmarks:
                 f = lm["frame_index"]
                 d = self._ensure_frame_computed(f, megajson)
-                for o_name in ["HOMO", "LUMO"]:
+                for o_name in ["IBO_30", "IBO_19", "IBO_20", "LUMO", "HOMO"]:
                     if o_name in d["vecs"]:
                         k = f"{f}_{o_name}"
                         if k not in _CUBE_CACHE:
@@ -229,29 +236,21 @@ class Step4Orbitals(PipelineStep):
         schedule = user_input.get("schedule") or megajson.get("orbital_schedule") or {}
         megajson["orbital_schedule"] = schedule
 
-        # Precompute landmark meshes and cubes for instant access in Step 5 and bundle export
         landmarks = _extract_landmarks(megajson)
-        landmark_meshes = {}
         landmark_cubes = {}
-        iso = schedule.get("default_isovalue", 0.03)
-
-        for lm in sorted(landmarks, key=lambda x: x["frame_index"]):
-            f_idx = lm["frame_index"]
-            c_data = self._ensure_frame_computed(f_idx, megajson)
+        for lm in landmarks:
+            f = lm["frame_index"]
+            d = self._ensure_frame_computed(f, megajson)
             lo, step, npts = self._get_grid(megajson)
-            f_meshes = {}
-            for orb_name in ["HOMO", "LUMO"]:
-                if orb_name in c_data["vecs"]:
-                    vol = orbital_engine.evaluate_mo_grid(c_data["mol"], c_data["vecs"][orb_name], lo, step, npts)
-                    f_meshes[orb_name] = orbital_engine.extract_isosurface_mesh(vol, lo, step, isovalue=iso)
+            for o_name in ["IBO_30", "IBO_19", "IBO_20", "LUMO", "HOMO"]:
+                if o_name in d["vecs"]:
+                    vol = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][o_name], lo, step, npts)
                     c_txt = orbital_engine.generate_cube_text(
-                        f"Frame {f_idx} {orb_name}", megajson["symbols"], megajson["frames"][f_idx]["coords"],
+                        f"Frame {f} {o_name}", megajson["symbols"], megajson["frames"][f]["coords"],
                         vol, lo, step, npts
                     )
-                    landmark_cubes[f"{f_idx}_{orb_name}"] = c_txt
-            landmark_meshes[str(f_idx)] = f_meshes
+                    landmark_cubes[f"{f}_{o_name}"] = c_txt
 
-        megajson["landmark_orbital_meshes"] = landmark_meshes
         megajson["landmark_cubes"] = landmark_cubes
 
         return StepResult(

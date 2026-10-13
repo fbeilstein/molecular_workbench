@@ -1,7 +1,8 @@
 import numpy as np
 from typing import Any, Dict, List, Optional, Tuple
-from pyscf import gto, scf
+from pyscf import gto, scf, lo
 from skimage import measure
+from scipy.optimize import linear_sum_assignment
 import trimesh
 
 BOHR_TO_ANG = 0.52917721092
@@ -38,44 +39,100 @@ def compute_frame_scf(
     return mol, mf
 
 
+def _classify_ibo(symbols: List[str], pop: np.ndarray) -> Tuple[str, str]:
+    ranked = sorted(range(len(symbols)), key=lambda i: -pop[i])
+    top = [(i, pop[i]) for i in ranked if pop[i] > 0.25]
+    if len(top) == 1 or (len(top) >= 1 and top[0][1] > 1.75):
+        ai = top[0][0]
+        return "lp", f"LP({symbols[ai]}{ai})"
+    elif len(top) >= 2:
+        a1, a2 = sorted([top[0][0], top[1][0]])
+        return "bond", f"{symbols[a1]}{a1}-{symbols[a2]}{a2}"
+    return "core", "core"
+
+
+def compute_frame_ibos(
+    mol: Any,
+    mf: Any,
+    symbols: List[str],
+    prev_data: Optional[Dict[str, Any]] = None
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, np.ndarray], np.ndarray]:
+    """Compute Intrinsic Bond Orbitals (IBO) with cross-frame tracking and phase continuity."""
+    nocc = mol.nelectron // 2 if mol.spin == 0 else mol.nelec[0]
+    occ_mo = mf.mo_coeff[:, :nocc] if mol.spin == 0 else mf.mo_coeff[0][:, :nocc]
+    ibo_coeff = lo.ibo.ibo(mol, occ_mo, verbose=0)
+
+    ovlp = mol.intor_symmetric("int1e_ovlp")
+    ao_atom = [int(l.split()[0]) for l in mol.ao_labels()]
+
+    n_ibo = ibo_coeff.shape[1]
+    pops = np.zeros((n_ibo, mol.natm))
+    vecs = [ibo_coeff[:, k].copy() for k in range(n_ibo)]
+    labels, types = [], []
+
+    for k in range(n_ibo):
+        v = vecs[k]
+        ps = np.outer(v, v) @ ovlp
+        for mu in range(mol.nao):
+            pops[k, ao_atom[mu]] += ps[mu, mu]
+        pops[k] *= 2.0
+        typ, lbl = _classify_ibo(symbols, pops[k])
+        types.append(typ)
+        labels.append(lbl)
+
+    # Match to previous frame by population fingerprint (Hungarian algorithm)
+    if prev_data and "pops" in prev_data and "vecs" in prev_data:
+        cost = np.sum((prev_data["pops"][:, None, :] - pops[None, :, :]) ** 2, axis=2)
+        r, c = linear_sum_assignment(cost)
+        pops = pops[c]
+        vecs = [vecs[i] for i in c]
+        labels = [labels[i] for i in c]
+        types = [types[i] for i in c]
+
+        # Fix phase overlap with previous frame
+        prev_vec_list = prev_data["vec_list"]
+        for k in range(len(vecs)):
+            if k < len(prev_vec_list):
+                s = float(prev_vec_list[k] @ ovlp @ vecs[k])
+                if s < 0.0:
+                    vecs[k] = -vecs[k]
+
+    ibo_dict = {}
+    vec_dict = {}
+    for k in range(n_ibo):
+        key = f"IBO_{k:02d}"
+        ibo_dict[key] = {
+            "name": key,
+            "index": k,
+            "type": types[k],
+            "label": labels[k],
+            "is_core": bool(types[k] == "core"),
+            "pop": pops[k].round(2).tolist()
+        }
+        vec_dict[key] = vecs[k]
+
+    return ibo_dict, vec_dict, pops
+
+
 def extract_frontier_orbitals(
     mol: Any,
     mf: Any,
     prev_mol: Optional[Any] = None,
     prev_mo_coeffs: Optional[Dict[str, np.ndarray]] = None
 ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, np.ndarray]]:
-    """Extract frontier and resonance pi orbitals with smooth phase sign continuity."""
+    """Extract canonical frontier MOs with smooth phase sign continuity."""
     nocc = mol.nelectron // 2 if mol.spin == 0 else mol.nelec[0]
     mo_coeff = mf.mo_coeff[0] if mol.spin > 0 else mf.mo_coeff
     mo_energy = mf.mo_energy[0] if mol.spin > 0 else mf.mo_energy
 
-    # Cross-frame overlap for phase tracking
     s_cross = gto.intor_cross("int1e_ovlp", prev_mol, mol) if (prev_mol and prev_mo_coeffs) else None
-
-    # Detect resonance pi systems using CanonicalAnalyzer from Molecular Explorer
-    pi_occ_f, pi_virt_a = [], []
-    try:
-        from tools.qm.analyzers.canonical import CanonicalAnalyzer
-        ca = CanonicalAnalyzer(mol, mo_coeff, mo_energy)
-        # Formate O-C-O (atoms 7, 8, 9) and Acetyl C-C=O (atoms 0, 1, 3)
-        if mol.natm >= 10:
-            pi_occ_f, _ = ca.get_pi_system([7, 8, 9])
-            _, pi_virt_a = ca.get_pi_system([0, 1, 3])
-    except Exception:
-        pass
 
     target_keys = [
         ("HOMO-1", nocc - 2, "HOMO-1"),
-        ("HOMO", nocc - 1, "HOMO: Formate π (Nucleophile lone pair)" if (nocc - 1 in pi_occ_f) else "HOMO"),
-        ("LUMO", nocc, "LUMO: Carbonyl π* (Acceptor antibond)" if (nocc in pi_virt_a) else "LUMO"),
+        ("HOMO", nocc - 1, "HOMO: Formate π (Nucleophile lone pair)"),
+        ("LUMO", nocc, "LUMO: Carbonyl π* (Acceptor antibond)"),
         ("LUMO+1", nocc + 1, "LUMO+1"),
     ]
-
-    # Include extra resonance pi orbital if detected
-    if pi_occ_f:
-        res_pi_idx = min(pi_occ_f)
-        if res_pi_idx != nocc - 1 and 0 <= res_pi_idx < mo_coeff.shape[1]:
-            target_keys.append(("PI_RES", res_pi_idx, "Formate π₁ (Resonance backbone)"))
 
     orbitals_meta = {}
     current_vectors = {}
@@ -130,40 +187,31 @@ def extract_isosurface_mesh(
     mesh_data = {"pos": None, "neg": None, "isovalue": isovalue}
     level = abs(isovalue)
 
-    # Positive lobe (+level)
     try:
         vp, fp, np_arr, _ = measure.marching_cubes(vol, level, spacing=step_ang)
         vp += origin_ang
         tp = trimesh.Trimesh(vertices=vp, faces=fp, vertex_normals=np_arr, process=True)
         v_list = [{"x": float(v[0]), "y": float(v[1]), "z": float(v[2])} for v in tp.vertices.round(4)]
         f_list = [int(idx) for face in tp.faces for idx in face]
-        n_list = [{"x": float(n[0]), "y": float(n[1]), "z": float(n[2])} for n in tp.vertex_normals.round(4)]
         mesh_data["pos"] = {
             "vertexArr": v_list,
             "faceArr": f_list,
-            "normalArr": n_list,
-            "vertices": tp.vertices.round(4).tolist(),
-            "faces": tp.faces.tolist()
+            "normalArr": [{"x": float(n[0]), "y": float(n[1]), "z": float(n[2])} for n in tp.vertex_normals.round(4)]
         }
     except Exception:
         mesh_data["pos"] = None
 
-    # Negative lobe (-level)
     try:
         vn, fn, nn_arr, _ = measure.marching_cubes(vol, -level, spacing=step_ang)
         vn += origin_ang
-        nn_arr = -nn_arr
         fn = fn[:, ::-1]
-        tn = trimesh.Trimesh(vertices=vn, faces=fn, vertex_normals=nn_arr, process=True)
+        tn = trimesh.Trimesh(vertices=vn, faces=fn, vertex_normals=-nn_arr, process=True)
         v_list = [{"x": float(v[0]), "y": float(v[1]), "z": float(v[2])} for v in tn.vertices.round(4)]
         f_list = [int(idx) for face in tn.faces for idx in face]
-        n_list = [{"x": float(n[0]), "y": float(n[1]), "z": float(n[2])} for n in tn.vertex_normals.round(4)]
         mesh_data["neg"] = {
             "vertexArr": v_list,
             "faceArr": f_list,
-            "normalArr": n_list,
-            "vertices": tn.vertices.round(4).tolist(),
-            "faces": tn.faces.tolist()
+            "normalArr": [{"x": float(n[0]), "y": float(n[1]), "z": float(n[2])} for n in tn.vertex_normals.round(4)]
         }
     except Exception:
         mesh_data["neg"] = None
