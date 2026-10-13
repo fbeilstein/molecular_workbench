@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multistep Reaction Pathway Stitcher</title>
+    <!-- Modern Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="/static_multistep/libs/3Dmol-min.js" onerror="this.onerror=null;this.src='https://3Dmol.org/build/3Dmol-min.js'"></script>
+    <link rel="stylesheet" href="/static_multistep/style.css">
+</head>
+<body>
+    <div class="app-layout">
+        <header class="app-header">
+            <div class="brand-group">
+                <div class="brand-logo">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="6" cy="6" r="3"/>
+                        <circle cx="18" cy="18" r="3"/>
+                        <path d="M8.5 8.5l7 7"/>
+                        <circle cx="18" cy="6" r="3"/>
+                        <path d="M15.5 8.5l-7 7"/>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <h1>Multistep Reaction Pathway Stitcher</h1>
+                    <span class="brand-subtitle">Sequential IRC Alignment & MegaJSON Generator</span>
+                </div>
+                <div class="badge-tool-port">Port 8083</div>
+            </div>
+            <div class="header-actions">
+                <button id="btn-reset" class="btn btn-ghost danger-hover" title="Reset all pipeline steps and clear state">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                        <path d="M3 3v5h5"/>
+                    </svg>
+                    Reset Pipeline
+                </button>
+            </div>
+        </header>
+
+        <!-- Dynamic Wizard Steps Navigation -->
+        <nav id="wizard-tabs" class="wizard-nav" aria-label="Pipeline Steps">
+            <!-- Dynamically injected tabs -->
+        </nav>
+
+        <!-- Main Step Workspace Container -->
+        <main id="step-content" class="step-card">
+            <div id="schema-container" class="schema-workspace">
+                <!-- Dynamically injected step UI -->
+            </div>
+            
+            <div id="error-container" class="alert-banner alert-error" style="display: none;"></div>
+            
+            <footer class="wizard-footer">
+                <div class="footer-status" id="footer-status-text"></div>
+                <div class="navigation-buttons">
+                    <button id="btn-run" class="btn btn-primary">Next</button>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <script type="module" src="/static_multistep/app.js"></script>
+</body>
+</html>
