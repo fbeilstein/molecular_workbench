@@ -144,14 +144,18 @@ class Step3TS(PipelineStep):
 
     def _handle_reset_clean(self, global_state, user_input):
         try:
+            from .ts_builder import auto_dock_molblocks
+            model = self._model(global_state)
+            blocks, _, _ = auto_dock_molblocks(model, variant=0)
+            return {"success": True, "molblocks": blocks,
+                    "message": "Reset scene to clean reactant conformers."}
+        except Exception:
             raw_smiles = global_state.get("step_1_input", {}).get("raw_smiles", "")
             r_part = raw_smiles.split(">>")[0]
             r_smiles_list = r_part.split(".") if r_part else []
             clean_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
             return {"success": True, "molblocks": clean_blocks,
                     "message": "Reset scene to clean reactant conformers."}
-        except Exception as e:
-            return {"error": f"Reset failed: {e}"}
 
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}

@@ -6,22 +6,23 @@ from scipy.optimize import minimize
 from .common import rvdw, _unit, dir_pen, set_positions, DOCK_EXTRA
 
 
-def _select_lowest_energy_conf(mol, cids):
+def _select_lowest_energy_conf(mol, cids, solvent="water"):
     if not cids or len(cids) <= 1:
         return cids[0] if cids else 0
-    try:
-        res = AllChem.MMFFOptimizeMoleculeConfs(mol)
-        energies = [e for _, e in res]
-        if energies and max(energies) - min(energies) > 1e-4:
-            return int(np.argmin(energies))
-    except Exception:
-        pass
+    chg = int(sum(a.GetFormalCharge() for a in mol.GetAtoms()))
+    if chg == 0:
+        try:
+            res = AllChem.MMFFOptimizeMoleculeConfs(mol)
+            energies = [e for _, e in res]
+            if energies and max(energies) - min(energies) > 1e-4:
+                return int(np.argmin(energies))
+        except Exception:
+            pass
     try:
         from ase import Atoms
         from .calculators import make_xtb
-        chg = int(sum(a.GetFormalCharge() for a in mol.GetAtoms()))
         mult = int(sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())) + 1
-        calc = make_xtb(chg, mult)
+        calc = make_xtb(chg, mult, solvent=solvent or "water")
         syms = [a.GetSymbol() for a in mol.GetAtoms()]
         xtb_energies = []
         for cid in cids:
@@ -32,6 +33,55 @@ def _select_lowest_energy_conf(mol, cids):
         return int(np.argmin(xtb_energies))
     except Exception:
         return cids[0]
+
+
+def _select_product_aligned_conf(mol, fi, model, cids, seed=42):
+    if not cids:
+        return 0
+    if len(cids) == 1:
+        return cids[0]
+    o = model.offsets[fi]
+    n_atoms = len(mol.GetAtoms())
+    p_counts = {}
+    for loc_i in range(n_atoms):
+        pfi, _ = model.r2p.get(o + loc_i, (-1, -1))
+        if pfi >= 0:
+            p_counts[pfi] = p_counts.get(pfi, 0) + 1
+    if p_counts and getattr(model, "p_mols", None):
+        best_pfi = max(p_counts, key=p_counts.get)
+        if best_pfi < len(model.p_mols):
+            pmol = Chem.Mol(model.p_mols[best_pfi])
+            AllChem.EmbedMolecule(pmol, randomSeed=seed)
+            try:
+                AllChem.MMFFOptimizeMolecule(pmol)
+            except Exception:
+                pass
+            p_pos = pmol.GetConformer().GetPositions()
+            conserved_r, conserved_p = [], []
+            for loc_i in range(n_atoms):
+                pfi, p_idx = model.r2p.get(o + loc_i, (-1, -1))
+                if pfi == best_pfi:
+                    is_breaking = any(o + loc_i in (b1, b2) for b1, b2 in model.broken)
+                    if not is_breaking or p_counts[best_pfi] <= 3:
+                        conserved_r.append(loc_i)
+                        conserved_p.append(p_idx)
+            if len(conserved_r) >= 3:
+                P_sub = p_pos[conserved_p]
+                cP = np.mean(P_sub, axis=0)
+                def rmsd_score(cid):
+                    r_pos = mol.GetConformer(cid).GetPositions()
+                    R_sub = r_pos[conserved_r]
+                    cR = np.mean(R_sub, axis=0)
+                    H = (P_sub - cP).T @ (R_sub - cR)
+                    U, S, Vt = np.linalg.svd(H)
+                    d = np.linalg.det(Vt.T @ U.T)
+                    V = Vt.T
+                    if d < 0:
+                        V[:, -1] *= -1
+                    alg_P = (P_sub - cP) @ (V @ U.T).T + cR
+                    return float(np.sqrt(np.mean(np.sum((alg_P - R_sub)**2, axis=1))))
+                return min(cids, key=rmsd_score)
+    return _select_lowest_energy_conf(mol, cids, solvent=getattr(model, "solvent", "water"))
 
 
 def generate_lowest_energy_molblock(smiles: str, seed=42) -> str:
@@ -50,7 +100,7 @@ def generate_lowest_energy_molblock(smiles: str, seed=42) -> str:
 
 
 def embed_fragments(model, seed=42):
-    """Generate 3D conformers for each reactant fragment, selecting ground-state rotamers."""
+    """Generate 3D conformers for each reactant fragment, selecting product-aligned rotamers."""
     out = []
     for fi, m0 in enumerate(model.r_mols):
         mol = Chem.Mol(m0)
@@ -60,7 +110,7 @@ def embed_fragments(model, seed=42):
 
         params = AllChem.ETKDGv3()
         params.randomSeed = seed
-        nconf = 30 if intra else 16
+        nconf = 30 if intra else 24
         cids = list(AllChem.EmbedMultipleConfs(mol, nconf, params))
 
         if not cids:
@@ -74,7 +124,7 @@ def embed_fragments(model, seed=42):
                 return sum(np.linalg.norm(p[i] - p[j]) for i, j in intra)
             best = min(cids, key=score)
         else:
-            best = _select_lowest_energy_conf(mol, cids)
+            best = _select_product_aligned_conf(mol, fi, model, cids, seed=seed)
 
         out.append(Chem.Mol(mol, False, best))
     return out
