@@ -1,6 +1,6 @@
 export const MegaViewerUI = {
     state: {
-        stepId: 'step_3_mega_viewer',
+        stepId: 'step_4_mega_viewer',
         megajson: null,
         currentFrame: 0,
         isPlaying: false,
@@ -13,25 +13,26 @@ export const MegaViewerUI = {
         const megajson = uiSchema.megajson;
         this.state.megajson = megajson;
 
-        if (!megajson) {
-            container.innerHTML = `<div class="empty-state">No stitched pathway available. Please complete Step 2.</div>`;
+        if (!megajson || !megajson.frames) {
+            container.innerHTML = `<div class="empty-state">No stitched pathway available. Please complete earlier steps first.</div>`;
             return;
         }
 
         const totalFrames = megajson.frames ? megajson.frames.length : 0;
         const boundaries = megajson.step_boundaries || [];
+        const ep = megajson.energy_profile || {};
 
         container.innerHTML = `
             <div style="display: flex; flex-direction: column; gap: 1.25rem;">
                 <!-- Header with Export Actions -->
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                     <div>
-                        <h2 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main);">Master Reaction Pathway Playback</h2>
-                        <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; gap: 0.5rem; margin-top: 0.25rem;">
+                        <h2 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main);">Master Multistep Pathway Playback</h2>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
                             <span class="chip blue">${megajson.symbols.length} atoms</span>
                             <span class="chip">${totalFrames} total frames</span>
-                            <span class="chip amber">Overall Barrier: ${megajson.overall_barrier_kcal.toFixed(2)} kcal/mol</span>
-                            <span class="chip emerald">Net ΔE: ${megajson.overall_reaction_energy_kcal.toFixed(2)} kcal/mol</span>
+                            <span class="chip amber">Overall Barrier ΔG‡: ${(megajson.overall_barrier_kcal || 0).toFixed(2)} kcal/mol</span>
+                            <span class="chip emerald">Net Reaction ΔG°: ${(megajson.overall_reaction_energy_kcal || 0).toFixed(2)} kcal/mol</span>
                         </div>
                     </div>
                     <div style="display: flex; gap: 0.6rem;">
@@ -51,7 +52,7 @@ export const MegaViewerUI = {
                 </div>
 
                 <!-- 3D Viewport -->
-                <div class="viewer-wrapper" style="height: 480px;">
+                <div class="viewer-wrapper" style="height: 420px;">
                     <div id="mega-viewport-3d" class="viewport-3d"></div>
                     <div id="mega-status-badge" class="viewer-overlay-badge">Frame 1 / ${totalFrames}</div>
                 </div>
@@ -69,6 +70,15 @@ export const MegaViewerUI = {
                     <div id="mega-counter" class="frame-counter">1 / ${totalFrames}</div>
                 </div>
 
+                <!-- Synchronized PES Canvas Diagram -->
+                <div style="background: #080c14; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Synchronized Potential Energy Profile:</span>
+                        <span style="font-family: var(--font-mono); font-size: 0.75rem; color: #6ee7b7;" id="mega-pes-energy-label">0.00 kcal/mol</span>
+                    </div>
+                    <canvas id="mega-pes-canvas" width="1100" height="130" style="width: 100%; height: 130px; display: block; cursor: crosshair;"></canvas>
+                </div>
+
                 <!-- Step Jump Shortcuts -->
                 <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
                     <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Step Jumps:</span>
@@ -83,6 +93,7 @@ export const MegaViewerUI = {
 
         this.initEventListeners();
         this.init3DViewer();
+        this.drawPESChart();
         this.setFrame(0, true);
     },
 
@@ -91,6 +102,7 @@ export const MegaViewerUI = {
         const prevBtn = document.getElementById('btn-mega-prev');
         const nextBtn = document.getElementById('btn-mega-next');
         const scrubber = document.getElementById('mega-scrubber');
+        const canvas = document.getElementById('mega-pes-canvas');
 
         if (playBtn) playBtn.onclick = () => this.togglePlay();
         if (prevBtn) prevBtn.onclick = () => this.stepFrame(-1);
@@ -99,6 +111,33 @@ export const MegaViewerUI = {
             scrubber.oninput = (e) => {
                 this.pause();
                 this.setFrame(parseInt(e.target.value, 10));
+            };
+        }
+
+        if (canvas) {
+            const handleCanvasClick = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const total = (this.state.megajson.frames || []).length;
+                if (total <= 1) return;
+                const padLeft = 45;
+                const padRight = 15;
+                const plotW = rect.width - padLeft - padRight;
+                const relX = Math.max(0, Math.min(plotW, x - padLeft));
+                const targetFrame = Math.round((relX / plotW) * (total - 1));
+                this.pause();
+                this.setFrame(targetFrame);
+            };
+
+            canvas.onmousedown = (e) => {
+                handleCanvasClick(e);
+                const onMove = (ev) => handleCanvasClick(ev);
+                const onUp = () => {
+                    window.removeEventListener('mousemove', onMove);
+                    window.removeEventListener('mouseup', onUp);
+                };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
             };
         }
 
@@ -124,7 +163,7 @@ export const MegaViewerUI = {
                 });
                 const data = await res.json();
                 if (data.success && data.xyz) {
-                    this._downloadFile(data.xyz, data.filename || 'pathway.xyz', 'text/plain');
+                    this._downloadFile(data.xyz, data.filename || 'multistep_pathway.xyz', 'text/plain');
                 }
             };
         }
@@ -138,7 +177,7 @@ export const MegaViewerUI = {
                 });
                 const data = await res.json();
                 if (data.success && data.megajson) {
-                    this._downloadFile(JSON.stringify(data.megajson, null, 2), data.filename || 'pathway.json', 'application/json');
+                    this._downloadFile(JSON.stringify(data.megajson, null, 2), data.filename || 'multistep_pathway.json', 'application/json');
                 }
             };
         }
@@ -178,6 +217,123 @@ export const MegaViewerUI = {
         return xyz;
     },
 
+    drawPESChart() {
+        const canvas = document.getElementById('mega-pes-canvas');
+        if (!canvas || !this.state.megajson) return;
+
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+
+        const w = rect.width;
+        const h = rect.height;
+        const padLeft = 45;
+        const padRight = 15;
+        const padTop = 15;
+        const padBottom = 20;
+        const plotW = w - padLeft - padRight;
+        const plotH = h - padTop - padBottom;
+
+        const frames = this.state.megajson.frames || [];
+        if (frames.length === 0) return;
+
+        const energies = frames.map(f => f.energy_kcal !== undefined ? f.energy_kcal : 0.0);
+        let minE = Math.min(...energies);
+        let maxE = Math.max(...energies);
+        if (minE === maxE) { minE -= 5; maxE += 5; }
+        const margin = (maxE - minE) * 0.15 || 2;
+        minE -= margin;
+        maxE += margin;
+
+        const toX = (idx) => padLeft + (idx / (energies.length - 1)) * plotW;
+        const toY = (val) => padTop + plotH - ((val - minE) / (maxE - minE)) * plotH;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Grid
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i <= 3; i++) {
+            const yVal = minE + (i / 3) * (maxE - minE);
+            const yPos = toY(yVal);
+            ctx.moveTo(padLeft, yPos);
+            ctx.lineTo(w - padRight, yPos);
+        }
+        ctx.stroke();
+
+        // Labels
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 3; i++) {
+            const yVal = minE + (i / 3) * (maxE - minE);
+            ctx.fillText(yVal.toFixed(1), padLeft - 6, toY(yVal) + 3);
+        }
+
+        // Shading
+        const boundaries = this.state.megajson.step_boundaries || [];
+        boundaries.forEach((b, k) => {
+            const xStart = toX(b.start_frame);
+            const xEnd = toX(b.end_frame);
+            ctx.fillStyle = k % 2 === 0 ? 'rgba(59, 130, 246, 0.04)' : 'rgba(168, 85, 247, 0.04)';
+            ctx.fillRect(xStart, padTop, xEnd - xStart, plotH);
+        });
+
+        // Curve
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        energies.forEach((val, i) => {
+            const x = toX(i);
+            const y = toY(val);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = '#38bdf8';
+        ctx.stroke();
+
+        // Fill
+        const grad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+        grad.addColorStop(0, 'rgba(56, 189, 248, 0.2)');
+        grad.addColorStop(1, 'rgba(56, 189, 248, 0.0)');
+        ctx.lineTo(toX(energies.length - 1), toY(minE));
+        ctx.lineTo(toX(0), toY(minE));
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // TS markers
+        boundaries.forEach(b => {
+            const tsIdx = b.ts_frame;
+            if (tsIdx !== undefined && tsIdx < energies.length) {
+                const x = toX(tsIdx);
+                const y = toY(energies[tsIdx]);
+                ctx.fillStyle = '#f59e0b';
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        });
+
+        // Cursor
+        const activeX = toX(this.state.currentFrame);
+        const activeY = toY(energies[this.state.currentFrame]);
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(activeX, padTop);
+        ctx.lineTo(activeX, padTop + plotH);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(activeX, activeY, 4.5, 0, 2 * Math.PI);
+        ctx.fill();
+    },
+
     setFrame(index, resetCamera = false) {
         if (!this.state.megajson || !this.state.viewer) return;
         const frames = this.state.megajson.frames || [];
@@ -186,7 +342,7 @@ export const MegaViewerUI = {
         this.state.currentFrame = index;
         const frame = frames[index];
         const symbols = this.state.megajson.symbols;
-        const coords = frame.coords;
+        const coords = frame.coords || frame.positions;
 
         const xyz = this._buildXYZ(symbols, coords);
         this.state.viewer.clear();
@@ -201,20 +357,23 @@ export const MegaViewerUI = {
         }
         this.state.viewer.render();
 
-        // Update UI
         const scrubber = document.getElementById('mega-scrubber');
         const counter = document.getElementById('mega-counter');
         const badge = document.getElementById('mega-status-badge');
+        const pesLabel = document.getElementById('mega-pes-energy-label');
 
+        const eKcal = frame.energy_kcal !== undefined ? frame.energy_kcal : 0.0;
         if (scrubber) scrubber.value = index;
         if (counter) counter.innerText = `${index + 1} / ${frames.length}`;
+        if (pesLabel) pesLabel.innerText = `Frame ${index + 1}: ${eKcal.toFixed(2)} kcal/mol`;
 
         if (badge) {
             const stepIdx = frame.step_index !== undefined ? frame.step_index : '?';
-            const energy = frame.energy_kcal !== undefined ? frame.energy_kcal.toFixed(2) : '0.00';
             const isTS = frame.is_ts ? ' ⭐ [TRANSITION STATE]' : '';
-            badge.innerText = `Step ${stepIdx} | Frame ${index + 1} / ${frames.length} | Energy: ${energy} kcal/mol ${isTS}`;
+            badge.innerText = `Step ${stepIdx} | Frame ${index + 1} / ${frames.length} | Energy: ${eKcal.toFixed(2)} kcal/mol ${isTS}`;
         }
+
+        this.drawPESChart();
     },
 
     stepFrame(delta) {
@@ -239,7 +398,6 @@ export const MegaViewerUI = {
         const frames = this.state.megajson.frames || [];
         if (frames.length === 0) return;
 
-        // If at the end, restart from the beginning
         if (this.state.currentFrame >= frames.length - 1) {
             this.setFrame(0);
         }
@@ -271,7 +429,6 @@ export const MegaViewerUI = {
             `;
         }
     },
-
 
     async getData(uiSchema) {
         return { completed: true };

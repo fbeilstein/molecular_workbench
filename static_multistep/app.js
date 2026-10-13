@@ -1,10 +1,12 @@
 import { ChooseJSONsUI } from './ui_plugins/choose_jsons_ui.js';
 import { StitchAlignUI } from './ui_plugins/stitch_align_ui.js';
+import { EnergyStitchUI } from './ui_plugins/energy_stitch_ui.js';
 import { MegaViewerUI } from './ui_plugins/mega_viewer_ui.js';
 
 const UIRegistry = {
     'choose_jsons_ui': ChooseJSONsUI,
     'stitch_align_ui': StitchAlignUI,
+    'energy_stitch_ui': EnergyStitchUI,
     'mega_viewer_ui': MegaViewerUI
 };
 

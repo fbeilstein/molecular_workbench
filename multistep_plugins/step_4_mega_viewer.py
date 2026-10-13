@@ -3,32 +3,39 @@ from typing import Any, Dict
 from .base import PipelineStep, StepResult
 
 
-class Step3MegaViewer(PipelineStep):
-    """Step 3: Interactive 3D visualization and analysis of the stitched reaction pathway."""
+class Step4MegaViewer(PipelineStep):
+    """Step 4: Interactive 3D visualization and analysis of the stitched reaction pathway with synchronized PES."""
 
     @property
     def step_id(self) -> str:
-        return "step_3_mega_viewer"
+        return "step_4_mega_viewer"
 
     @property
     def step_name(self) -> str:
-        return "3. Pathway Viewer"
+        return "4. Pathway Viewer"
+
+    def _get_megajson(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
+        step_3_data = current_state.get("step_3_energy_stitch", {})
+        megajson = step_3_data.get("megajson")
+        if not megajson:
+            megajson = current_state.get("step_2_stitch_align", {}).get("megajson")
+        return megajson or {}
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
-        step_2_data = current_state.get("step_2_stitch_align", {})
-        megajson = step_2_data.get("megajson")
+        megajson = self._get_megajson(current_state)
 
-        if not megajson:
+        if not megajson or not megajson.get("frames"):
             return {
                 "type": "mega_viewer_ui",
                 "has_megajson": False,
-                "message": "No stitched trajectory found. Complete Step 2 first."
+                "message": "No stitched pathway found. Complete earlier steps first."
             }
 
         frames = megajson.get("frames", [])
         step_boundaries = megajson.get("step_boundaries", [])
         overall_barrier = megajson.get("overall_barrier_kcal", 0.0)
         overall_reaction_energy = megajson.get("overall_reaction_energy_kcal", 0.0)
+        energy_profile = megajson.get("energy_profile", {})
 
         return {
             "type": "mega_viewer_ui",
@@ -38,8 +45,9 @@ class Step3MegaViewer(PipelineStep):
             "step_boundaries": step_boundaries,
             "overall_barrier_kcal": overall_barrier,
             "overall_reaction_energy_kcal": overall_reaction_energy,
+            "energy_profile": energy_profile,
             "symbols": megajson.get("symbols", []),
-            "message": "Continuous multistep reaction pathway ready for playback and export."
+            "message": "Continuous multistep reaction pathway ready for synchronized 3D playback and export."
         }
 
     def _generate_xyz(self, megajson: Dict[str, Any]) -> str:
@@ -50,7 +58,7 @@ class Step3MegaViewer(PipelineStep):
         lines = []
 
         for f_idx, frame in enumerate(frames):
-            coords = frame.get("coords", [])
+            coords = frame.get("coords", frame.get("positions", []))
             energy = frame.get("energy_kcal", 0.0)
             step_idx = frame.get("step_index", 0)
             lines.append(f"{n_atoms}")
@@ -63,7 +71,7 @@ class Step3MegaViewer(PipelineStep):
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
         action_type = user_input.get("action_type")
-        megajson = global_state.get("step_2_stitch_align", {}).get("megajson")
+        megajson = self._get_megajson(global_state)
 
         if not megajson:
             return {"error": "Stitched pathway data is missing"}
@@ -78,7 +86,7 @@ class Step3MegaViewer(PipelineStep):
         return {"error": f"Unknown action: {action_type}"}
 
     def run(self, global_state: Dict[str, Any], user_input: Dict[str, Any]) -> StepResult:
-        megajson = global_state.get("step_2_stitch_align", {}).get("megajson")
+        megajson = self._get_megajson(global_state)
         if not megajson:
             return StepResult(success=False, error_message="No stitched pathway available.")
 
