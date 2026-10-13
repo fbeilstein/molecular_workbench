@@ -35,18 +35,14 @@ class FixFragmentCOMs(FixConstraint):
 def _compute_multifragment_displacements(positions, frag_atoms, target_sep=5.5, max_iter=25):
     """Compute pairwise repulsive displacements ensuring all distinct fragments have d >= target_sep."""
     nf = len(frag_atoms)
-    frag_sizes = [len(idxs) for idxs in frag_atoms]
-    anchor_fi = int(np.argmax(frag_sizes))  # keep main scaffold centered
-
+    anchor_fi = int(np.argmax([len(idxs) for idxs in frag_atoms]))
     disp = np.zeros((nf, 3))
     for _ in range(max_iter):
         coms = [np.mean(positions[frag_atoms[f]] + disp[f], axis=0) for f in range(nf)]
-        force_disp = np.zeros_like(disp)
-        all_ok = True
+        force_disp, all_ok = np.zeros_like(disp), True
         for f in range(nf):
             for g in range(f + 1, nf):
-                p_f = positions[frag_atoms[f]] + disp[f]
-                p_g = positions[frag_atoms[g]] + disp[g]
+                p_f, p_g = positions[frag_atoms[f]] + disp[f], positions[frag_atoms[g]] + disp[g]
                 d_min = min(float(np.linalg.norm(pi - pj)) for pi in p_f for pj in p_g)
                 if d_min < target_sep:
                     all_ok = False
@@ -54,15 +50,26 @@ def _compute_multifragment_displacements(positions, frag_atoms, target_sep=5.5, 
                     norm_v = np.linalg.norm(v)
                     u = v / (norm_v + 1e-9) if norm_v > 1e-4 else np.random.normal(size=3)
                     u /= (np.linalg.norm(u) + 1e-9)
-                    deficit = target_sep - d_min
+                    deficit = 0.5 * (target_sep - d_min) * u
                     if f != anchor_fi:
-                        force_disp[f] += 0.5 * deficit * u
+                        force_disp[f] += deficit
                     if g != anchor_fi:
-                        force_disp[g] -= 0.5 * deficit * u
+                        force_disp[g] -= deficit
         if all_ok:
             break
         disp += force_disp
     return {f: disp[f] for f in range(nf)}
+
+
+def _rigid_align(source, target):
+    cP, cQ = np.mean(target, axis=0), np.mean(source, axis=0)
+    H = (source - cQ).T @ (target - cP)
+    U, _, Vt = np.linalg.svd(H)
+    R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:
+        Vt[-1, :] *= -1
+        R = Vt.T @ U.T
+    return source @ R.T + (cP - cQ @ R.T)
 
 
 def extend_to_asymptotic_fragments(endpoint_frame, model, solvent, log, is_product=True, n_steps=8, target_sep=5.5):
@@ -75,13 +82,13 @@ def extend_to_asymptotic_fragments(endpoint_frame, model, solvent, log, is_produ
     if len(mols) <= 1:
         return []
 
-    frag_atoms = [[] for _ in range(len(mols))]
-    if is_product:
-        for (pfi, pai), gi in model.p2r.items():
-            frag_atoms[pfi].append(gi)
-    else:
-        for i in range(model.n_atoms):
-            frag_atoms[model.frag_of[i]].append(i)
+    frag_atoms = [
+        [model.p2r[(pfi, pai)] for pai in range(model.p_mols[pfi].GetNumAtoms())]
+        for pfi in range(len(mols))
+    ] if is_product else [
+        [i for i in range(model.n_atoms) if model.frag_of[i] == fi]
+        for fi in range(len(mols))
+    ]
 
     pos_last = np.array(endpoint_frame["positions"])
     all_d = [
@@ -122,18 +129,8 @@ def extend_to_asymptotic_fragments(endpoint_frame, model, solvent, log, is_produ
             e_step = float(atoms_step.get_potential_energy())
             f_step = float(np.max(np.linalg.norm(atoms_step.get_forces(), axis=1)))
         except Exception:
-            try:
-                e_step = float(atoms_step.get_potential_energy())
-                f_step = float(np.max(np.linalg.norm(atoms_step.get_forces(), axis=1)))
-            except Exception:
-                e_step = float(endpoint_frame["energy_ev"])
-                f_step = 0.0
+            e_step, f_step = float(endpoint_frame["energy_ev"]), 0.0
 
-        min_pair_d = min(
-            float(np.linalg.norm(curr_pos[i] - curr_pos[j]))
-            for i in range(len(model.symbols))
-            for j in range(i + 1, len(model.symbols))
-        )
         asymp_frames.append({
             "positions": curr_pos.tolist(),
             "energy_ev": e_step,
@@ -177,7 +174,7 @@ def extend_to_asymptotic_fragments(endpoint_frame, model, solvent, log, is_produ
         for i in frag_atoms[f]
         for j in frag_atoms[g]
     )
-    log(f"  ✓ Appended {len(asymp_frames)} asymptotic frames (contact d = {final_min_d:.2f} A, all molecules independently relaxed to textbook geometry).")
+    log(f"  ✓ Appended {len(asymp_frames)} asymptotic frames (contact d = {final_min_d:.2f} A).")
     return asymp_frames
 
 
@@ -212,33 +209,19 @@ def _relax_single_isolated_fragment(mol_rdkit, current_pos, symbols, solvent):
                 AllChem.MMFFOptimizeMolecule(can_mol, confId=cid)
             match = can_mol.GetSubstructMatch(mol_rdkit)
             if match and len(match) == len(symbols):
-                best_cid = min(
-                    cids,
-                    key=lambda c: np.mean((can_mol.GetConformer(c).GetPositions()[list(match)] - p_opt) ** 2)
-                )
+                best_cid = min(cids, key=lambda c: np.mean((can_mol.GetConformer(c).GetPositions()[list(match)] - p_opt) ** 2))
                 p_ref = can_mol.GetConformer(best_cid).GetPositions()[list(match)]
-                rmsd_ref = np.sqrt(np.mean((p_ref - p_opt) ** 2))
-                if rmsd_ref < 0.45:
+                if np.sqrt(np.mean((p_ref - p_opt) ** 2)) < 0.45:
                     atoms_ref = Atoms(symbols=symbols, positions=p_ref)
                     atoms_ref.calc = make_xtb(chg, mult, solvent=solvent)
-                    opt_ref = BFGS(atoms_ref, logfile=None)
-                    opt_ref.run(fmax=0.001, steps=40)
+                    BFGS(atoms_ref, logfile=None).run(fmax=0.001, steps=40)
                     e_ref = float(atoms_ref.get_potential_energy())
                     if e_ref <= e_val + 0.01:
-                        p_opt = atoms_ref.get_positions()
-                        e_val = e_ref
+                        p_opt, e_val = atoms_ref.get_positions(), e_ref
     except Exception:
         pass
 
-    cP, cQ = np.mean(current_pos, axis=0), np.mean(p_opt, axis=0)
-    H = (p_opt - cQ).T @ (current_pos - cP)
-    U, _, Vt = np.linalg.svd(H)
-    R = Vt.T @ U.T
-    if np.linalg.det(R) < 0:
-        Vt[-1, :] *= -1
-        R = Vt.T @ U.T
-    t = cP - cQ @ R.T
-    return p_opt @ R.T + t, e_val
+    return _rigid_align(p_opt, current_pos), e_val
 
 
 def extend_to_asymptotic_products(endpoint_frame, model, solvent, log, n_steps=8, target_sep=5.5):
@@ -250,25 +233,14 @@ def build_fragments_meta(model):
     """Extract fragment membership, smiles, and formula for multistep MegaJSON stitching."""
     from rdkit import Chem
     from rdkit.Chem import rdMolDescriptors
-    r_meta = [
-        {
-            "frag_index": fi,
-            "smiles": Chem.MolToSmiles(m),
+    def _m(mols, get_idxs):
+        return [{
+            "frag_index": fi, "smiles": Chem.MolToSmiles(m),
             "formula": rdMolDescriptors.CalcMolFormula(m),
-            "atom_indices": [i for i in range(model.n_atoms) if model.frag_of[i] == fi],
-            "num_atoms": len([i for i in range(model.n_atoms) if model.frag_of[i] == fi])
-        }
-        for fi, m in enumerate(model.r_mols)
-    ]
-    p_meta = [
-        {
-            "frag_index": fi,
-            "smiles": Chem.MolToSmiles(m),
-            "formula": rdMolDescriptors.CalcMolFormula(m),
-            "atom_indices": [model.p2r[(fi, pai)] for pai in range(m.GetNumAtoms())],
-            "num_atoms": len([model.p2r[(fi, pai)] for pai in range(m.GetNumAtoms())])
-        }
-        for fi, m in enumerate(model.p_mols)
-    ]
-    return {"reactants": r_meta, "products": p_meta}
+            "atom_indices": get_idxs(fi, m), "num_atoms": len(get_idxs(fi, m))
+        } for fi, m in enumerate(mols)]
+    return {
+        "reactants": _m(model.r_mols, lambda fi, m: [i for i in range(model.n_atoms) if model.frag_of[i] == fi]),
+        "products": _m(model.p_mols, lambda fi, m: [model.p2r[(fi, pai)] for pai in range(m.GetNumAtoms())])
+    }
 
