@@ -69,7 +69,7 @@ class CanonicalAnalyzer:
                 if atom_idx in frag_set:
                     pop += ps[mu, :].sum()
             
-            if pop >= 0.70:
+            if pop >= 0.55:
                 filtered_pi_occ.append(idx)
                 
         pi_occ = filtered_pi_occ
@@ -129,7 +129,7 @@ class CanonicalAnalyzer:
                 if u * d < 0 and abs(mag_u - mag_d) / max_mag < 0.45:
                     n_anti_symmetric += 1
                     
-        if n_significant > 0 and (n_anti_symmetric / n_significant) > 0.8:
+        if n_significant > 0 and (n_anti_symmetric / n_significant) >= 0.75:
             # Verify genuine π character: MO weight on fragment atoms should be
             # predominantly from p-AOs perpendicular to the fragment plane.
             # This rejects in-plane lone pairs and σ MOs that accidentally

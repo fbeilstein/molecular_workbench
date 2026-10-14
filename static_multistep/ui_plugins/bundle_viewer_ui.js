@@ -7,7 +7,7 @@ export const BundleViewerUI = {
         playTimer: null,
         viewer: null,
         landmarkMeshes: {},
-        activeOrbital: 'HOMO',
+        activeOrbital: 'forming_bond',
         showOrbitals: true
     },
 
@@ -72,8 +72,11 @@ export const BundleViewerUI = {
                             <input type="checkbox" id="bundle-toggle-orbitals" checked> Show Orbitals
                         </label>
                         <select id="bundle-select-orbital" style="background: rgba(0,0,0,0.5); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.2rem 0.4rem; font-size: 0.75rem;">
-                            <option value="HOMO">HOMO</option>
-                            <option value="LUMO">LUMO</option>
+                            <option value="forming_bond">Forming C-O Bond (LP → σ)</option>
+                            <option value="carbonyl_pi">Carbonyl π / Oxyanion LP</option>
+                            <option value="leaving_group">Leaving Group C-Cl → Cl⁻</option>
+                            <option value="LUMO">Acceptor LUMO (π*)</option>
+                            <option value="HOMO">Canonical HOMO</option>
                         </select>
                     </div>
                 </div>
@@ -439,9 +442,17 @@ export const BundleViewerUI = {
 
             if (cubeText && typeof $3Dmol.VolumeData === 'function') {
                 try {
+                    const palettes = {
+                        'forming_bond': { pos: '#06b6d4', neg: '#f97316' },
+                        'carbonyl_pi': { pos: '#a855f7', neg: '#ec4899' },
+                        'leaving_group': { pos: '#10b981', neg: '#84cc16' },
+                        'LUMO': { pos: '#f59e0b', neg: '#fbbf24' },
+                        'HOMO': { pos: '#38bdf8', neg: '#60a5fa' }
+                    };
+                    const pal = palettes[orbName] || { pos: '#2979ff', neg: '#ff9100' };
                     const vol = new $3Dmol.VolumeData(cubeText, 'cube');
-                    this.state.viewer.addIsosurface(vol, { isoval: 0.03, color: '#2979ff', alpha: 0.75, smoothness: 1 });
-                    this.state.viewer.addIsosurface(vol, { isoval: -0.03, color: '#ff9100', alpha: 0.75, smoothness: 1 });
+                    this.state.viewer.addIsosurface(vol, { isoval: 0.03, color: pal.pos, alpha: 0.75, smoothness: 1 });
+                    this.state.viewer.addIsosurface(vol, { isoval: -0.03, color: pal.neg, alpha: 0.75, smoothness: 1 });
                 } catch (e) {
                     console.warn("VolumeData render error:", e);
                 }

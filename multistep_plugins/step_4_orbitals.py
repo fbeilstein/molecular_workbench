@@ -9,6 +9,7 @@ from irc_plugins.ts_engine import orbital_engine
 _SCF_CACHE: Dict[int, Dict[str, Any]] = {}
 _GRID_CACHE: Dict[str, Any] = {}
 _CUBE_CACHE: Dict[str, str] = {}
+_TRACK_MAP: Dict[str, int] = {}
 
 
 def _get_system_charge(megajson: Dict[str, Any]) -> int:
@@ -81,14 +82,47 @@ class Step4Orbitals(PipelineStep):
             }
 
         landmarks = _extract_landmarks(megajson)
-        existing_schedule = megajson.get("orbital_schedule") or {
+        existing_timeline = megajson.get("orbital_timeline") or {
             "default_isovalue": 0.03,
-            "selected_orbital": "IBO_30",
-            "stage_assignments": {
-                "0": {"orbitals": ["IBO_30", "IBO_19", "LUMO"], "isovalue": 0.03},
-                "1": {"orbitals": ["IBO_30", "IBO_20", "LUMO"], "isovalue": 0.03}
-            }
+            "tracks": [
+                {
+                    "id": "trk_ibo23",
+                    "orbital_key": "IBO_23",
+                    "title": "C1-O9 σ (Forming)",
+                    "color": "#06b6d4",
+                    "default_on": True,
+                    "clips": [{"id": "c1", "start": 20, "end": 68, "title": "Nu Addition"}]
+                },
+                {
+                    "id": "trk_ibo21",
+                    "orbital_key": "IBO_21",
+                    "title": "C1=O3 π (Opening)",
+                    "color": "#a855f7",
+                    "default_on": True,
+                    "clips": [{"id": "c2", "start": 0, "end": 68, "title": "π → Oxyanion"}]
+                },
+                {
+                    "id": "trk_lumo",
+                    "orbital_key": "LUMO",
+                    "title": "LUMO (Carbonyl π*)",
+                    "color": "#f59e0b",
+                    "default_on": False,
+                    "clips": [{"id": "c3", "start": 0, "end": 45, "title": "Acceptor Lobe"}]
+                },
+                {
+                    "id": "trk_ibo20",
+                    "orbital_key": "IBO_20",
+                    "title": "C1-Cl2 σ (Cleaving)",
+                    "color": "#10b981",
+                    "default_on": True,
+                    "clips": [{"id": "c4", "start": 68, "end": 146, "title": "Cl⁻ Elimination"}]
+                }
+            ]
         }
+
+        ep_data = megajson.get("energy_profile", {}).get("frame_energies_kcal", [])
+        if not ep_data and megajson.get("frames"):
+            ep_data = [f.get("rel_energy_kcal", 0.0) for f in megajson["frames"]]
 
         return {
             "type": "orbitals_ui",
@@ -97,15 +131,16 @@ class Step4Orbitals(PipelineStep):
             "step_boundaries": megajson.get("step_boundaries", []),
             "symbols": megajson.get("symbols", []),
             "landmarks": landmarks,
-            "schedule": existing_schedule,
+            "energy_profile": ep_data,
+            "timeline": existing_timeline,
             "default_isovalue": 0.03,
-            "message": "Intrinsic Reaction Orbitals (IBO Movie): visualize electron probability flow during bond formation."
+            "message": "Reaction Orbital Studio (Kdenlive Timeline): audition, clip, and direct electron flow across frames."
         }
 
     def _get_grid(self, megajson: Dict[str, Any]):
         if "lo" not in _GRID_CACHE:
             all_pos = [f["coords"] for f in megajson["frames"]]
-            lo, step, npts = orbital_engine.build_global_grid(all_pos, grid_points=32, margin_angstrom=2.5)
+            lo, step, npts = orbital_engine.build_global_grid(all_pos, grid_points=50, margin_angstrom=2.5)
             _GRID_CACHE["lo"] = lo
             _GRID_CACHE["step"] = step
             _GRID_CACHE["npts"] = npts
@@ -117,36 +152,36 @@ class Step4Orbitals(PipelineStep):
 
         symbols = megajson["symbols"]
         charge = _get_system_charge(megajson)
-        coords = megajson["frames"][frame_idx]["coords"]
-
-        prev_mol, prev_vecs = None, None
-        prev_ibo_data = None
-        sorted_keys = sorted(_SCF_CACHE.keys())
-        if sorted_keys:
-            closest = min(sorted_keys, key=lambda k: abs(k - frame_idx))
-            prev_mol = _SCF_CACHE[closest]["mol"]
-            prev_vecs = _SCF_CACHE[closest]["vecs"]
-            prev_ibo_data = {
-                "pops": _SCF_CACHE[closest]["ibo_pops"],
-                "vecs": _SCF_CACHE[closest]["ibo_vecs"],
-                "vec_list": list(_SCF_CACHE[closest]["ibo_vecs"].values())
+        if 0 not in _SCF_CACHE:
+            coords0 = megajson["frames"][0]["coords"]
+            mol0, mf0, mull0 = orbital_engine.compute_frame_scf(symbols, coords0, charge=charge, spin=0)
+            ibos_m0, star_m0, ibos_v0, pops0, ibo_c0 = orbital_engine.compute_frame_ibos(mol0, mf0, symbols)
+            f_meta0, c_meta0, f_vecs0 = orbital_engine.extract_frontier_orbitals(
+                mol0, mf0, None, None, ibos_m0, star_m0, ibos_v0
+            )
+            _SCF_CACHE[0] = {
+                "mol": mol0, "mf": mf0, "meta": f_meta0, "ibos_meta": ibos_m0,
+                "antibonds_meta": star_m0, "canonical_pi_meta": c_meta0,
+                "ibo_pops": pops0, "ibo_coeff": ibo_c0, "vecs": {**ibos_v0, **f_vecs0},
+                "charges": mull0
             }
+            if frame_idx == 0:
+                return _SCF_CACHE[0]
 
-        mol, mf = orbital_engine.compute_frame_scf(symbols, coords, charge=charge, spin=0)
-        frontier_meta, frontier_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, prev_mol, prev_vecs)
-        ibos_meta, ibos_vecs, ibo_pops = orbital_engine.compute_frame_ibos(mol, mf, symbols, prev_ibo_data)
-
-        # Merge vectors for unified lookup
-        all_vecs = {**ibos_vecs, **frontier_vecs}
-
+        # Use nearest computed frame as reference for phase / orbital continuity
+        cur = max([k for k in sorted(_SCF_CACHE.keys()) if k <= frame_idx], default=0)
+        coords = megajson["frames"][frame_idx]["coords"]
+        mol, mf, mull = orbital_engine.compute_frame_scf(symbols, coords, charge=charge, spin=0)
+        prev_d = {"mol": _SCF_CACHE[cur]["mol"], "ibo_coeff": _SCF_CACHE[cur]["ibo_coeff"]}
+        ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols, prev_d)
+        f_meta, c_meta, f_vecs = orbital_engine.extract_frontier_orbitals(
+            mol, mf, _SCF_CACHE[cur]["mol"], _SCF_CACHE[cur]["vecs"], ibos_m, star_m, ibos_v
+        )
         _SCF_CACHE[frame_idx] = {
-            "mol": mol,
-            "mf": mf,
-            "meta": frontier_meta,
-            "ibos_meta": ibos_meta,
-            "ibo_pops": ibo_pops,
-            "ibo_vecs": ibos_vecs,
-            "vecs": all_vecs
+            "mol": mol, "mf": mf, "meta": f_meta, "ibos_meta": ibos_m,
+            "antibonds_meta": star_m, "canonical_pi_meta": c_meta,
+            "ibo_pops": pops, "ibo_coeff": ibo_c, "vecs": {**ibos_v, **f_vecs},
+            "charges": mull
         }
         return _SCF_CACHE[frame_idx]
 
@@ -164,67 +199,106 @@ class Step4Orbitals(PipelineStep):
 
         if action == "get_frame_orbitals":
             data = self._ensure_frame_computed(frame_idx, megajson)
-            reaction_flow = [
-                {"key": "IBO_30", "role": "forming", "label": "⚡ Forming C-O Bond: LP(O9) → C1-O9", "badge": "Nucleophile"},
-                {"key": "IBO_19", "role": "opening", "label": "⚡ Carbonyl Opening: C1=O3 (π) → LP(O3⁻)", "badge": "Electrophile"},
-                {"key": "IBO_20", "role": "breaking", "label": "⚡ Leaving Group: C1-Cl2 → LP(Cl⁻)", "badge": "Leaving Group"},
-                {"key": "LUMO", "role": "virtual", "label": "Acceptor Virtual Space (LUMO)", "badge": "Virtual"},
-                {"key": "HOMO", "role": "frontier", "label": "Canonical HOMO", "badge": "Canonical"},
-            ]
             return {
                 "success": True,
                 "frame_index": frame_idx,
-                "reaction_flow": reaction_flow,
+                "charges": data["charges"],
                 "frontier_orbitals": data["meta"],
                 "all_ibos": list(data["ibos_meta"].values()),
+                "antibonds": list(data.get("antibonds_meta", {}).values()),
+                "canonical_pi": list(data.get("canonical_pi_meta", {}).values()),
                 "coords": megajson["frames"][frame_idx]["coords"]
             }
 
-        if action == "get_orbital_mesh":
-            orb_name = str(user_input.get("orbital", "IBO_30"))
-            isovalue = float(user_input.get("isovalue", 0.03))
-            data = self._ensure_frame_computed(frame_idx, megajson)
-            if orb_name not in data["vecs"]:
-                return {"error": f"Orbital '{orb_name}' not available"}
-
-            lo, step, npts = self._get_grid(megajson)
-            vol = orbital_engine.evaluate_mo_grid(data["mol"], data["vecs"][orb_name], lo, step, npts)
-            mesh = orbital_engine.extract_isosurface_mesh(vol, lo, step, isovalue=isovalue)
-            cube_text = orbital_engine.generate_cube_text(
-                f"Frame {frame_idx} {orb_name}",
-                megajson["symbols"],
-                megajson["frames"][frame_idx]["coords"],
-                vol, lo, step, npts
-            )
+        if action == "get_density_flux":
+            start_f = max(0, min(n_frames - 1, int(user_input.get("start_frame", 0))))
+            end_f = max(0, min(n_frames - 1, int(user_input.get("end_frame", n_frames - 1))))
+            d_start = self._ensure_frame_computed(start_f, megajson)
+            d_end = self._ensure_frame_computed(end_f, megajson)
+            fluxes = orbital_engine.compute_density_flux(d_start["ibo_pops"], d_end["ibo_pops"], megajson["symbols"])
             return {
                 "success": True,
-                "frame_index": frame_idx,
-                "orbital": orb_name,
-                "isovalue": isovalue,
-                "mesh": mesh,
-                "cube": cube_text,
-                "coords": megajson["frames"][frame_idx]["coords"]
+                "start_frame": start_f,
+                "end_frame": end_f,
+                "fluxes": fluxes
             }
 
-        if action == "pregenerate_all_cubes":
-            landmarks = _extract_landmarks(megajson)
+        if action == "save_timeline":
+            timeline = user_input.get("timeline")
+            if timeline:
+                megajson["orbital_timeline"] = timeline
+                return {"success": True, "message": "Timeline persisted successfully"}
+            return {"error": "No timeline data provided"}
+
+        if action == "batch_precompute_cubes":
+            start_f = int(user_input.get("start_frame", 0))
+            batch_sz = int(user_input.get("batch_size", 6))
+            selected_tracks = user_input.get("selected_tracks", ["IBO_23", "IBO_21", "IBO_20", "LUMO"])
+            end_f = min(n_frames - 1, start_f + batch_sz - 1)
             lo, step, npts = self._get_grid(megajson)
-            precomputed = 0
-            for lm in landmarks:
-                f = lm["frame_index"]
-                d = self._ensure_frame_computed(f, megajson)
-                for o_name in ["IBO_30", "IBO_19", "IBO_20", "LUMO", "HOMO"]:
-                    if o_name in d["vecs"]:
-                        k = f"{f}_{o_name}"
+            batch_cubes = {}
+            for fi in range(start_f, end_f + 1):
+                d = self._ensure_frame_computed(fi, megajson)
+                for trk in selected_tracks:
+                    if trk in d["vecs"]:
+                        k = f"{fi}_{trk}"
                         if k not in _CUBE_CACHE:
-                            vol = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][o_name], lo, step, npts)
-                            c_txt = orbital_engine.generate_cube_text(
-                                f"Frame {f} {o_name}", megajson["symbols"], megajson["frames"][f]["coords"],
-                                vol, lo, step, npts
+                            vol = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][trk], lo, step, npts)
+                            _CUBE_CACHE[k] = orbital_engine.generate_cube_text(
+                                f"Frame {fi} {trk}", megajson["symbols"], megajson["frames"][fi]["coords"], vol, lo, step, npts
                             )
-                            _CUBE_CACHE[k] = c_txt
-                            precomputed += 1
-            return {"success": True, "precomputed_count": precomputed, "cached_total": len(_CUBE_CACHE)}
+                        batch_cubes[k] = _CUBE_CACHE[k]
+            return {
+                "success": True, "start_frame": start_f, "end_frame": end_f, "total_frames": n_frames,
+                "percent": int(round((end_f + 1) / n_frames * 100)), "cubes": batch_cubes,
+                "is_complete": bool(end_f >= n_frames - 1)
+            }
+
+        if action in ["get_orbital_mesh", "get_cube"]:
+            orb_name = str(user_input.get("orbital", "IBO_23"))
+            chem_key = user_input.get("chem_key")
+            isovalue = float(user_input.get("isovalue", 0.03))
+            d = self._ensure_frame_computed(frame_idx, megajson)
+
+            resolved_key = None
+            if orb_name in d["vecs"]:
+                resolved_key = orb_name
+            else:
+                search_targets = [chem_key, orb_name]
+                all_metas = {
+                    **d.get("ibos_meta", {}),
+                    **d.get("canonical_pi_meta", {}),
+                    **d.get("antibonds_meta", {}),
+                    **d.get("meta", {})
+                }
+                for target in search_targets:
+                    if not target:
+                        continue
+                    for k, meta in all_metas.items():
+                        if meta.get("chem_key") == target or meta.get("name") == target:
+                            resolved_key = k
+                            break
+                    if resolved_key:
+                        break
+
+            if not resolved_key or resolved_key not in d["vecs"]:
+                return {"error": f"Orbital '{orb_name}' not available at frame {frame_idx}"}
+
+            orb_name = resolved_key
+
+            lo, step, npts = self._get_grid(megajson)
+            k = f"{frame_idx}_{orb_name}"
+            if k not in _CUBE_CACHE:
+                vol = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][orb_name], lo, step, npts)
+                _CUBE_CACHE[k] = orbital_engine.generate_cube_text(
+                    f"Frame {frame_idx} {orb_name}", megajson["symbols"], megajson["frames"][frame_idx]["coords"], vol, lo, step, npts
+                )
+            cube_text = _CUBE_CACHE[k]
+            return {
+                "success": True, "frame_index": frame_idx, "orbital": orb_name,
+                "isovalue": isovalue, "cube": cube_text, "filename": f"{orb_name}_frame{frame_idx}.cube",
+                "coords": megajson["frames"][frame_idx]["coords"]
+            }
 
         return {"error": f"Unknown action: {action}"}
 
@@ -233,16 +307,20 @@ class Step4Orbitals(PipelineStep):
         if not megajson:
             return StepResult(success=False, error_message="Pathway data missing.")
 
-        schedule = user_input.get("schedule") or megajson.get("orbital_schedule") or {}
-        megajson["orbital_schedule"] = schedule
+        timeline = user_input.get("timeline") or megajson.get("orbital_timeline") or {}
+        megajson["orbital_timeline"] = timeline
 
         landmarks = _extract_landmarks(megajson)
         landmark_cubes = {}
+        track_keys = [t.get("orbital_key") for t in timeline.get("tracks", []) if t.get("orbital_key")]
+        if not track_keys:
+            track_keys = ["IBO_23", "IBO_21", "IBO_20", "LUMO", "HOMO"]
+
         for lm in landmarks:
             f = lm["frame_index"]
             d = self._ensure_frame_computed(f, megajson)
             lo, step, npts = self._get_grid(megajson)
-            for o_name in ["IBO_30", "IBO_19", "IBO_20", "LUMO", "HOMO"]:
+            for o_name in track_keys:
                 if o_name in d["vecs"]:
                     vol = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][o_name], lo, step, npts)
                     c_txt = orbital_engine.generate_cube_text(
@@ -251,14 +329,14 @@ class Step4Orbitals(PipelineStep):
                     )
                     landmark_cubes[f"{f}_{o_name}"] = c_txt
 
-        megajson["landmark_cubes"] = landmark_cubes
+        megajson["landmark_cubes"] = {**_CUBE_CACHE, **landmark_cubes}
 
         return StepResult(
             success=True,
             data={
                 "completed": True,
                 "megajson": megajson,
-                "orbital_schedule": schedule,
+                "orbital_timeline": timeline,
                 "landmarks": landmarks
             }
         )
