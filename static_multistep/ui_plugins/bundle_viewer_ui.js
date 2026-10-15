@@ -249,8 +249,9 @@ export const BundleViewerUI = {
 
         if (this.state.isPlaying) {
             const total = this.state.megajson.frames.length;
+            if (this.state.currentFrame >= total - 1) this.seekFrame(0);
             this.state.playTimer = setInterval(() => {
-                if (this.state.currentFrame >= total - 1) this.seekFrame(0);
+                if (this.state.currentFrame >= total - 1) this.togglePlay();
                 else this.seekFrame(this.state.currentFrame + 1);
             }, 120);
         } else {

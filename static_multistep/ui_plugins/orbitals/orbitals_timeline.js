@@ -1,7 +1,9 @@
 /**
- * Kdenlive-style multi-track timeline and clip sequencer for Reaction Orbital Studio.
+ * Reaction Orbital Selection & Real-Time Electron Tracking Panel.
+ * Streamlined orbital choice: toggles orbitals ON/OFF via simple checkboxes with zero clip dragging.
+ * Real-time electron tracking displays electron population distribution across atoms per frame.
  */
-import { COLOR_PALETTE } from './orbitals_types.js';
+import { COLOR_PALETTE, getPhaseColors } from './orbitals_types.js';
 
 export class OrbitalsTimeline {
     constructor(containerEl, options) {
@@ -11,6 +13,8 @@ export class OrbitalsTimeline {
         this.totalFrames = options.totalFrames || 0;
         this.currentFrame = options.currentFrame || 0;
         this.manualOverrides = new Map(); // trackId -> boolean
+        this.lastFrameData = null;
+        this.symbols = [];
     }
 
     setTimelineData(timeline, totalFrames) {
@@ -21,18 +25,27 @@ export class OrbitalsTimeline {
 
     setCurrentFrame(frameIdx) {
         this.currentFrame = Math.max(0, Math.min(this.totalFrames - 1, frameIdx));
-        this.updatePlayhead();
+        if (this.lastFrameData) {
+            this.updatePopulations(this.currentFrame, this.lastFrameData, this.symbols);
+        }
     }
 
     addTrack(orbital) {
         if (!orbital) return;
-        const color = COLOR_PALETTE[this.tracks.length % COLOR_PALETTE.length];
+        const exists = this.tracks.find(t => t.orbital_key === orbital.key);
+        if (exists) {
+            this.manualOverrides.set(exists.id, true);
+            this.render();
+            if (this.options.onVisibilityChange) this.options.onVisibilityChange();
+            return;
+        }
+        const color = orbital.color || COLOR_PALETTE[this.tracks.length % COLOR_PALETTE.length];
         const newTrack = {
             id: `trk_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
             orbital_key: orbital.key,
             chem_key: orbital.chem_key || orbital.key,
             title: orbital.label || orbital.key,
-            color: orbital.color || color,
+            color: color,
             default_on: true,
             clips: [{
                 id: `c_${Date.now()}`,
@@ -42,8 +55,10 @@ export class OrbitalsTimeline {
             }]
         };
         this.tracks.push(newTrack);
+        this.manualOverrides.set(newTrack.id, true);
         this.render();
         if (this.options.onTimelineChange) this.options.onTimelineChange(this.getTimelineObject());
+        if (this.options.onVisibilityChange) this.options.onVisibilityChange();
     }
 
     addEspTrack() {
@@ -54,23 +69,22 @@ export class OrbitalsTimeline {
             chem_key: 'esp_charge',
             title: '⚡ Electrostatic Surface & Charges',
             color: '#38bdf8',
-            default_on: false,
-            clips: [{
-                id: 'c_esp',
-                start: 0,
-                end: Math.max(0, this.totalFrames - 1),
-                title: 'ESP Surface'
-            }]
+            default_on: true,
+            clips: [{ id: 'c_esp', start: 0, end: Math.max(0, this.totalFrames - 1), title: 'ESP Surface' }]
         };
         this.tracks.unshift(espTrack);
+        this.manualOverrides.set(espTrack.id, true);
         this.render();
         if (this.options.onTimelineChange) this.options.onTimelineChange(this.getTimelineObject());
+        if (this.options.onVisibilityChange) this.options.onVisibilityChange();
     }
 
     removeTrack(trackId) {
         this.tracks = this.tracks.filter(t => t.id !== trackId);
+        this.manualOverrides.delete(trackId);
         this.render();
         if (this.options.onTimelineChange) this.options.onTimelineChange(this.getTimelineObject());
+        if (this.options.onVisibilityChange) this.options.onVisibilityChange();
     }
 
     toggleTrackVisibility(trackId) {
@@ -87,12 +101,7 @@ export class OrbitalsTimeline {
         const active = [];
         for (const trk of this.tracks) {
             const isVisible = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
-            if (!isVisible) continue;
-            // Check if frame falls within any clip
-            const inClip = trk.clips && trk.clips.some(c => frameIdx >= c.start && frameIdx <= c.end);
-            if (inClip) {
-                active.push(trk);
-            }
+            if (isVisible) active.push(trk);
         }
         return active;
     }
@@ -103,7 +112,6 @@ export class OrbitalsTimeline {
             const isVisible = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
             if (!isVisible) {
                 if (trk.orbital_key) muted.push(trk.orbital_key);
-                if (trk.chem_key) muted.push(trk.chem_key);
             }
         }
         return muted;
@@ -116,115 +124,100 @@ export class OrbitalsTimeline {
         };
     }
 
-    updatePlayhead() {
-        const needle = this.containerEl ? this.containerEl.querySelector('#timeline-playhead-needle') : null;
-        if (!needle || this.totalFrames <= 1) return;
-        const frac = this.currentFrame / (this.totalFrames - 1);
-        needle.style.left = `calc(190px + (100% - 190px) * ${frac.toFixed(4)})`;
-        const timeReadout = this.containerEl.querySelector('#timeline-frame-indicator');
-        if (timeReadout) timeReadout.textContent = `Frame ${this.currentFrame} / ${this.totalFrames - 1}`;
+    updatePopulations(frameIdx, frameData, symbols) {
+        this.currentFrame = frameIdx;
+        this.lastFrameData = frameData;
+        if (symbols && symbols.length) this.symbols = symbols;
+        if (!frameData || !this.containerEl) return;
+
+        const iboMap = new Map();
+        if (frameData.all_ibos) {
+            for (const ibo of frameData.all_ibos) {
+                iboMap.set(ibo.name || ibo.key, ibo);
+            }
+        }
+
+        for (const trk of this.tracks) {
+            const el = this.containerEl.querySelector(`#pop-readout-${trk.orbital_key}`);
+            if (!el) continue;
+            const ibo = iboMap.get(trk.orbital_key);
+            if (ibo && ibo.pop && this.symbols.length) {
+                const major = [];
+                for (let i = 0; i < this.symbols.length; i++) {
+                    const p = ibo.pop[i] || 0;
+                    if (p > 0.15) major.push(`${this.symbols[i]}${i}: ${(p * 50).toFixed(0)}%`);
+                }
+                const curLabel = ibo.label || trk.title;
+                el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx} [${curLabel}]:</span> <strong style="color: #e2e8f0;">${major.join(' · ') || 'delocalized'}</strong>`;
+            } else if (trk.orbital_key.includes('HOMO') || trk.orbital_key.includes('LUMO') || trk.orbital_key.includes('STAR')) {
+                el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx}:</span> <span style="color: #cbd5e1;">Active across reaction</span>`;
+            }
+        }
     }
 
     render() {
         if (!this.containerEl) return;
-        const total = Math.max(1, this.totalFrames);
+        const activeCount = this.getActiveOrbitalsAtFrame(this.currentFrame).length;
 
-        let rulerHtml = '';
-        const step = Math.max(1, Math.floor(total / 10));
-        for (let i = 0; i < total; i += step) {
-            const pct = ((i / (total - 1 || 1)) * 100).toFixed(1);
-            rulerHtml += `<div style="position: absolute; left: ${pct}%; transform: translateX(-50%); font-size: 0.65rem; color: #64748b;">${i}</div>`;
-        }
-
-        let tracksHtml = '';
-        for (const trk of this.tracks) {
-            const isVisible = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
-            let clipsHtml = '';
-            if (trk.clips) {
-                for (const clip of trk.clips) {
-                    const lPct = ((clip.start / (total - 1 || 1)) * 100).toFixed(1);
-                    const wPct = (((clip.end - clip.start + 1) / (total - 1 || 1)) * 100).toFixed(1);
-                    clipsHtml += `
-                        <div style="position: absolute; left: ${lPct}%; width: ${wPct}%; top: 2px; bottom: 2px; background: ${trk.color}44; border: 1px solid ${trk.color}; border-radius: 3px; display: flex; align-items: center; padding: 0 4px; overflow: hidden;">
-                            <span style="font-size: 0.65rem; color: #fff; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">${clip.title}</span>
-                        </div>
-                    `;
-                }
-            }
-
-            tracksHtml += `
-                <div class="timeline-track-row" style="display: flex; height: 32px; border-bottom: 1px solid rgba(255,255,255,0.06); align-items: center;">
-                    <div style="width: 190px; padding: 0 0.5rem; display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.2); height: 100%;">
-                        <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden;">
-                            <button class="btn-track-vis" data-id="${trk.id}" style="background: none; border: none; cursor: pointer; color: ${isVisible ? '#38bdf8' : '#64748b'}; font-size: 0.8rem; padding: 0;">
-                                ${isVisible ? '👁' : '🚫'}
-                            </button>
-                            <span style="font-size: 0.75rem; font-weight: 500; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${trk.title}">${trk.title}</span>
-                        </div>
-                        <button class="btn-track-del" data-id="${trk.id}" style="background: none; border: none; cursor: pointer; color: #ef4444; font-size: 0.75rem; padding: 0;">✕</button>
-                    </div>
-                    <div class="track-canvas" data-id="${trk.id}" style="flex: 1; height: 100%; position: relative; background: rgba(15,23,42,0.6);">
-                        ${clipsHtml}
-                    </div>
+        let cardsHtml = '';
+        if (this.tracks.length === 0) {
+            cardsHtml = `
+                <div style="padding: 1rem; text-align: center; color: #94a3b8; font-size: 0.78rem;">
+                    No reaction orbitals selected. Click <strong>[+ Add]</strong> on any orbital from the pool on the left to track it.
                 </div>
             `;
+        } else {
+            cardsHtml = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.5rem; padding: 0.2rem;">`;
+            for (const trk of this.tracks) {
+                const isChecked = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
+                const pc = getPhaseColors(trk.color);
+                cardsHtml += `
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.65rem; background: ${isChecked ? 'rgba(30,41,59,0.7)' : 'rgba(15,23,42,0.4)'}; border: 1px solid ${isChecked ? trk.color + '66' : 'rgba(255,255,255,0.06)'}; border-radius: 6px; transition: border-color 0.15s ease;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0;">
+                            <input type="checkbox" class="track-vis-checkbox" data-id="${trk.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; accent-color: ${trk.color}; margin: 0;">
+                            <div style="display: flex; align-items: center; gap: 2px; font-size: 0.65rem; font-weight: 700; flex-shrink: 0;" title="Positive (+) / Negative (-) phase lobes">
+                                <span style="background: ${pc.pos}; color: #fff; padding: 1px 4px; border-radius: 3px 0 0 3px;">+</span>
+                                <span style="background: ${pc.neg}; color: #fff; padding: 1px 4px; border-radius: 0 3px 3px 0;">−</span>
+                            </div>
+                            <div style="display: flex; flex-direction: column; min-width: 0; flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                    <span style="font-weight: 700; font-size: 0.82rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${trk.title}</span>
+                                    <span style="font-size: 0.7rem; color: #94a3b8; font-family: monospace;">(${trk.orbital_key})</span>
+                                </div>
+                                <div id="pop-readout-${trk.orbital_key}" style="font-size: 0.72rem; color: ${trk.color}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    Tracking electron pair across pathway...
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn-track-remove" data-id="${trk.id}" title="Remove Orbital" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem; padding: 2px 5px; opacity: 0.8;">✕</button>
+                    </div>
+                `;
+            }
+            cardsHtml += `</div>`;
         }
 
         this.containerEl.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(255,255,255,0.08);">
-                <div style="display: flex; gap: 0.5rem; align-items: center;">
-                    <span style="font-size: 0.8rem; font-weight: 600; color: #e2e8f0;">Timeline Tracks</span>
-                    <button id="btn-add-esp-track" class="btn btn-xs btn-outline" style="font-size: 0.7rem; color: #38bdf8; border-color: #0284c7;">+ Add ESP Surface</button>
+            <div style="display: flex; flex-direction: column; gap: 0.4rem; padding: 0.5rem 0.75rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-weight: 700; font-size: 0.85rem; color: #38bdf8;">Selected Reaction Orbitals</span>
+                        <span class="badge" style="font-size: 0.7rem; background: rgba(56,189,248,0.15); color: #38bdf8;">${activeCount} Active</span>
+                    </div>
+                    <span style="font-size: 0.72rem; color: #94a3b8;">Turn ON/OFF with checkbox · Live electron tracking across reaction</span>
                 </div>
-                <div id="timeline-frame-indicator" style="font-size: 0.72rem; color: #94a3b8;">Frame ${this.currentFrame} / ${total - 1}</div>
-            </div>
-            <div style="display: flex; height: 20px; background: rgba(0,0,0,0.4); border-bottom: 1px solid rgba(255,255,255,0.08);">
-                <div style="width: 190px; border-right: 1px solid rgba(255,255,255,0.06); font-size: 0.65rem; color: #64748b; padding-left: 0.5rem; line-height: 20px;">Ruler</div>
-                <div id="timeline-ruler" style="flex: 1; position: relative; cursor: pointer;">
-                    ${rulerHtml}
-                </div>
-            </div>
-            <div id="timeline-tracks-body" style="position: relative; max-height: 180px; overflow-y: auto;">
-                <div id="timeline-playhead-needle" style="position: absolute; top: 0; bottom: 0; width: 2px; background: #ef4444; z-index: 10; pointer-events: none; transform: translateX(-50%);">
-                    <div style="width: 10px; height: 10px; background: #ef4444; transform: rotate(45deg); position: absolute; top: -5px; left: -4px;"></div>
-                </div>
-                ${tracksHtml || '<div class="empty-state" style="padding: 1rem; text-align: center; color: #64748b;">No tracks added. Select an orbital from the pool or add ESP surface.</div>'}
+                ${cardsHtml}
             </div>
         `;
 
-        this.updatePlayhead();
-        this.bindEvents();
-    }
-
-    bindEvents() {
-        const ruler = this.containerEl.querySelector('#timeline-ruler');
-        if (ruler) {
-            ruler.addEventListener('click', (e) => {
-                const rect = ruler.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const pct = Math.max(0, Math.min(1, x / rect.width));
-                const targetF = Math.round(pct * (this.totalFrames - 1));
-                if (this.options.onSeek) this.options.onSeek(targetF);
-            });
-        }
-
-        const btnEsp = this.containerEl.querySelector('#btn-add-esp-track');
-        if (btnEsp) {
-            btnEsp.addEventListener('click', () => this.addEspTrack());
-        }
-
-        this.containerEl.querySelectorAll('.btn-track-vis').forEach(b => {
-            b.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.toggleTrackVisibility(b.dataset.id);
-            });
+        this.containerEl.querySelectorAll('.track-vis-checkbox').forEach(cb => {
+            cb.addEventListener('change', (e) => this.toggleTrackVisibility(e.target.dataset.id));
+        });
+        this.containerEl.querySelectorAll('.btn-track-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => this.removeTrack(e.currentTarget.dataset.id));
         });
 
-        this.containerEl.querySelectorAll('.btn-track-del').forEach(b => {
-            b.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.removeTrack(b.dataset.id);
-            });
-        });
+        if (this.lastFrameData) {
+            this.updatePopulations(this.currentFrame, this.lastFrameData, this.symbols);
+        }
     }
 }

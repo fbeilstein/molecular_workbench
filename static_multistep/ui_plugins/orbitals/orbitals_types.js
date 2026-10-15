@@ -39,12 +39,29 @@ export function getOrbitalTypeBadge(type) {
 export function getEspColor(charge) {
     const clamped = Math.max(-1.0, Math.min(1.0, charge));
     if (clamped < 0) {
-        // Red for negative charge
         const intensity = Math.abs(clamped);
         return `rgb(${Math.round(255 * intensity)}, ${Math.round(50 * (1 - intensity))}, ${Math.round(50 * (1 - intensity))})`;
     } else {
-        // Blue for positive charge
         const intensity = clamped;
         return `rgb(${Math.round(50 * (1 - intensity))}, ${Math.round(50 * (1 - intensity))}, ${Math.round(255 * intensity)})`;
     }
 }
+
+export function getPhaseColors(baseColor) {
+    const map = {
+        '#ec4899': { pos: '#ec4899', neg: '#06b6d4' },
+        '#f43f5e': { pos: '#f43f5e', neg: '#0284c7' },
+        '#10b981': { pos: '#10b981', neg: '#a855f7' },
+        '#06b6d4': { pos: '#06b6d4', neg: '#f97316' },
+        '#3b82f6': { pos: '#3b82f6', neg: '#ef4444' },
+        '#a855f7': { pos: '#a855f7', neg: '#10b981' },
+        '#f59e0b': { pos: '#f59e0b', neg: '#3b82f6' },
+        '#6366f1': { pos: '#6366f1', neg: '#eab308' },
+        '#84cc16': { pos: '#84cc16', neg: '#ec4899' },
+        '#14b8a6': { pos: '#14b8a6', neg: '#f43f5e' },
+        '#f97316': { pos: '#f97316', neg: '#0ea5e9' }
+    };
+    return map[baseColor] || { pos: baseColor || '#0284c7', neg: '#f97316' };
+}
+
+

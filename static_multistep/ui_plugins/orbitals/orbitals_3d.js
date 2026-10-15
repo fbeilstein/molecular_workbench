@@ -2,7 +2,7 @@
  * 3Dmol scene and isosurface renderer for Reaction Orbital Studio.
  * Preserves camera zoom/orientation across frames; provides zoom & scale controls.
  */
-import { getEspColor } from './orbitals_types.js';
+import { getEspColor, getPhaseColors } from './orbitals_types.js';
 
 export class Orbitals3DViewer {
     constructor(containerEl, statusEl) {
@@ -167,8 +167,9 @@ export class Orbitals3DViewer {
                     }
                     if (vdo) {
                         try {
-                            this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: orb.color || '#06b6d4', opacity: 0.72 });
-                            this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: '#f43f5e', opacity: 0.72 });
+                            const pc = getPhaseColors(orb.color || '#06b6d4');
+                            this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.72 });
+                            this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.72 });
                         } catch (e) {}
                     }
                 }
@@ -236,8 +237,9 @@ export class Orbitals3DViewer {
                 }
                 if (vdo) {
                     try {
-                        this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: color, opacity: 0.72 });
-                        this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: '#f43f5e', opacity: 0.72 });
+                        const pc = getPhaseColors(color);
+                        this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.72 });
+                        this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.72 });
                     } catch (err) {}
                 }
             }

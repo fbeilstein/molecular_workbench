@@ -82,33 +82,24 @@ export const OrbitalsUI = {
             onSeek: (f) => this.seekFrame(f), onVisibilityChange: () => this.refreshViewer(), onTimelineChange: (tl) => this.saveTimeline(tl)
         });
         this.state.timeline.setTimelineData(uiSchema.timeline, this.state.totalFrames);
-
-        this.state.precompute = new OrbitalsPrecompute(
-            this.state.stepId,
-            () => this.getPrecomputeTargets(),
+        this.state.precompute = new OrbitalsPrecompute(this.state.stepId, () => this.getPrecomputeTargets(),
             (p) => {
                 const b = container.querySelector('#btn-precompute-all');
                 if (b) b.textContent = `Precomputing ${p.percent}%`;
-                if (p.cubes) {
-                    for (const [k, v] of Object.entries(p.cubes)) this.state.viewer3D.cubeCache[k] = v;
-                }
+                if (p.cubes) Object.assign(this.state.viewer3D.cubeCache, p.cubes);
             },
             () => { const b = container.querySelector('#btn-precompute-all'); if (b) b.textContent = '✓ Done (100%)'; this.refreshViewer(); }
         );
-
         this.bindEvents(container);
         await this.loadFrameData(this.state.currentFrame);
         this.preloadAllCachedCubes();
     },
 
     getPrecomputeTargets() {
-        const targets = [];
-        for (const t of (this.state.timeline?.getTimelineObject().tracks || [])) {
-            if (t.orbital_key && t.orbital_key !== 'track_esp_charge') targets.push({ orbital_key: t.orbital_key, chem_key: t.chem_key });
-        }
+        const targets = (this.state.timeline?.getTimelineObject().tracks || []).filter(t => t.orbital_key && t.orbital_key !== 'track_esp_charge').map(t => ({ orbital_key: t.orbital_key, chem_key: t.chem_key }));
         for (const a of (this.state.pool?.getAuditionedOrbitals() || [])) {
-            const ok = a.key || a.orbital_key, ck = a.chem_key || ok;
-            if (!targets.some(t => t.orbital_key === ok)) targets.push({ orbital_key: ok, chem_key: ck });
+            const ok = a.key || a.orbital_key;
+            if (!targets.some(t => t.orbital_key === ok)) targets.push({ orbital_key: ok, chem_key: a.chem_key || ok });
         }
         return targets.length ? targets : [{ orbital_key: 'HOMO', chem_key: 'HOMO' }, { orbital_key: 'LUMO', chem_key: 'LUMO' }];
     },
@@ -160,6 +151,7 @@ export const OrbitalsUI = {
         const fd = this.state.frameDataCache[frameIdx];
         if (fd && this.state.currentFrame === frameIdx) {
             this.state.pool.setOrbitalsFromFrameData(fd);
+            if (this.state.timeline) this.state.timeline.updatePopulations(frameIdx, fd, this.state.uiSchema.symbols);
             this.refreshViewer();
         }
     },
@@ -175,13 +167,13 @@ export const OrbitalsUI = {
 
     _getActiveOrbitals(f) {
         const muted = new Set(this.state.timeline ? this.state.timeline.getMutedOrbitalKeys() : []);
-        const activeTracks = (this.state.timeline ? this.state.timeline.getActiveOrbitalsAtFrame(f) : []).filter(t => !muted.has(t.orbital_key) && !muted.has(t.chem_key));
-        const auditioned = (this.state.pool ? this.state.pool.getAuditionedOrbitals() : []).filter(a => !muted.has(a.key) && !muted.has(a.chem_key));
+        const activeTracks = (this.state.timeline ? this.state.timeline.getActiveOrbitalsAtFrame(f) : []).filter(t => !muted.has(t.orbital_key));
+        const auditioned = (this.state.pool ? this.state.pool.getAuditionedOrbitals() : []).filter(a => !muted.has(a.key));
         const merged = [...activeTracks];
         for (const a of auditioned) {
-            const aKey = a.orbital_key || a.key, aChem = a.chem_key || aKey;
-            if (!merged.some(t => (t.orbital_key || t.key) === aKey || (t.chem_key && t.chem_key === aChem))) {
-                merged.push({ id: 'audition_' + aKey, orbital_key: aKey, chem_key: aChem, title: a.label || aKey, color: a.color || '#06b6d4' });
+            const aKey = a.orbital_key || a.key;
+            if (!merged.some(t => (t.orbital_key || t.key) === aKey)) {
+                merged.push({ id: 'audition_' + aKey, orbital_key: aKey, chem_key: a.chem_key || aKey, title: a.label || aKey, color: a.color || '#06b6d4' });
             }
         }
         return merged;
@@ -215,6 +207,7 @@ export const OrbitalsUI = {
         if (coords) {
             const merged = this._getActiveOrbitals(frameIdx);
             const fd = this.state.frameDataCache[frameIdx];
+            if (this.state.timeline && fd) this.state.timeline.updatePopulations(frameIdx, fd, this.state.uiSchema.symbols);
             const espActive = merged.some(t => t.orbital_key === 'track_esp_charge');
             const moTracks = this.state.hideAllOrbitals ? [] : merged.filter(t => t.orbital_key !== 'track_esp_charge');
             this.state.viewer3D.renderFastFrame(
@@ -255,42 +248,34 @@ export const OrbitalsUI = {
         if (btn) btn.textContent = this.state.isPlaying ? '⏸ Pause' : '▶ Play';
         if (this.state.isPlaying) {
             this.preloadAllCachedCubes();
+            if (this.state.currentFrame >= this.state.totalFrames - 1) this.seekFrame(0, true);
             this.state.playTimer = setInterval(() => {
-                if (this.state.currentFrame >= this.state.totalFrames - 1) this.seekFrame(0, true);
+                if (this.state.currentFrame >= this.state.totalFrames - 1) this.togglePlay();
                 else this.stepFrame(1);
             }, 100);
         } else {
             clearInterval(this.state.playTimer);
+            this.state.playTimer = null;
             this.loadFrameData(this.state.currentFrame);
         }
     },
 
     preloadAllCachedCubes() {
         if (this.state.precompute && this.state.viewer3D) {
-            this.state.precompute.preloadCached(
-                this.state.viewer3D.cubeCache, this.state.totalFrames,
-                (f) => { if (f.includes(this.state.currentFrame)) this.refreshViewer(); }
-            );
+            this.state.precompute.preloadCached(this.state.viewer3D.cubeCache, this.state.totalFrames, (f) => { if (f.includes(this.state.currentFrame)) this.refreshViewer(); });
         }
     },
-
     onAuditionOrbital() { this.refreshViewer(); this.preloadAllCachedCubes(); },
     onAddToTimeline(orbital) {
         if (this.state.timeline) {
             this.state.timeline.addTrack(orbital);
             if (this.state.pool && orbital) { this.state.pool.auditionKeys.delete(orbital.key); this.state.pool.render(); }
-            this.refreshViewer();
-            this.preloadAllCachedCubes();
+            this.refreshViewer(); this.preloadAllCachedCubes();
         }
     },
-
     async saveTimeline(timeline) {
         try {
-            await fetch(`/api/step/${this.state.stepId}/custom`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action_type: 'save_timeline', timeline })
-            });
-        } catch (e) { console.error('Failed to save timeline:', e); }
+            await fetch(`/api/step/${this.state.stepId}/custom`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action_type: 'save_timeline', timeline }) });
+        } catch (e) {}
     }
 };
