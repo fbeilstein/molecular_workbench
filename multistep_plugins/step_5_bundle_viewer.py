@@ -1,14 +1,29 @@
-import io
 import json
 import os
-import zipfile
-from typing import Any, Dict, List
+from typing import Any, Dict
 from .base import PipelineStep, StepResult
-from irc_plugins.ts_engine import orbital_engine
+from .step_4_orbitals import Step4Orbitals
+from .bundle_utils import (
+    recompute_highres_batch,
+    get_cached_highres_cube,
+    generate_xyz,
+    create_maxcomp_bundle_zip,
+    unpack_molecule_bundle,
+)
+
+
+def _save_state_to_file(global_state: Dict[str, Any]):
+    """Persist pipeline state to multistep_state.json."""
+    state_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "multistep_state.json")
+    try:
+        with open(state_file, "w") as f:
+            json.dump(global_state, f, indent=2)
+    except Exception as e:
+        print(f"[Step5] Warning: could not persist state to file: {e}")
 
 
 class Step5BundleViewer(PipelineStep):
-    """Step 5: Master Synchronized 3D Pathway + Orbitals + PES Viewer and Bundle Exporter."""
+    """Step 5: Master Synchronized 3D Pathway + Orbitals + SVG Mechanism + Max-Compression Bundle Repacker."""
 
     @property
     def step_id(self) -> str:
@@ -19,6 +34,9 @@ class Step5BundleViewer(PipelineStep):
         return "5. Bundle & Viewer"
 
     def _get_megajson(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
+        s5 = current_state.get("step_5_bundle_viewer", {})
+        if s5.get("megajson"):
+            return s5["megajson"]
         s4 = current_state.get("step_4_orbitals", {})
         mj = s4.get("megajson")
         if not mj:
@@ -39,6 +57,17 @@ class Step5BundleViewer(PipelineStep):
 
         frames = megajson.get("frames", [])
         timeline = megajson.get("orbital_timeline") or current_state.get("step_4_orbitals", {}).get("orbital_timeline", {})
+        highres_cubes = megajson.get("highres_cubes", {})
+        molecule_bundles = megajson.get("molecule_bundles", {})
+        molecule_summary = {
+            m_id: {
+                "filename": data.get("filename", "bundle.zip"),
+                "orbitals": data.get("orbitals", []),
+                "count": len(data.get("orbitals", []))
+            }
+            for m_id, data in molecule_bundles.items()
+        }
+
         return {
             "type": "bundle_viewer_ui",
             "has_megajson": True,
@@ -52,68 +81,13 @@ class Step5BundleViewer(PipelineStep):
             "orbital_timeline": timeline,
             "orbital_schedule": megajson.get("orbital_schedule", {}),
             "landmarks": current_state.get("step_4_orbitals", {}).get("landmarks", []),
-            "message": "Synchronized 3D pathway, orbitals, and Free Energy profile ready for analysis and export."
+            "mechanism_svg": megajson.get("mechanism_svg", ""),
+            "svg_wiring": megajson.get("svg_wiring", {}),
+            "orbital_resolution": megajson.get("orbital_resolution", 32),
+            "highres_count": len(highres_cubes),
+            "molecule_bundles": molecule_summary,
+            "message": "Synchronized 3D pathway, orbitals, interactive reaction mechanism SVG, and PES profile ready."
         }
-
-    def _generate_xyz(self, megajson: Dict[str, Any]) -> str:
-        symbols = megajson.get("symbols", [])
-        n_atoms = len(symbols)
-        frames = megajson.get("frames", [])
-        lines = []
-        for f_idx, frame in enumerate(frames):
-            coords = frame.get("coords", frame.get("positions", []))
-            energy = frame.get("energy_kcal", 0.0)
-            step_idx = frame.get("step_index", 0)
-            lines.append(f"{n_atoms}")
-            lines.append(f"Frame {f_idx} | Step {step_idx} | Free Energy: {energy:.2f} kcal/mol")
-            for sym, pos in zip(symbols, coords):
-                lines.append(f"{sym:<2} {pos[0]:12.6f} {pos[1]:12.6f} {pos[2]:12.6f}")
-        return "\n".join(lines) + "\n"
-
-    def _build_bundle_manifest(self, megajson: Dict[str, Any], global_state: Dict[str, Any]) -> Dict[str, Any]:
-        boundaries = megajson.get("step_boundaries", [])
-        title = " → ".join(b.get("step_name", f"Step {i+1}") for i, b in enumerate(boundaries)) or "Multistep Reaction"
-        rxn_smi = " -> ".join(b.get("reaction_smiles", "") for b in boundaries)
-        return {
-            "title": title,
-            "reaction_smiles": rxn_smi,
-            "total_frames": len(megajson.get("frames", [])),
-            "overall_barrier_kcal": megajson.get("overall_barrier_kcal", 0.0),
-            "overall_reaction_energy_kcal": megajson.get("overall_reaction_energy_kcal", 0.0),
-            "solvent": megajson.get("solvent", "water"),
-            "step_boundaries": boundaries,
-            "symbols": megajson.get("symbols", []),
-            "energy_profile": megajson.get("energy_profile", {}),
-            "orbital_schedule": megajson.get("orbital_schedule", {}),
-            "files": {
-                "trajectory_xyz": "multistep_pathway.xyz",
-                "trajectory_json": "multistep_pathway.json",
-                "orbitals_directory": "orbitals/"
-            }
-        }
-
-    def _create_bundle_zip(self, megajson: Dict[str, Any], global_state: Dict[str, Any]) -> bytes:
-        zip_buf = io.BytesIO()
-        manifest = self._build_bundle_manifest(megajson, global_state)
-        xyz_content = self._generate_xyz(megajson)
-        json_content = json.dumps(megajson, indent=2)
-
-        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("bundle.json", json.dumps(manifest, indent=2))
-            zf.writestr("multistep_pathway.xyz", xyz_content)
-            zf.writestr("multistep_pathway.json", json_content)
-
-            # Store pre-generated landmark orbital meshes
-            landmark_meshes = megajson.get("landmark_orbital_meshes", {})
-            for f_str, orbs in landmark_meshes.items():
-                for orb_name, mesh in orbs.items():
-                    if mesh.get("pos"):
-                        zf.writestr(f"orbitals/frame_{int(f_str):03d}_{orb_name}_pos.json", json.dumps(mesh["pos"]))
-                    if mesh.get("neg"):
-                        zf.writestr(f"orbitals/frame_{int(f_str):03d}_{orb_name}_neg.json", json.dumps(mesh["neg"]))
-
-        zip_buf.seek(0)
-        return zip_buf.getvalue()
 
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
@@ -122,31 +96,119 @@ class Step5BundleViewer(PipelineStep):
             return {"error": "Pathway data is missing"}
 
         action = user_input.get("action_type")
-        if action == "get_xyz":
-            return {"success": True, "xyz": self._generate_xyz(megajson), "filename": "multistep_pathway.xyz"}
 
-        if action == "get_megajson":
-            return {"success": True, "megajson": megajson, "filename": "multistep_pathway.json"}
+        # 1. High-resolution orbital recomputation
+        if action == "recompute_highres_cubes":
+            resolution = int(user_input.get("resolution", 50))
+            tracks = user_input.get("selected_tracks", [])
+            sf = int(user_input.get("start_frame", 0))
+            ef = int(user_input.get("end_frame", sf + 15))
+            iso = float(user_input.get("isovalue", 0.03))
 
-        if action == "export_bundle":
+            res = recompute_highres_batch(megajson, tracks, sf, ef, resolution, iso)
+            _save_state_to_file(global_state)
+            return res
+
+        # 2. Orbital Cube Retrieval (Checks high-res first, then Step 4 standard)
+        if action in ["get_cube", "get_orbital_mesh"]:
+            frame_idx = int(user_input.get("frame_index", 0))
+            ok = str(user_input.get("orbital", "HOMO"))
+            iso = float(user_input.get("isovalue", 0.03))
+
+            highres_cube = get_cached_highres_cube(frame_idx, ok, megajson)
+            if highres_cube:
+                return {
+                    "success": True,
+                    "frame_index": frame_idx,
+                    "orbital": ok,
+                    "isovalue": iso,
+                    "is_highres": True,
+                    "cube": highres_cube,
+                    "filename": f"{ok}_f{frame_idx}_highres.cube",
+                    "coords": megajson["frames"][frame_idx]["coords"]
+                }
+
+            s4 = Step4Orbitals()
+            return s4.custom_action(user_input, global_state)
+
+        # 3. Mechanism SVG & Wiring persistence
+        if action == "save_mechanism_svg":
+            svg_text = user_input.get("svg_text", "")
+            megajson["mechanism_svg"] = svg_text
+            _save_state_to_file(global_state)
+            return {"success": True, "svg_length": len(svg_text)}
+
+        if action == "save_svg_wiring":
+            wiring = user_input.get("wiring", {})
+            megajson["svg_wiring"] = wiring
+            _save_state_to_file(global_state)
+            return {"success": True, "wired_count": len(wiring)}
+
+        # 4. Molecular Workbench ZIP bundle upload & orbital catalog
+        if action == "upload_molecule_bundle":
+            m_id = str(user_input.get("molecule_id", "molecule"))
+            filename = str(user_input.get("filename", "bundle.zip"))
+            data_b64 = user_input.get("data_b64", "")
+
+            try:
+                orbitals_found, files_dict = unpack_molecule_bundle(data_b64)
+            except Exception as e:
+                return {"success": False, "error": f"Failed to parse ZIP bundle: {e}"}
+
+            bundles = megajson.setdefault("molecule_bundles", {})
+            bundles[m_id] = {
+                "filename": filename,
+                "orbitals": orbitals_found,
+                "files": files_dict,
+                "data_b64": data_b64
+            }
+            _save_state_to_file(global_state)
+            return {
+                "success": True,
+                "molecule_id": m_id,
+                "orbitals": orbitals_found,
+                "count": len(orbitals_found)
+            }
+
+        if action == "get_molecule_bundle":
+            m_id = str(user_input.get("molecule_id", ""))
+            b = megajson.get("molecule_bundles", {}).get(m_id)
+            if not b:
+                return {"success": False, "error": f"No bundle found for molecule '{m_id}'"}
+            return {
+                "success": True,
+                "molecule_id": m_id,
+                "filename": b.get("filename"),
+                "orbitals": b.get("orbitals", []),
+                "files": b.get("files", {})
+            }
+
+        # 5. Maximal Compression Bundle Repacker
+        if action in ["repack_bundle", "export_bundle"]:
             bundle_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static_multistep", "bundles")
             os.makedirs(bundle_dir, exist_ok=True)
-            bundle_filename = "multistep_reaction_bundle.zip"
+            bundle_filename = "multistep_reaction_bundle_maxcomp.zip"
             bundle_path = os.path.join(bundle_dir, bundle_filename)
-            zip_bytes = self._create_bundle_zip(megajson, global_state)
+
+            zip_bytes, uncompressed_bytes = create_maxcomp_bundle_zip(megajson, global_state)
             with open(bundle_path, "wb") as f:
                 f.write(zip_bytes)
+
+            ratio = (1.0 - (len(zip_bytes) / max(1, uncompressed_bytes))) * 100.0
             return {
                 "success": True,
                 "download_url": f"/static_multistep/bundles/{bundle_filename}",
                 "filename": bundle_filename,
-                "size_bytes": len(zip_bytes)
+                "size_bytes": len(zip_bytes),
+                "uncompressed_bytes": uncompressed_bytes,
+                "compression_ratio_pct": round(ratio, 1)
             }
 
-        if action in ["get_cube", "get_orbital_mesh", "get_frame_orbitals", "batch_precompute_cubes"]:
-            from .step_4_orbitals import Step4Orbitals
-            s4 = Step4Orbitals()
-            return s4.custom_action(user_input, global_state)
+        if action == "get_xyz":
+            return {"success": True, "xyz": generate_xyz(megajson), "filename": "multistep_pathway.xyz"}
+
+        if action == "get_megajson":
+            return {"success": True, "megajson": megajson, "filename": "multistep_pathway.json"}
 
         return {"error": f"Unknown action: {action}"}
 
