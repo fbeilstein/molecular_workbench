@@ -101,8 +101,7 @@ class Step1ChooseJSONs(PipelineStep):
             for fr in traj_data.get("frames", []):
                 if "coords" not in fr and "positions" in fr:
                     fr["coords"] = fr["positions"]
-                elif "positions" not in fr and "coords" in fr:
-                    fr["positions"] = fr["coords"]
+                fr.pop("positions", None)
                 if "energy_kcal" not in fr:
                     fr["energy_kcal"] = fr.get("rel_energy_kcal", 0.0)
             return {"success": True, "trajectory": traj_data, "filename": filename}
@@ -166,7 +165,12 @@ class Step1ChooseJSONs(PipelineStep):
                 return StepResult(success=False, error_message=f"Missing trajectory file: {fn}")
             try:
                 with open(p, "r") as f:
-                    loaded_trajectories.append(json.load(f))
+                    t_data = json.load(f)
+                for fr in t_data.get("frames", []):
+                    if "coords" not in fr and "positions" in fr:
+                        fr["coords"] = fr["positions"]
+                    fr.pop("positions", None)
+                loaded_trajectories.append(t_data)
             except Exception as e:
                 return StepResult(success=False, error_message=f"Error reading {fn}: {e}")
 

@@ -6,27 +6,12 @@ import os
 import sys
 import zipfile
 from typing import Any, Dict, List, Tuple
-from .standalone_template import generate_standalone_html
 from .highres_engine import _HIGHRES_CUBE_CACHE, CUBE_DIR
 
 TOOLS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 from cube_converter import CubeConverter
-
-
-def generate_xyz(megajson: Dict[str, Any]) -> str:
-    """Generate multi-model XYZ text format from pathway frames."""
-    symbols = megajson.get("symbols", [])
-    n_atoms = len(symbols)
-    lines = []
-    for f_idx, frame in enumerate(megajson.get("frames", [])):
-        coords = frame.get("coords", frame.get("positions", []))
-        e = frame.get("rel_energy_kcal") or frame.get("energy_kcal") or 0.0
-        lines.append(f"{n_atoms}\nFrame {f_idx} | Step {frame.get('step_index', 0)} | Relative Free Energy: {e:.2f} kcal/mol")
-        for sym, pos in zip(symbols, coords):
-            lines.append(f"{sym:<2} {pos[0]:12.6f} {pos[1]:12.6f} {pos[2]:12.6f}")
-    return "\n".join(lines) + "\n"
 
 
 def purge_cube_files() -> int:
@@ -54,8 +39,7 @@ def build_bundle_manifest(megajson: Dict[str, Any], global_state: Dict[str, Any]
     boundaries = megajson.get("step_boundaries", [])
     title = " → ".join(b.get("step_name", f"Step {i+1}") for i, b in enumerate(boundaries)) or "Multistep Reaction"
     rxn_smi = " -> ".join(b.get("reaction_smiles", "") for b in boundaries)
-    surfaces = surface_keys or []
-    esps = esp_keys or []
+    surfaces, esps = surface_keys or [], esp_keys or []
     return {
         "title": title,
         "reaction_smiles": rxn_smi,
@@ -76,7 +60,6 @@ def build_bundle_manifest(megajson: Dict[str, Any], global_state: Dict[str, Any]
         "has_esp_surfaces": len(esps) > 0,
         "esp_surfaces_count": len(esps),
         "files": {
-            "trajectory_xyz": "multistep_pathway.xyz",
             "trajectory_json": "multistep_pathway.json",
             "mechanism_svg": "mechanism.svg" if megajson.get("mechanism_svg") else None,
             "svg_wiring": "svg_wiring.json" if megajson.get("svg_wiring") else None,
@@ -94,88 +77,66 @@ class MoleculeBundleResult(dict):
 
 
 def unpack_molecule_bundle(data_b64: str) -> MoleculeBundleResult:
-    """Unpack a base64-encoded Molecular Workbench zip bundle and extract orbital meshes/xyz/esp."""
+    """Unpack a base64-encoded Molecular Workbench zip bundle and extract orbital meshes/esp."""
     raw_zip = base64.b64decode(data_b64)
     orbitals_found: List[str] = []
     files_dict: Dict[str, Any] = {}
-    meta: Dict[str, Any] = {
-        "xyz": "",
-        "orbitals_tree": [],
-        "esp_surface": None,
-        "molecule_key": "",
-        "smiles": ""
-    }
+    meta = {"xyz": "", "orbitals_tree": [], "esp_surface": None, "molecule_key": "", "smiles": ""}
+
     with zipfile.ZipFile(io.BytesIO(raw_zip), "r") as zf:
         for name in zf.namelist():
             try:
                 content = zf.read(name).decode("utf-8", errors="ignore")
+                files_dict[name] = files_dict[os.path.basename(name)] = content
+                if name.endswith(".xyz") and not meta["xyz"]:
+                    meta["xyz"] = content
+                elif name.endswith(".cube") or name.endswith(("_pos.json", "_neg.json")):
+                    base = os.path.basename(name).replace(".cube", "").replace("_pos.json", "").replace("_neg.json", "")
+                    if base and base not in orbitals_found:
+                        orbitals_found.append(base)
             except Exception:
                 continue
-            files_dict[name] = content
-            files_dict[os.path.basename(name)] = content
-            if name.endswith(".xyz") and not meta["xyz"]:
-                meta["xyz"] = content
-            elif name.endswith(".cube"):
-                orb = os.path.basename(name).replace(".cube", "")
-                if orb not in orbitals_found:
-                    orbitals_found.append(orb)
-            elif name.endswith("_pos.json") or name.endswith("_neg.json"):
-                orb = os.path.basename(name).replace("_pos.json", "").replace("_neg.json", "")
-                if orb not in orbitals_found:
-                    orbitals_found.append(orb)
 
         mol_data = None
-        for name in zf.namelist():
-            if name.startswith("molecules/") and name.endswith(".json") and not any(name.endswith(x) for x in ["_esp.json", "_pos.json", "_neg.json"]):
+        for name, content in files_dict.items():
+            if (name.startswith("molecules/") and name.endswith(".json") and not name.endswith(("_esp.json", "_pos.json", "_neg.json"))) or name == "manifest.json":
                 try:
-                    mol_data = json.loads(files_dict.get(name, "{}"))
+                    d = json.loads(content)
+                    mol_data = d.get("molecules", [d])[0] if (isinstance(d, dict) and "molecules" in d) else d
                     break
                 except Exception:
                     pass
 
-        if not mol_data and "manifest.json" in files_dict:
-            try:
-                man = json.loads(files_dict["manifest.json"])
-                mols = man.get("molecules", [])
-                mol_data = mols[0] if (mols and isinstance(mols, list)) else man
-            except Exception:
-                pass
-
-        if mol_data:
+        if isinstance(mol_data, dict):
             meta["molecule_key"] = mol_data.get("key", mol_data.get("name", ""))
             meta["smiles"] = mol_data.get("smiles", "")
-            if not meta["xyz"] and mol_data.get("xyz"):
-                meta["xyz"] = mol_data.get("xyz")
+            meta["xyz"] = meta["xyz"] or mol_data.get("xyz", "")
+            meta["esp_surface"] = mol_data.get("esp_surface")
             if mol_data.get("orbitals"):
-                meta["orbitals_tree"] = mol_data.get("orbitals")
-                for cat in meta["orbitals_tree"]:
-                    for it in cat.get("items", []):
-                        f = it.get("file", "")
-                        b = os.path.basename(f).replace(".json", "").replace(".cube", "")
-                        if b and b not in orbitals_found:
-                            orbitals_found.append(b)
-            if mol_data.get("esp_surface"):
-                meta["esp_surface"] = mol_data.get("esp_surface")
+                meta["orbitals_tree"] = mol_data["orbitals"]
+                for it in [it for cat in meta["orbitals_tree"] for it in cat.get("items", [])]:
+                    b = os.path.basename(it.get("file", "")).replace(".json", "").replace(".cube", "")
+                    if b and b not in orbitals_found:
+                        orbitals_found.append(b)
 
         if not meta["esp_surface"]:
             for fname in files_dict:
-                if fname.endswith("_esp.json") or fname == "esp.json" or fname.endswith("/esp.json"):
+                if fname.endswith(("_esp.json", "/esp.json")) or fname == "esp.json":
                     meta["esp_surface"] = {"file": fname}
                     break
 
         mol_key = meta["molecule_key"]
         if mol_key:
-            workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-            local_full_zip = os.path.join(workspace_root, "output", mol_key, f"{mol_key}.rxnbundle.zip")
+            ws_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            local_full_zip = os.path.join(ws_root, "output", mol_key, f"{mol_key}.rxnbundle.zip")
             if os.path.exists(local_full_zip):
                 try:
                     with zipfile.ZipFile(local_full_zip, "r") as lzf:
                         for lname in lzf.namelist():
-                            if lname not in files_dict and (lname.endswith(".json") or lname.endswith(".xyz")):
-                                lcontent = lzf.read(lname).decode("utf-8", errors="ignore")
-                                files_dict[lname] = lcontent
-                                files_dict[os.path.basename(lname)] = lcontent
-                                if lname.endswith("_pos.json") or lname.endswith("_neg.json"):
+                            if lname not in files_dict and lname.endswith((".json", ".xyz")):
+                                lc = lzf.read(lname).decode("utf-8", errors="ignore")
+                                files_dict[lname] = files_dict[os.path.basename(lname)] = lc
+                                if lname.endswith(("_pos.json", "_neg.json")):
                                     orb = os.path.basename(lname).replace("_pos.json", "").replace("_neg.json", "")
                                     if orb not in orbitals_found:
                                         orbitals_found.append(orb)
@@ -183,13 +144,9 @@ def unpack_molecule_bundle(data_b64: str) -> MoleculeBundleResult:
                     pass
 
     return MoleculeBundleResult({
-        "orbitals": orbitals_found,
-        "files": files_dict,
-        "xyz": meta["xyz"],
-        "orbitals_tree": meta["orbitals_tree"],
-        "esp_surface": meta["esp_surface"],
-        "molecule_key": meta["molecule_key"],
-        "smiles": meta["smiles"]
+        "orbitals": orbitals_found, "files": files_dict, "xyz": meta["xyz"],
+        "orbitals_tree": meta["orbitals_tree"], "esp_surface": meta["esp_surface"],
+        "molecule_key": meta["molecule_key"], "smiles": meta["smiles"]
     })
 
 
@@ -264,7 +221,7 @@ def _convert_and_pack_orbitals(megajson: Dict[str, Any], zf: zipfile.ZipFile, is
 
 
 def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, Any]) -> Tuple[bytes, int]:
-    """Calculate surfaces and pack into zip with max compression (level 9). Never pack .cube files. Purge temporary cubes."""
+    """Calculate surfaces and pack into zip with max compression (level 9). Never pack cubes, xyz, or index.html."""
     zip_buf = io.BytesIO()
     isovalue = float(megajson.get("orbital_isovalue") or megajson.get("isovalue") or 0.035)
 
@@ -272,49 +229,62 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
         # 1. Convert cubes to surfaces and pack into orbitals/
         surface_keys, orb_bytes = _convert_and_pack_orbitals(megajson, zf, isovalue)
 
-        # 2. Pack ESP surfaces into esp/
+        # 2. Pack ESP surfaces into esp/ with 4-decimal vertex precision
         esp_surfaces = megajson.get("esp_surfaces", {})
         esp_keys, esp_bytes = [], 0
         for f_key, mesh in esp_surfaces.items():
             if not mesh or not isinstance(mesh, dict):
                 continue
             clean_f = str(f_key).replace("frame_", "")
-            mesh_json = json.dumps(mesh, separators=(',', ':')).encode('utf-8')
+            clean_mesh = dict(mesh)
+            if "vertexArr" in clean_mesh and isinstance(clean_mesh["vertexArr"], list):
+                clean_mesh["vertexArr"] = [
+                    {'x': round(float(v.get('x', 0)), 4), 'y': round(float(v.get('y', 0)), 4), 'z': round(float(v.get('z', 0)), 4)}
+                    if isinstance(v, dict) else [round(float(c), 4) for c in v]
+                    for v in clean_mesh["vertexArr"]
+                ]
+            if "color" in clean_mesh and isinstance(clean_mesh["color"], list):
+                clean_mesh["color"] = [
+                    {'r': round(float(c.get('r', 0)), 2), 'g': round(float(c.get('g', 0)), 2), 'b': round(float(c.get('b', 0)), 2)}
+                    if isinstance(c, dict) else round(float(c), 2)
+                    for c in clean_mesh["color"]
+                ]
+            mesh_json = json.dumps(clean_mesh, separators=(',', ':')).encode('utf-8')
             zf.writestr(f"esp/frame_{clean_f}.json", mesh_json)
             esp_bytes += len(mesh_json)
             esp_keys.append(clean_f)
 
-        # 3. Store uploaded molecule bundles as UNPACKED data (no nested zip archives!)
+        # 3. Store uploaded molecule bundles as UNPACKED data (no nested zip archives, no cubes, no xyz)
         molecule_bundles = megajson.get("molecule_bundles", {})
         clean_mol_bundles = {}
         mol_bytes = 0
+        written_files = set()
         for m_id, b_data in molecule_bundles.items():
             mol_key = b_data.get("molecule_key") or m_id
             mol_dir = f"molecules/{mol_key}"
-            written_files = set()
 
             if "data_b64" in b_data:
                 try:
-                    raw_b = base64.b64decode(b_data["data_b64"])
-                    with zipfile.ZipFile(io.BytesIO(raw_b), "r") as zin:
-                        for item in zin.infolist():
-                            if item.is_dir() or item.filename.endswith(".cube"):
+                    with zipfile.ZipFile(io.BytesIO(base64.b64decode(b_data["data_b64"])), "r") as zin:
+                        for it in zin.infolist():
+                            if it.is_dir() or it.filename.endswith((".cube", ".xyz")):
                                 continue
-                            sub = item.filename
+                            sub = it.filename
                             if sub.startswith("molecules/"):
                                 sub = sub[10:]
                             if sub.startswith(f"{mol_key}/"):
                                 sub = sub[len(mol_key) + 1:]
                             dest = f"{mol_dir}/{sub}"
-                            content = zin.read(item.filename)
-                            zf.writestr(dest, content)
-                            mol_bytes += len(content)
-                            written_files.add(dest)
+                            if dest not in written_files:
+                                content = zin.read(it.filename)
+                                zf.writestr(dest, content)
+                                mol_bytes += len(content)
+                                written_files.add(dest)
                 except Exception as e:
                     print(f"[Packager] Warning unpacking molecule {m_id}: {e}")
 
             for fname, fcontent in b_data.get("files", {}).items():
-                if fname.endswith(".cube"):
+                if fname.endswith((".cube", ".xyz")):
                     continue
                 dest = f"{mol_dir}/{os.path.basename(fname)}"
                 if dest not in written_files:
@@ -324,42 +294,61 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
                     written_files.add(dest)
 
             clean_mol_bundles[m_id] = {
-                "molecule_id": m_id,
-                "molecule_key": mol_key,
-                "directory": f"{mol_dir}/",
-                "orbitals": b_data.get("orbitals", []),
-                "orbitals_tree": b_data.get("orbitals_tree", []),
-                "xyz": b_data.get("xyz", ""),
-                "esp_surface": b_data.get("esp_surface"),
-                "file_count": len(written_files)
+                "molecule_id": m_id, "molecule_key": mol_key, "directory": f"{mol_dir}/",
+                "orbitals": b_data.get("orbitals", []), "orbitals_tree": b_data.get("orbitals_tree", []),
+                "xyz": b_data.get("xyz", ""), "esp_surface": b_data.get("esp_surface"), "file_count": len(written_files)
             }
 
-        # 4. Clean megajson (remove cubes & raw b64 strings)
+        # 4. Canonicalize & clean megajson (strip dead keys, remove positions, round precision)
         clean_megajson = dict(megajson)
-        clean_megajson.pop("highres_cubes", None)
+        for dead_k in ("combined_frames", "steps", "landmark_orbital_meshes", "stitching_alignment_report", "junction_previews", "highres_cubes", "molecule_bundles", "esp_surfaces"):
+            clean_megajson.pop(dead_k, None)
+            megajson.pop(dead_k, None)
+
         clean_megajson["orbital_surfaces"] = sorted(surface_keys)
         clean_megajson["esp_frame_keys"] = sorted(esp_keys)
         clean_megajson["molecule_bundles"] = clean_mol_bundles
-        megajson.pop("highres_cubes", None)
         megajson["orbital_surfaces"] = sorted(surface_keys)
 
-        # 5. Build manifest and metadata
-        manifest = build_bundle_manifest(clean_megajson, global_state, surface_keys, esp_keys)
-        xyz_content = generate_xyz(clean_megajson)
-        json_content = json.dumps(clean_megajson, indent=2)
-        standalone_html = generate_standalone_html(clean_megajson, manifest)
+        clean_frames = []
+        for f in clean_megajson.get("frames", []):
+            rc = f.get("coords", f.get("positions", []))
+            e = f.get("rel_energy_kcal") if f.get("rel_energy_kcal") is not None else f.get("energy_kcal", 0.0)
+            cf = {
+                "step_index": f.get("step_index", 1),
+                "coords": [[round(float(c), 4) for c in pt] for pt in rc],
+                "is_ts": bool(f.get("is_ts", False)),
+                "rel_energy_kcal": round(float(e or 0.0), 2)
+            }
+            if "energy_kcal" in f and f["energy_kcal"] is not None:
+                cf["energy_kcal"] = round(float(f["energy_kcal"]), 2)
+            if "step" in f and f["step"] is not None:
+                cf["step"] = f["step"]
+            if "s_arc" in f and f["s_arc"] is not None:
+                cf["s_arc"] = round(float(f["s_arc"]), 2)
+            if f.get("charges"):
+                cf["charges"] = [round(float(q), 3) for q in f["charges"]]
+            clean_frames.append(cf)
+        clean_megajson["frames"] = clean_frames
 
-        uncompressed_bytes = (
-            orb_bytes + esp_bytes + mol_bytes +
-            len(xyz_content.encode("utf-8")) +
-            len(json_content.encode("utf-8")) +
-            len(standalone_html.encode("utf-8"))
-        )
+        if "trajectory_charges" in clean_megajson:
+            clean_megajson["trajectory_charges"] = [[round(float(q), 3) for q in fq] for fq in clean_megajson["trajectory_charges"]]
+
+        if isinstance(clean_megajson.get("energy_profile"), dict) and "frame_energies_kcal" in clean_megajson["energy_profile"]:
+            clean_megajson["energy_profile"]["frame_energies_kcal"] = [round(float(e), 2) for e in clean_megajson["energy_profile"]["frame_energies_kcal"]]
+
+        for k in ("overall_barrier_kcal", "overall_reaction_energy_kcal"):
+            if clean_megajson.get(k) is not None:
+                clean_megajson[k] = round(float(clean_megajson[k]), 2)
+
+        # 5. Build manifest and metadata (no XYZ, no index.html)
+        manifest = build_bundle_manifest(clean_megajson, global_state, surface_keys, esp_keys)
+        json_content = json.dumps(clean_megajson, indent=2)
+
+        uncompressed_bytes = orb_bytes + esp_bytes + mol_bytes + len(json_content.encode("utf-8"))
 
         zf.writestr("bundle.json", json.dumps(manifest, indent=2))
-        zf.writestr("multistep_pathway.xyz", xyz_content)
         zf.writestr("multistep_pathway.json", json_content)
-        zf.writestr("index.html", standalone_html)
 
         svg_content = clean_megajson.get("mechanism_svg")
         if svg_content:
@@ -374,7 +363,7 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
 
     # 6. Purge temporary cubes to save space!
     purged_count = purge_cube_files()
-    print(f"[Packager] Purged {purged_count} temporary cube files after surface packaging.")
+    print(f"[Packager] Purged {purged_count} temporary cube files after packaging.")
 
     zip_buf.seek(0)
     return zip_buf.getvalue(), uncompressed_bytes

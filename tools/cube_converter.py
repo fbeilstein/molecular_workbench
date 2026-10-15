@@ -58,10 +58,10 @@ class CubeConverter:
             # Convert to Angstrom coordinates
             verts_angstrom = verts * (step / ANG2BOHR) + (origin / ANG2BOHR)
             
-            # Format for 3Dmol.js CustomShape
-            v_list = [{'x': float(v[0]), 'y': float(v[1]), 'z': float(v[2])} for v in verts_angstrom]
+            # Format for 3Dmol.js CustomShape with clean precision (0.0001 A vertices, 0.001 normals)
+            v_list = [{'x': round(float(v[0]), 4), 'y': round(float(v[1]), 4), 'z': round(float(v[2]), 4)} for v in verts_angstrom]
             f_list = [int(idx) for face in faces for idx in face]
-            n_list = [{'x': -float(n[0]), 'y': -float(n[1]), 'z': -float(n[2])} for n in normals]
+            n_list = [{'x': -round(float(n[0]), 3), 'y': -round(float(n[1]), 3), 'z': -round(float(n[2]), 3)} for n in normals]
             
             return {
                 'vertices': v_list,

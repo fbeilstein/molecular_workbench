@@ -53,8 +53,8 @@ def solve_optimal_element_alignment(
 def find_all_hero_overlaps(step_prev: Dict[str, Any], step_next: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Identify ALL common molecules/fragments and compute exact element-matched mappings."""
     prods, reacs = step_prev.get("fragments", {}).get("products", []), step_next.get("fragments", {}).get("reactants", [])
-    p_last = np.array(step_prev["frames"][-1].get("positions", step_prev["frames"][-1].get("coords", [])))
-    p_first = np.array(step_next["frames"][0].get("positions", step_next["frames"][0].get("coords", [])))
+    p_last = np.array(step_prev["frames"][-1].get("coords", step_prev["frames"][-1].get("positions", [])))
+    p_first = np.array(step_next["frames"][0].get("coords", step_next["frames"][0].get("positions", [])))
     sym_p, sym_n = step_prev.get("symbols", []), step_next.get("symbols", [])
     candidates, used_next = [], set()
 
@@ -105,9 +105,8 @@ def generate_bridge_frames(p_start: np.ndarray, p_end: np.ndarray, e_start: floa
         tau = i / (n_frames + 1)
         s = tau * tau * (3.0 - 2.0 * tau)
         frames.append({
-            "positions": ((1.0 - s) * p_start + s * p_end).round(5).tolist(),
-            "coords": ((1.0 - s) * p_start + s * p_end).round(5).tolist(),
-            "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 3),
+            "coords": ((1.0 - s) * p_start + s * p_end).round(4).tolist(),
+            "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2),
             "is_bridge": True
         })
     return frames
@@ -158,15 +157,15 @@ def stitch_multistep_trajectories(
 
             out_next["symbols"] = [next_syms[c] for c in order]
             for fr in out_next["frames"]:
-                raw_pos = np.array(fr.get("positions", fr.get("coords", [])))
-                fr["positions"] = ((raw_pos @ R.T + t)[order]).round(5).tolist()
-                fr["coords"] = fr["positions"]
+                raw_pos = np.array(fr.get("coords", fr.get("positions", [])))
+                fr["coords"] = ((raw_pos @ R.T + t)[order]).round(4).tolist()
+                fr.pop("positions", None)
         else:
             b_rmsd, idxs_p, idxs_n = 0.0, [], []
 
-        prev_pos = np.array(prev_step["frames"][-1].get("positions", prev_step["frames"][-1].get("coords", [])))
-        unalign_pos = np.array(next_step["frames"][0].get("positions", next_step["frames"][0].get("coords", [])))
-        align_pos = np.array(out_next["frames"][0].get("positions", out_next["frames"][0].get("coords", [])))
+        prev_pos = np.array(prev_step["frames"][-1].get("coords", prev_step["frames"][-1].get("positions", [])))
+        unalign_pos = np.array(next_step["frames"][0].get("coords", next_step["frames"][0].get("positions", [])))
+        align_pos = np.array(out_next["frames"][0].get("coords", out_next["frames"][0].get("positions", [])))
         bridge = generate_bridge_frames(prev_pos, align_pos, prev_step["frames"][-1].get("rel_energy_kcal", 0.0), out_next["frames"][0].get("rel_energy_kcal", 0.0), n_bridge_frames)
 
         j_info = {
@@ -175,9 +174,9 @@ def stitch_multistep_trajectories(
             "all_candidates": all_cands, "selected_candidate_id": cand["id"] if cand else None,
             "hero_smiles": cand["smiles"] if cand else None, "hero_formula": cand.get("formula", "") if cand else None,
             "n_matched_atoms": len(idxs_p), "joint_rmsd_angstrom": b_rmsd, "rmsd": b_rmsd,
-            "prev_symbols": prev_step.get("symbols", []), "prev_coords": prev_pos.tolist(),
-            "next_symbols": out_next.get("symbols", []), "next_coords_unaligned": unalign_pos.tolist(),
-            "next_coords_aligned": align_pos.tolist(), "bridge_frames": bridge, "n_bridge_frames": n_bridge_frames,
+            "prev_symbols": prev_step.get("symbols", []), "prev_coords": prev_pos.round(4).tolist(),
+            "next_symbols": out_next.get("symbols", []), "next_coords_unaligned": unalign_pos.round(4).tolist(),
+            "next_coords_aligned": align_pos.round(4).tolist(), "bridge_frames": bridge, "n_bridge_frames": n_bridge_frames,
             "matched_prev_indices": idxs_p, "matched_next_indices": idxs_n
         }
         step_reports.append(j_info)
@@ -197,18 +196,20 @@ def stitch_multistep_trajectories(
             "end_frame": curr_idx + len(s_frames) - 1, "ts_frame": curr_idx + ts_idx
         })
         for f_i, fr in enumerate(s_frames):
-            fr["coords"] = fr.get("positions", fr.get("coords", []))
-            fr["positions"] = fr["coords"]
+            fr["coords"] = fr.get("coords", fr.get("positions", []))
+            fr.pop("positions", None)
             fr["step_index"] = k + 1
             fr["is_ts"] = (f_i == ts_idx)
             e_k = fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0))
-            fr["energy_kcal"] = e_k
+            fr["energy_kcal"] = round(float(e_k), 2)
             max_energy, final_energy = max(max_energy, e_k), e_k
             master_frames.append(fr)
         curr_idx += len(s_frames)
 
         if k < len(all_bridges):
             for b_fr in all_bridges[k]:
+                b_fr["coords"] = b_fr.get("coords", b_fr.get("positions", []))
+                b_fr.pop("positions", None)
                 b_fr["step_index"] = f"Bridge {k + 1}➔{k + 2}"
                 b_fr["is_ts"] = False
                 max_energy = max(max_energy, b_fr["energy_kcal"])
@@ -218,6 +219,7 @@ def stitch_multistep_trajectories(
     return {
         "title": "Master Multistep IRC Trajectory", "n_steps": len(aligned_steps), "total_frames": len(master_frames),
         "symbols": symbols, "step_boundaries": step_boundaries, "stitching_alignment_report": step_reports,
-        "junction_previews": junction_previews, "overall_barrier_kcal": max_energy, "overall_reaction_energy_kcal": final_energy,
-        "steps": aligned_steps, "frames": master_frames, "combined_frames": master_frames
+        "junction_previews": junction_previews, "overall_barrier_kcal": round(float(max_energy), 2),
+        "overall_reaction_energy_kcal": round(float(final_energy), 2),
+        "frames": master_frames
     }

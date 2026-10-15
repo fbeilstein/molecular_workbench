@@ -200,7 +200,7 @@ def balance_pathway_energies(
         if inc_frags and forming_bonds:
             bi, bj = forming_bonds[0]["from"], forming_bonds[0]["to"]
             for idx in range(start, end + 1):
-                pos = np.array(master_frames[idx]["positions"])
+                pos = np.array(master_frames[idx].get("coords", master_frames[idx].get("positions", [])))
                 d_val = float(np.linalg.norm(pos[bi] - pos[bj]))
                 assoc_w = _smoothstep((3.5 - d_val) / (3.5 - 2.0))
                 balanced_ev[idx] = active_e[idx] + delta_g_assoc * assoc_w + s_offset
@@ -216,7 +216,7 @@ def balance_pathway_energies(
             e_leaving_iso = frag_energies.get(leaving_frags[0]["smiles"], 0.0)
 
             for idx in range(start, end + 1):
-                pos = np.array(master_frames[idx]["positions"])
+                pos = np.array(master_frames[idx].get("coords", master_frames[idx].get("positions", [])))
                 d_val = float(np.linalg.norm(pos[bi] - pos[bj]))
                 e_bound = active_e[idx] + delta_g_assoc
                 hero_atoms.set_positions(pos[hero_idxs])

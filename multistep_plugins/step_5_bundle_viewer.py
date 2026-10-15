@@ -8,7 +8,6 @@ from .step_4_orbitals import Step4Orbitals
 from .bundle_utils import (
     recompute_highres_batch,
     get_cached_highres_cube,
-    generate_xyz,
     create_maxcomp_bundle_zip,
     unpack_molecule_bundle,
     purge_cube_files,
@@ -350,9 +349,6 @@ class Step5BundleViewer(PipelineStep):
             megajson.pop("highres_cubes", None)
             _save_state_to_file(global_state)
             return {"success": True, "purged": purged}
-
-        if action == "get_xyz":
-            return {"success": True, "xyz": generate_xyz(megajson), "filename": "multistep_pathway.xyz"}
 
         if action == "get_megajson":
             return {"success": True, "megajson": megajson, "filename": "multistep_pathway.json"}
