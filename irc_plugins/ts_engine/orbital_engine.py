@@ -388,36 +388,51 @@ def extract_frontier_orbitals(
                 if norm > 1e-4:
                     vec /= norm
 
-                key = f"DELOC_PI_{i+1:02d}"
+                key = f"DELOC_PI_{frag_lbl}_{i+1:02d}"
                 if s_cross is not None and key in prev_mo_coeffs:
                     if float(prev_mo_coeffs[key] @ s_cross @ vec) < 0.0:
                         vec = -vec
 
                 canonical_pi_vecs[key] = vec
+                canonical_pi_vecs[f"DELOC_PI_{i+1:02d}"] = vec
+                canonical_pi_vecs[f"CANONICAL_PI_{i+1:02d}"] = vec
                 node_str = f"{i} node{'s' if i != 1 else ''}" if i > 0 else "all-bonding, 0 nodes"
                 canonical_pi_meta[key] = {
                     "name": key,
                     "label": f"Delocalized π ({frag_lbl}) [π{i+1}, {node_str}]",
                     "category": "conjugated_pi",
                     "type": "delocalized_pi",
-                    "chem_key": f"deloc_pi_{i+1}",
+                    "chem_key": f"deloc_pi_{frag_lbl}_{i+1}",
                     "mo_index": i + 1,
                     "energy_ev": round(float(e_vals[i] * 27.2114), 2),
                     "atoms": atom_ids
                 }
-                # Alias for compatibility with canonical naming
-                canonical_pi_vecs[f"CANONICAL_PI_{i+1:02d}"] = vec
 
             # 3. Virtual antibonding subspace (pi*)
             virt_keys = []
             virt_vecs = []
             if star_m and ibos_v:
                 for k, d in star_m.items():
-                    if d.get("type") == "pi_star" and all(at in atom_ids for at in d.get("atoms", [])):
+                    if d.get("type") == "pi_star" and any(at in atom_ids for at in d.get("atoms", [])):
                         virt_keys.append(k)
                         virt_vecs.append(ibos_v[k])
 
-            if len(virt_keys) >= 2:
+            if len(virt_keys) == 1:
+                k = virt_keys[0]
+                vec = virt_vecs[0].copy()
+                key = f"PISTAR_{frag_lbl}_01"
+                canonical_pi_vecs[key] = vec
+                canonical_pi_meta[key] = {
+                    "name": key,
+                    "label": f"π* ({frag_lbl}) [Antibond]",
+                    "category": "antibonding",
+                    "type": "delocalized_pistar",
+                    "chem_key": f"pistar_{frag_lbl}_1",
+                    "mo_index": 101,
+                    "energy_ev": star_m[k].get("energy_ev", 0.0),
+                    "atoms": atom_ids
+                }
+            elif len(virt_keys) >= 2:
                 aligned_virt = []
                 for k, v in zip(virt_keys, virt_vecs):
                     v_copy = v.copy()
@@ -440,7 +455,7 @@ def extract_frontier_orbitals(
                     if norm > 1e-4:
                         vec /= norm
 
-                    key = f"DELOC_PISTAR_{i+1:02d}"
+                    key = f"DELOC_PISTAR_{frag_lbl}_{i+1:02d}"
                     if s_cross is not None and key in prev_mo_coeffs:
                         if float(prev_mo_coeffs[key] @ s_cross @ vec) < 0.0:
                             vec = -vec
@@ -449,14 +464,42 @@ def extract_frontier_orbitals(
                     canonical_pi_meta[key] = {
                         "name": key,
                         "label": f"Delocalized π* ({frag_lbl}) [π*{i+1}]",
-                        "category": "conjugated_pi",
+                        "category": "antibonding",
                         "type": "delocalized_pistar",
-                        "chem_key": f"deloc_pistar_{i+1}",
+                        "chem_key": f"deloc_pistar_{frag_lbl}_{i+1}",
                         "mo_index": 100 + i + 1,
                         "energy_ev": round(float(e_vals_star[i] * 27.2114), 2),
                         "atoms": atom_ids
                     }
                     canonical_pi_vecs[f"CANONICAL_PISTAR_{i+1:02d}"] = vec
+
+            # Check CanonicalAnalyzer for any additional virtual pi* on this fragment
+            try:
+                ca = CanonicalAnalyzer(mol, mo_coeff, mo_energy)
+                _, pi_virt = ca.get_pi_system(f)
+                for idx in pi_virt:
+                    depth = idx - nocc
+                    llbl = f"LUMO+{depth}" if depth > 0 else "LUMO"
+                    key = f"CANONICAL_PISTAR_{frag_lbl}_{idx:02d}"
+                    if key not in canonical_pi_vecs and f"CANONICAL_PISTAR_{idx:02d}" not in canonical_pi_vecs:
+                        vec = mo_coeff[:, idx].copy()
+                        if s_cross is not None and key in prev_mo_coeffs:
+                            if float(prev_mo_coeffs[key] @ s_cross @ vec) < 0.0:
+                                vec = -vec
+                        canonical_pi_vecs[key] = vec
+                        canonical_pi_vecs[f"CANONICAL_PISTAR_{idx:02d}"] = vec
+                        canonical_pi_meta[key] = {
+                            "name": key,
+                            "label": f"Canonical π* ({frag_lbl}) [{llbl}]",
+                            "category": "antibonding",
+                            "type": "delocalized_pistar",
+                            "chem_key": f"pistar_{frag_lbl}_{idx}",
+                            "mo_index": int(idx),
+                            "energy_ev": round(float(mo_energy[idx] * 27.2114), 2),
+                            "atoms": atom_ids
+                        }
+            except Exception:
+                pass
 
         else:
             # Fallback to CanonicalAnalyzer if no localized pi basis found

@@ -73,6 +73,7 @@ class Step4Orbitals(PipelineStep):
             "trajectory": [f["coords"] for f in megajson["frames"]],
             "landmarks": [], "energy_profile": ep,
             "timeline": megajson.get("orbital_timeline") or _build_dynamic_default_timeline(megajson, scf_0),
+            "trajectory_charges": megajson.get("trajectory_charges", []),
             "default_isovalue": 0.03, "message": "Reaction Orbital Studio: dynamic QM discovery & timeline."
         }
 

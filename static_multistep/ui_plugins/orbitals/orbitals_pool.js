@@ -46,23 +46,40 @@ export class OrbitalsPool {
         }
         if (frameData.canonical_pi && Array.isArray(frameData.canonical_pi)) {
             for (const cpi of frameData.canonical_pi) {
+                const isStar = (cpi.type && cpi.type.includes('star')) || (cpi.label && (cpi.label.includes('π*') || cpi.label.includes('pi*')));
                 pool.push({
                     key: cpi.key || cpi.name, chem_key: cpi.chem_key || cpi.key,
-                    label: cpi.label || cpi.key, type: 'delocalized_pi', category: 'delocalized',
-                    desc: cpi.description || 'Delocalized conjugated π system', atoms: cpi.atoms || [], color: '#3b82f6'
+                    label: cpi.label || cpi.key, type: cpi.type || (isStar ? 'delocalized_pistar' : 'delocalized_pi'),
+                    category: isStar ? 'antibonding' : 'delocalized',
+                    desc: cpi.description || (isStar ? `Delocalized π* on ${cpi.atoms ? cpi.atoms.join('-') : 'fragment'}` : 'Delocalized conjugated π system'),
+                    atoms: cpi.atoms || [], color: isStar ? '#f43f5e' : '#3b82f6', energy: cpi.energy_ev
                 });
             }
         }
         if (frameData.antibonds && Array.isArray(frameData.antibonds)) {
             for (const ab of frameData.antibonds) {
+                const isPiStar = (ab.type && ab.type.includes('pi')) || (ab.label && ab.label.includes('π*'));
                 pool.push({
                     key: ab.key || ab.name, chem_key: ab.chem_key || ab.key,
                     label: ab.label || ab.key, type: ab.type || 'antibonding', category: 'antibonding',
-                    desc: ab.description || `Antibond ${ab.label}`, atoms: ab.atoms || [], color: '#f43f5e'
+                    desc: ab.description || `Antibond ${ab.label}`, atoms: ab.atoms || [],
+                    color: isPiStar ? '#ec4899' : '#f43f5e', energy: ab.energy_ev
                 });
             }
         }
-        const order = { frontier: 0, bonding: 1, lone_pairs: 2, delocalized: 3, antibonding: 4, core: 5 };
+        const espItem = {
+            key: 'track_esp_charge',
+            chem_key: 'esp_charge',
+            label: '⚡ Electrostatic Surface & Charges (ESP)',
+            type: 'esp',
+            category: 'esp',
+            desc: 'Molecular electrostatic surface mapped with atomic partial charges',
+            atoms: [],
+            energy: null,
+            color: '#38bdf8'
+        };
+        const order = { esp: -1, frontier: 0, bonding: 1, lone_pairs: 2, delocalized: 3, antibonding: 4, core: 5 };
+        pool.unshift(espItem);
         pool.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9));
         this.orbitals = pool;
         this.render();
@@ -94,13 +111,24 @@ export class OrbitalsPool {
     render() {
         if (!this.containerEl) return;
         const filtered = this.orbitals.filter(o => {
-            if (this.currentCategory !== 'all' && o.category !== this.currentCategory) return false;
+            if (this.currentCategory !== 'all') {
+                if (this.currentCategory === 'esp' && o.key === 'track_esp_charge') {
+                    // pass
+                } else if (o.category !== this.currentCategory) {
+                    return false;
+                }
+            }
             if (this.searchQuery) {
                 const q = this.searchQuery;
+                const qGreek = q.replace(/pi/g, 'π');
+                const qAscii = q.replace(/π/g, 'pi');
                 const matchKey = o.key.toLowerCase().includes(q);
-                const matchLbl = o.label.toLowerCase().includes(q);
+                const matchLbl = o.label.toLowerCase().includes(q) || o.label.toLowerCase().includes(qGreek);
+                const matchDesc = (o.desc || '').toLowerCase().includes(q) || (o.desc || '').toLowerCase().includes(qGreek);
+                const matchChem = (o.chem_key || '').toLowerCase().includes(q) || (o.chem_key || '').toLowerCase().includes(qAscii);
+                const matchType = (o.type || '').toLowerCase().includes(q) || (o.type || '').toLowerCase().includes(qAscii);
                 const matchAtoms = o.atoms && o.atoms.some(a => String(a).toLowerCase().includes(q));
-                return matchKey || matchLbl || matchAtoms;
+                return matchKey || matchLbl || matchDesc || matchChem || matchType || matchAtoms;
             }
             return true;
         });
@@ -117,17 +145,20 @@ export class OrbitalsPool {
             const isAuditioning = this.auditionKeys.has(item.key);
             const badge = getOrbitalTypeBadge(item.type);
             const atomStr = item.atoms && item.atoms.length > 0 ? `[${item.atoms.join(', ')}]` : '';
+            const isEsp = item.key === 'track_esp_charge';
+            const badgeBg = isEsp ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.1)';
+            const badgeColor = isEsp ? '#38bdf8' : 'inherit';
 
             html += `
                 <div class="orbital-pool-card" data-key="${item.key}" style="
                     background: ${isAuditioning ? 'rgba(6, 182, 212, 0.15)' : 'rgba(255, 255, 255, 0.03)'};
-                    border: 1px solid ${isAuditioning ? '#06b6d4' : 'rgba(255, 255, 255, 0.08)'};
+                    border: 1px solid ${isAuditioning ? '#06b6d4' : (isEsp ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.08)')};
                     border-radius: 5px; padding: 0.4rem 0.6rem; display: flex; justify-content: space-between; align-items: center; gap: 0.4rem;
                 ">
                     <div style="flex: 1; min-width: 0;">
                         <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                             <span style="font-weight: 600; font-size: 0.82rem; color: #f8fafc;">${item.label}</span>
-                            <span class="badge ${badge.cls}" style="font-size: 0.65rem; padding: 0.05rem 0.3rem; border-radius: 3px; background: rgba(255,255,255,0.1);">${badge.label}</span>
+                            <span class="badge ${badge.cls}" style="font-size: 0.65rem; padding: 0.05rem 0.3rem; border-radius: 3px; background: ${badgeBg}; color: ${badgeColor}; font-weight: 700;">${badge.label}</span>
                             <span style="font-size: 0.7rem; color: #94a3b8;">${item.key}</span>
                         </div>
                         <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">

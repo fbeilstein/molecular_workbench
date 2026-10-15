@@ -27,6 +27,7 @@ export const ELEMENT_RADII = {
 
 export function getOrbitalTypeBadge(type) {
     const t = String(type || '').toLowerCase();
+    if (t.includes('esp')) return { label: 'ESP', cls: 'badge-esp' };
     if (t.includes('pi') && t.includes('star')) return { label: 'π*', cls: 'badge-pistar' };
     if (t.includes('sigma') && t.includes('star')) return { label: 'σ*', cls: 'badge-sigmastar' };
     if (t.includes('pi')) return { label: 'π', cls: 'badge-pi' };

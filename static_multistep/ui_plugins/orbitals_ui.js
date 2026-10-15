@@ -21,6 +21,7 @@ export const OrbitalsUI = {
         this.state.totalFrames = uiSchema.total_frames || 0;
         this.state.isovalue = uiSchema.default_isovalue || 0.03;
         this.state.trajectory = uiSchema.trajectory || [];
+        this.state.trajectoryCharges = uiSchema.trajectory_charges || [];
         this.state.currentFrame = 0;
         const maxF = Math.max(0, this.state.totalFrames - 1);
 
@@ -54,6 +55,8 @@ export const OrbitalsUI = {
                                 <button class="btn btn-xs btn-secondary tab-cat" data-cat="frontier">Frontier</button>
                                 <button class="btn btn-xs btn-secondary tab-cat" data-cat="bonding">Bonds</button>
                                 <button class="btn btn-xs btn-secondary tab-cat" data-cat="lone_pairs">LP</button>
+                                <button class="btn btn-xs btn-secondary tab-cat" data-cat="antibonding">π* / Antibonds</button>
+                                <button class="btn btn-xs btn-secondary tab-cat" data-cat="esp">ESP</button>
                             </div>
                         </div>
                         <input type="text" id="pool-search-input" placeholder="Search atom, type, or label..." style="width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.74rem; color: #f8fafc; margin-bottom: 0.4rem;">
@@ -117,7 +120,19 @@ export const OrbitalsUI = {
             if (b) b.textContent = this.state.hideAllOrbitals ? '🚫 MOs: OFF' : '👁 MOs: ON';
             this.refreshViewer();
         });
-        container.querySelector('#btn-toggle-esp').addEventListener('click', () => { this.state.showCharges = !this.state.showCharges; this.refreshViewer(); });
+        container.querySelector('#btn-toggle-esp').addEventListener('click', () => {
+            this.state.showCharges = !this.state.showCharges;
+            const b = container.querySelector('#btn-toggle-esp');
+            if (b) {
+                b.textContent = this.state.showCharges ? '⚡ ESP: ON' : '⚡ ESP: OFF';
+                b.className = this.state.showCharges ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary';
+            }
+            if (!this.state.frameDataCache[this.state.currentFrame] && !this.state.trajectoryCharges[this.state.currentFrame]) {
+                this.loadFrameData(this.state.currentFrame);
+            } else {
+                this.refreshViewer();
+            }
+        });
         container.querySelector('#btn-precompute-all').addEventListener('click', () => this.state.precompute.startPrecompute(this.state.totalFrames));
 
         const v3 = this.state.viewer3D;
@@ -187,8 +202,9 @@ export const OrbitalsUI = {
         const espActive = merged.some(t => t.orbital_key === 'track_esp_charge');
         const moTracks = merged.filter(t => t.orbital_key !== 'track_esp_charge');
 
+        const charges = (fd && fd.charges) || this.state.trajectoryCharges[f] || null;
         await this.state.viewer3D.renderScene({
-            symbols: this.state.uiSchema.symbols, coords, charges: fd ? fd.charges : null,
+            symbols: this.state.uiSchema.symbols, coords, charges,
             showCharges: this.state.showCharges || espActive, activeOrbitals: moTracks,
             isovalue: this.state.isovalue, frameIdx: f, hideAllOrbitals: this.state.hideAllOrbitals,
             fetchCubeFn: (fi, ok, ck, iso) => this.fetchCube(fi, ok, ck, iso)
@@ -208,11 +224,12 @@ export const OrbitalsUI = {
             const merged = this._getActiveOrbitals(frameIdx);
             const fd = this.state.frameDataCache[frameIdx];
             if (this.state.timeline && fd) this.state.timeline.updatePopulations(frameIdx, fd, this.state.uiSchema.symbols);
+            const charges = (fd && fd.charges) || this.state.trajectoryCharges[frameIdx] || null;
             const espActive = merged.some(t => t.orbital_key === 'track_esp_charge');
             const moTracks = this.state.hideAllOrbitals ? [] : merged.filter(t => t.orbital_key !== 'track_esp_charge');
             this.state.viewer3D.renderFastFrame(
                 this.state.uiSchema.symbols, coords, moTracks, this.state.isovalue,
-                frameIdx, fd ? fd.charges : null, this.state.showCharges || espActive
+                frameIdx, charges, this.state.showCharges || espActive
             );
             for (const orb of moTracks) {
                 const ok = orb.orbital_key || orb.key || orb, ck = orb.chem_key || ok;
@@ -223,7 +240,7 @@ export const OrbitalsUI = {
                             if (this.state.currentFrame === frameIdx) {
                                 this.state.viewer3D.renderFastFrame(
                                     this.state.uiSchema.symbols, coords, moTracks, this.state.isovalue,
-                                    frameIdx, fd ? fd.charges : null, this.state.showCharges || espActive
+                                    frameIdx, charges, this.state.showCharges || espActive
                                 );
                             }
                         }
@@ -277,5 +294,10 @@ export const OrbitalsUI = {
         try {
             await fetch(`/api/step/${this.state.stepId}/custom`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action_type: 'save_timeline', timeline }) });
         } catch (e) {}
+    },
+    getData() {
+        return {
+            timeline: this.state.timeline ? this.state.timeline.getTimelineObject() : {}
+        };
     }
 };

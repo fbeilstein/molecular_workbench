@@ -33,11 +33,11 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
         sym = atom_labels[top_idx]
         if sym != 'H':
             is_lp = False
-            if top_frac >= 0.75:
+            second_frac = major[1][1] if len(major) >= 2 else 0.0
+            if top_frac >= 0.85:
                 is_lp = True
-            elif top_frac >= 0.68 and len(major) >= 2:
-                second_frac = major[1][1]
-                if top_frac / max(second_frac, 1e-4) >= 3.0:
+            elif top_frac >= 0.75 and second_frac < 0.18:
+                if top_frac / max(second_frac, 1e-4) >= 4.0:
                     is_lp = True
             elif len(major) == 1:
                 is_lp = True

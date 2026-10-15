@@ -32,6 +32,10 @@ export class OrbitalsTimeline {
 
     addTrack(orbital) {
         if (!orbital) return;
+        if (orbital.key === 'track_esp_charge') {
+            this.addEspTrack();
+            return;
+        }
         const exists = this.tracks.find(t => t.orbital_key === orbital.key);
         if (exists) {
             this.manualOverrides.set(exists.id, true);
@@ -140,6 +144,10 @@ export class OrbitalsTimeline {
         for (const trk of this.tracks) {
             const el = this.containerEl.querySelector(`#pop-readout-${trk.orbital_key}`);
             if (!el) continue;
+            if (trk.orbital_key === 'track_esp_charge') {
+                el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx}:</span> <strong style="color: #38bdf8;">Electrostatic Surface mapped with partial charges</strong>`;
+                continue;
+            }
             const ibo = iboMap.get(trk.orbital_key);
             if (ibo && ibo.pop && this.symbols.length) {
                 const major = [];
@@ -163,29 +171,39 @@ export class OrbitalsTimeline {
         if (this.tracks.length === 0) {
             cardsHtml = `
                 <div style="padding: 1rem; text-align: center; color: #94a3b8; font-size: 0.78rem;">
-                    No reaction orbitals selected. Click <strong>[+ Add]</strong> on any orbital from the pool on the left to track it.
+                    No reaction orbitals selected. Click <strong>[+ Track]</strong> on any orbital or ESP from the pool on the left to track it.
                 </div>
             `;
         } else {
             cardsHtml = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.5rem; padding: 0.2rem;">`;
             for (const trk of this.tracks) {
                 const isChecked = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
+                const isEsp = trk.orbital_key === 'track_esp_charge';
                 const pc = getPhaseColors(trk.color);
+                const badgeIndicator = isEsp ? `
+                    <div style="display: flex; align-items: center; gap: 2px; font-size: 0.65rem; font-weight: 700; flex-shrink: 0;" title="Electrostatic Potential (δ- red, δ+ blue)">
+                        <span style="background: #ef4444; color: #fff; padding: 1px 4px; border-radius: 3px 0 0 3px;">δ−</span>
+                        <span style="background: #3b82f6; color: #fff; padding: 1px 4px; border-radius: 0 3px 3px 0;">δ+</span>
+                    </div>
+                ` : `
+                    <div style="display: flex; align-items: center; gap: 2px; font-size: 0.65rem; font-weight: 700; flex-shrink: 0;" title="Positive (+) / Negative (-) phase lobes">
+                        <span style="background: ${pc.pos}; color: #fff; padding: 1px 4px; border-radius: 3px 0 0 3px;">+</span>
+                        <span style="background: ${pc.neg}; color: #fff; padding: 1px 4px; border-radius: 0 3px 3px 0;">−</span>
+                    </div>
+                `;
+                const subtitle = isEsp ? 'Electrostatic Surface mapped with atomic charges' : 'Tracking electron pair across pathway...';
                 cardsHtml += `
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.65rem; background: ${isChecked ? 'rgba(30,41,59,0.7)' : 'rgba(15,23,42,0.4)'}; border: 1px solid ${isChecked ? trk.color + '66' : 'rgba(255,255,255,0.06)'}; border-radius: 6px; transition: border-color 0.15s ease;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.65rem; background: ${isChecked ? (isEsp ? 'rgba(56,189,248,0.12)' : 'rgba(30,41,59,0.7)') : 'rgba(15,23,42,0.4)'}; border: 1px solid ${isChecked ? (isEsp ? '#38bdf8' : trk.color + '66') : 'rgba(255,255,255,0.06)'}; border-radius: 6px; transition: border-color 0.15s ease;">
                         <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0;">
                             <input type="checkbox" class="track-vis-checkbox" data-id="${trk.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; accent-color: ${trk.color}; margin: 0;">
-                            <div style="display: flex; align-items: center; gap: 2px; font-size: 0.65rem; font-weight: 700; flex-shrink: 0;" title="Positive (+) / Negative (-) phase lobes">
-                                <span style="background: ${pc.pos}; color: #fff; padding: 1px 4px; border-radius: 3px 0 0 3px;">+</span>
-                                <span style="background: ${pc.neg}; color: #fff; padding: 1px 4px; border-radius: 0 3px 3px 0;">−</span>
-                            </div>
+                            ${badgeIndicator}
                             <div style="display: flex; flex-direction: column; min-width: 0; flex: 1;">
                                 <div style="display: flex; align-items: center; gap: 0.35rem;">
                                     <span style="font-weight: 700; font-size: 0.82rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${trk.title}</span>
                                     <span style="font-size: 0.7rem; color: #94a3b8; font-family: monospace;">(${trk.orbital_key})</span>
                                 </div>
                                 <div id="pop-readout-${trk.orbital_key}" style="font-size: 0.72rem; color: ${trk.color}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                    Tracking electron pair across pathway...
+                                    ${subtitle}
                                 </div>
                             </div>
                         </div>

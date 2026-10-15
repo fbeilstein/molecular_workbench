@@ -38,6 +38,7 @@ export const BundleViewerUI = {
         const timeline = uiSchema.orbital_timeline || megajson.orbital_timeline || { tracks: [] };
         this.state.tracks = timeline.tracks || [];
         this.state.isovalue = timeline.default_isovalue || 0.03;
+        this.state.showCharges = this.state.tracks.some(t => t.orbital_key === 'track_esp_charge');
 
         const initialActive = new Set();
         this.state.tracks.forEach(trk => {
@@ -144,7 +145,19 @@ export const BundleViewerUI = {
 
         let html = '';
         this.state.tracks.forEach(trk => {
-            if (trk.orbital_key === 'track_esp_charge') return;
+            if (trk.orbital_key === 'track_esp_charge') {
+                const isChecked = this.state.showCharges;
+                html += `
+                    <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0.5rem; background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.25); border-radius: 4px; font-size: 0.75rem; cursor: pointer;">
+                        <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden;">
+                            <input type="checkbox" class="chk-track-esp" ${isChecked ? 'checked' : ''}>
+                            <span style="color: #38bdf8; font-weight: 700;">⚡</span>
+                            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #38bdf8; font-weight: 600;" title="${trk.title}">${trk.title}</span>
+                        </div>
+                    </label>
+                `;
+                return;
+            }
             const isChecked = this.state.activeOrbitals.has(trk.orbital_key);
             html += `
                 <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0.5rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; font-size: 0.75rem; cursor: pointer;">
@@ -157,6 +170,15 @@ export const BundleViewerUI = {
             `;
         });
         listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.chk-track-esp').forEach(chk => {
+            chk.addEventListener('change', () => {
+                this.state.showCharges = chk.checked;
+                const bottomChk = container.querySelector('#chk-bundle-esp');
+                if (bottomChk) bottomChk.checked = chk.checked;
+                this.refreshViewer();
+            });
+        });
 
         listEl.querySelectorAll('.chk-track-orb').forEach(chk => {
             chk.addEventListener('change', () => {
@@ -171,6 +193,8 @@ export const BundleViewerUI = {
     bindEvents(container) {
         container.querySelector('#chk-bundle-esp').addEventListener('change', (e) => {
             this.state.showCharges = e.target.checked;
+            const topChk = container.querySelector('.chk-track-esp');
+            if (topChk) topChk.checked = e.target.checked;
             this.refreshViewer();
         });
         container.querySelector('#chk-bundle-mute').addEventListener('change', (e) => {

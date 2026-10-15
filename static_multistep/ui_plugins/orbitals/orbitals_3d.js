@@ -95,9 +95,11 @@ export class Orbitals3DViewer {
             const atoms = this.viewer.selectedAtoms({});
             for (let i = 0; i < atoms.length && i < charges.length; i++) {
                 atoms[i].partialCharge = charges[i] || 0.0;
+                atoms[i].properties = atoms[i].properties || {};
+                atoms[i].properties.partialCharge = charges[i] || 0.0;
             }
             this.viewer.addSurface($3Dmol.SurfaceType.VDW, {
-                opacity: 0.72,
+                opacity: 0.65,
                 colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
             });
             for (let i = 0; i < n; i++) {
@@ -145,11 +147,21 @@ export class Orbitals3DViewer {
             const atoms = this.viewer.selectedAtoms({});
             for (let i = 0; i < atoms.length && i < charges.length; i++) {
                 atoms[i].partialCharge = charges[i] || 0.0;
+                atoms[i].properties = atoms[i].properties || {};
+                atoms[i].properties.partialCharge = charges[i] || 0.0;
             }
             this.viewer.addSurface($3Dmol.SurfaceType.VDW, {
-                opacity: 0.72,
+                opacity: 0.65,
                 colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
             });
+            for (let i = 0; i < n; i++) {
+                const q = charges[i];
+                const [x, y, z] = coords[i];
+                this.viewer.addLabel(`${symbols[i]}: ${q > 0 ? '+' : ''}${q.toFixed(2)}`, {
+                    position: { x, y: y + 0.35, z },
+                    fontSize: 10, fontColor: '#ffffff', backgroundColor: 'rgba(15, 23, 42, 0.75)', backgroundOpacity: 0.75
+                });
+            }
         }
 
         if (activeOrbitals && activeOrbitals.length > 0) {
@@ -188,6 +200,25 @@ export class Orbitals3DViewer {
         if (!this.viewer) return;
         const currentSeq = ++this.renderSeq;
 
+        const missing = [];
+        if (!hideAllOrbitals && activeOrbitals && activeOrbitals.length > 0 && fetchCubeFn) {
+            for (const orb of activeOrbitals) {
+                const orbKey = orb.orbital_key || orb.key || orb;
+                const cacheKey = `${frameIdx}_${orbKey}`;
+                if (!this.cubeCache[cacheKey]) {
+                    missing.push(fetchCubeFn(frameIdx, orbKey, orb.chem_key || null, isovalue).then(res => {
+                        if (res && res.success && res.cube) this.cubeCache[cacheKey] = res.cube;
+                    }).catch(() => {}));
+                }
+            }
+        }
+
+        if (missing.length > 0) {
+            this.setStatus(`Frame ${frameIdx} | Loading Orbitals...`);
+            await Promise.all(missing);
+            if (this.renderSeq !== currentSeq) return;
+        }
+
         this.renderMolecule(symbols, coords, charges, showCharges);
 
         if (!this.hasInitializedCamera || resetCamera) {
@@ -195,52 +226,27 @@ export class Orbitals3DViewer {
             this.hasInitializedCamera = true;
         }
 
-        if (hideAllOrbitals || !activeOrbitals || activeOrbitals.length === 0) {
-            this.viewer.removeAllSurfaces();
-            this.viewer.render();
-            this.setStatus(`Frame ${frameIdx} | Ready`);
-            return;
-        }
-
-        this.setStatus(`Frame ${frameIdx} | Loading Orbitals...`);
-
-        const missing = [];
-        for (const orb of activeOrbitals) {
-            const orbKey = orb.orbital_key || orb.key || orb;
-            const chemKey = orb.chem_key || null;
-            const cacheKey = `${frameIdx}_${orbKey}`;
-            if (!this.cubeCache[cacheKey] && fetchCubeFn) {
-                missing.push(fetchCubeFn(frameIdx, orbKey, chemKey, isovalue).then(res => {
-                    if (res && res.success && res.cube) this.cubeCache[cacheKey] = res.cube;
-                }).catch(() => {}));
-            }
-        }
-
-        if (missing.length > 0) {
-            await Promise.all(missing);
-            if (this.renderSeq !== currentSeq) return;
-        }
-
-        this.viewer.removeAllSurfaces();
-        for (const orb of activeOrbitals) {
-            const orbKey = orb.orbital_key || orb.key || orb;
-            const color = orb.color || '#06b6d4';
-            const cubeData = this.cubeCache[`${frameIdx}_${orbKey}`];
-            if (cubeData) {
-                const vKey = `${frameIdx}_${orbKey}`;
-                let vdo = this.vdoCache[vKey];
-                if (!vdo) {
-                    try {
-                        vdo = new $3Dmol.VolumeData(cubeData, 'cube');
-                        this.vdoCache[vKey] = vdo;
-                    } catch (err) {}
-                }
-                if (vdo) {
-                    try {
-                        const pc = getPhaseColors(color);
-                        this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.72 });
-                        this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.72 });
-                    } catch (err) {}
+        if (!hideAllOrbitals && activeOrbitals && activeOrbitals.length > 0) {
+            for (const orb of activeOrbitals) {
+                const orbKey = orb.orbital_key || orb.key || orb;
+                const color = orb.color || '#06b6d4';
+                const cubeData = this.cubeCache[`${frameIdx}_${orbKey}`];
+                if (cubeData) {
+                    const vKey = `${frameIdx}_${orbKey}`;
+                    let vdo = this.vdoCache[vKey];
+                    if (!vdo) {
+                        try {
+                            vdo = new $3Dmol.VolumeData(cubeData, 'cube');
+                            this.vdoCache[vKey] = vdo;
+                        } catch (err) {}
+                    }
+                    if (vdo) {
+                        try {
+                            const pc = getPhaseColors(color);
+                            this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.72 });
+                            this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.72 });
+                        } catch (err) {}
+                    }
                 }
             }
         }
