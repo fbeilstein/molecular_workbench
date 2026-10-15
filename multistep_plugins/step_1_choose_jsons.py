@@ -41,9 +41,14 @@ def _extract_summary(file_path: str) -> Dict[str, Any]:
 
 
 def scan_available_trajectories() -> List[Dict[str, Any]]:
-    """Scan the trajectories directory and workspace root for valid IRC JSON files."""
+    """Scan the trajectories directory, out/ directory, and workspace root for valid IRC JSON files."""
     os.makedirs(TRAJ_DIR, exist_ok=True)
     paths = glob.glob(os.path.join(TRAJ_DIR, "*.json"))
+    out_dir = os.path.join(os.path.dirname(TRAJ_DIR), "out")
+    if os.path.exists(out_dir):
+        for p in glob.glob(os.path.join(out_dir, "*.json")):
+            if not p.endswith(("_state.json", "_wiring.json")) and p not in paths:
+                paths.append(p)
     root_traj = os.path.join(os.path.dirname(TRAJ_DIR), "irc_trajectory.json")
     if os.path.exists(root_traj) and root_traj not in paths:
         paths.append(root_traj)
@@ -89,6 +94,8 @@ class Step1ChooseJSONs(PipelineStep):
             return {"error": "Filename is required"}
 
         target_path = os.path.join(TRAJ_DIR, filename)
+        if not os.path.exists(target_path):
+            target_path = os.path.join(os.path.dirname(TRAJ_DIR), "out", filename)
         if not os.path.exists(target_path):
             target_path = os.path.join(os.path.dirname(TRAJ_DIR), filename)
 
@@ -159,6 +166,8 @@ class Step1ChooseJSONs(PipelineStep):
         loaded_trajectories = []
         for fn in sequence_files:
             p = os.path.join(TRAJ_DIR, fn)
+            if not os.path.exists(p):
+                p = os.path.join(os.path.dirname(TRAJ_DIR), "out", fn)
             if not os.path.exists(p):
                 p = os.path.join(os.path.dirname(TRAJ_DIR), fn)
             if not os.path.exists(p):

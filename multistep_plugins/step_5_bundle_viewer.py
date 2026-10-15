@@ -22,19 +22,20 @@ def _get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: 
         return _SURFACE_CACHE[cache_key]
 
     # 1. Try reading precomputed surface from maxcomp bundle zip
-    bundle_zip = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static_multistep", "bundles", "multistep_reaction_bundle_maxcomp.zip")
-    if os.path.exists(bundle_zip):
-        try:
-            with zipfile.ZipFile(bundle_zip, "r") as zf:
-                p_fn = f"orbitals/{frame_idx}_{ok}_pos.json"
-                n_fn = f"orbitals/{frame_idx}_{ok}_neg.json"
-                pos = json.loads(zf.read(p_fn).decode("utf-8")) if p_fn in zf.namelist() else None
-                neg = json.loads(zf.read(n_fn).decode("utf-8")) if n_fn in zf.namelist() else None
-                if pos or neg:
-                    _SURFACE_CACHE[cache_key] = (pos, neg)
-                    return pos, neg
-        except Exception:
-            pass
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    for sub in ("out/bundles", "static_multistep/bundles"):
+        bundle_zip = os.path.join(root_dir, sub, "multistep_reaction_bundle_maxcomp.zip")
+        if os.path.exists(bundle_zip):
+            try:
+                with zipfile.ZipFile(bundle_zip, "r") as zf:
+                    p_fn, n_fn = f"orbitals/{frame_idx}_{ok}_pos.json", f"orbitals/{frame_idx}_{ok}_neg.json"
+                    pos = json.loads(zf.read(p_fn).decode("utf-8")) if p_fn in zf.namelist() else None
+                    neg = json.loads(zf.read(n_fn).decode("utf-8")) if n_fn in zf.namelist() else None
+                    if pos or neg:
+                        _SURFACE_CACHE[cache_key] = (pos, neg)
+                        return pos, neg
+            except Exception:
+                pass
 
     # 2. Try extracting from available cube
     cube_text = get_cached_highres_cube(frame_idx, ok, megajson)
@@ -63,10 +64,12 @@ def _get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: 
 
 
 def _save_state_to_file(global_state: Dict[str, Any]):
-    """Persist pipeline state to multistep_state.json."""
-    state_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "multistep_state.json")
+    """Persist pipeline state to out/multistep_state.json."""
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    out_dir = os.path.join(root_dir, "out")
+    os.makedirs(out_dir, exist_ok=True)
     try:
-        with open(state_file, "w") as f:
+        with open(os.path.join(out_dir, "multistep_state.json"), "w") as f:
             json.dump(global_state, f, indent=2)
     except Exception as e:
         print(f"[Step5] Warning: could not persist state to file: {e}")
@@ -325,7 +328,8 @@ class Step5BundleViewer(PipelineStep):
                 megajson.setdefault("esp_surfaces", {}).update(esp_surfaces)
                 _save_state_to_file(global_state)
 
-            bundle_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static_multistep", "bundles")
+            root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+            bundle_dir = os.path.join(root_dir, "out", "bundles")
             os.makedirs(bundle_dir, exist_ok=True)
             bundle_filename = "multistep_reaction_bundle_maxcomp.zip"
             bundle_path = os.path.join(bundle_dir, bundle_filename)
@@ -337,7 +341,7 @@ class Step5BundleViewer(PipelineStep):
             ratio = (1.0 - (len(zip_bytes) / max(1, uncompressed_bytes))) * 100.0
             return {
                 "success": True,
-                "download_url": f"/static_multistep/bundles/{bundle_filename}",
+                "download_url": f"/out/bundles/{bundle_filename}",
                 "filename": bundle_filename,
                 "size_bytes": len(zip_bytes),
                 "uncompressed_bytes": uncompressed_bytes,

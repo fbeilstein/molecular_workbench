@@ -10,8 +10,12 @@ from .ts_builder import (
     run_irc_path
 )
 
-LOG_PATH = 'optimization.log'
-TRAJECTORY_FILE = 'irc_trajectory.json'
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+OUT_DIR = os.path.join(ROOT_DIR, 'out')
+os.makedirs(OUT_DIR, exist_ok=True)
+LOG_PATH = os.path.join(OUT_DIR, 'optimization.log')
+TRAJECTORY_FILE = os.path.join(OUT_DIR, 'irc_trajectory.json')
+LEGACY_TRAJECTORY_FILE = os.path.join(ROOT_DIR, 'irc_trajectory.json')
 
 
 class Step4IRC(PipelineStep):
@@ -25,12 +29,15 @@ class Step4IRC(PipelineStep):
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
         existing_traj = current_state.get("step_4_irc", {}).get("trajectory")
-        if not existing_traj and os.path.exists(TRAJECTORY_FILE):
-            try:
-                with open(TRAJECTORY_FILE, 'r') as f:
-                    existing_traj = json.load(f)
-            except Exception:
-                pass
+        if not existing_traj:
+            for tf in (TRAJECTORY_FILE, LEGACY_TRAJECTORY_FILE):
+                if os.path.exists(tf):
+                    try:
+                        with open(tf, 'r') as f:
+                            existing_traj = json.load(f)
+                            break
+                    except Exception:
+                        pass
 
         ts_step = current_state.get("step_3_ts")
         ts_molblocks = ts_step.get("docked_reactants", []) if ts_step else []

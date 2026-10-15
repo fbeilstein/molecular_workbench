@@ -6,29 +6,35 @@ import urllib.parse
 from irc_plugins import get_plugins
 
 PORT = 8082
-STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reaction_state.json')
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUT_DIR = os.path.join(ROOT_DIR, 'out')
+os.makedirs(OUT_DIR, exist_ok=True)
+STATE_FILE = os.path.join(OUT_DIR, 'reaction_state.json')
+LEGACY_STATE_FILE = os.path.join(ROOT_DIR, 'reaction_state.json')
 pipeline_state = {}
 
 
 def load_saved_state():
     global pipeline_state
-    if os.path.exists(STATE_FILE):
+    sf = STATE_FILE if os.path.exists(STATE_FILE) else (LEGACY_STATE_FILE if os.path.exists(LEGACY_STATE_FILE) else None)
+    if sf and os.path.exists(sf):
         try:
-            with open(STATE_FILE, 'r') as f:
+            with open(sf, 'r') as f:
                 data = json.load(f)
                 pipeline_state.clear()
                 pipeline_state.update(data)
-                print(f"Loaded persistent reaction state: {list(pipeline_state.keys())}")
+                print(f"Loaded persistent reaction state from {sf}: {list(pipeline_state.keys())}")
         except Exception as e:
             print(f"Failed to load state: {e}")
 
 
 def save_current_state():
     try:
+        os.makedirs(OUT_DIR, exist_ok=True)
         with open(STATE_FILE, 'w') as f:
             json.dump(pipeline_state, f, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Failed to save state: {e}")
 
 
 load_saved_state()
@@ -65,8 +71,11 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
     # GET Handlers
     # -----------------------------------------------------------------------
     def _handle_get_log(self):
+        log_path = os.path.join(OUT_DIR, 'optimization.log')
+        if not os.path.exists(log_path):
+            log_path = os.path.join(ROOT_DIR, 'optimization.log')
         try:
-            with open('optimization.log', 'r') as f:
+            with open(log_path, 'r') as f:
                 content = f.read()
             self._send_text(content)
         except FileNotFoundError:
@@ -92,7 +101,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
             self.path = '/templates_irc/index.html'
             return super().do_GET()
 
-        if path.startswith('/static_irc/'):
+        if path.startswith('/static_irc/') or path.startswith('/out/'):
             return super().do_GET()
 
         if path.startswith('/ketcher/'):

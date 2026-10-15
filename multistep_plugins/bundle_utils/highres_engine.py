@@ -5,7 +5,8 @@ from ..step_4_orbitals import Step4Orbitals, _resolve_orbital_key
 
 _HIGHRES_GRID_CACHE: Dict[int, Any] = {}
 _HIGHRES_CUBE_CACHE: Dict[str, str] = {}
-CUBE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "trajectories", "cubes"))
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+CUBE_DIR = os.path.join(ROOT_DIR, "out", "cubes")
 os.makedirs(CUBE_DIR, exist_ok=True)
 
 

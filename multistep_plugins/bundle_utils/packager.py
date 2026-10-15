@@ -17,14 +17,16 @@ from cube_converter import CubeConverter
 def purge_cube_files() -> int:
     """Purge temporary .cube files from CUBE_DIR and memory caches to save space."""
     count = 0
-    if os.path.exists(CUBE_DIR):
-        for f in os.listdir(CUBE_DIR):
-            if f.endswith(".cube"):
-                try:
-                    os.remove(os.path.join(CUBE_DIR, f))
-                    count += 1
-                except OSError:
-                    pass
+    legacy_d = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "trajectories", "cubes"))
+    for d in (CUBE_DIR, legacy_d):
+        if os.path.exists(d):
+            for f in os.listdir(d):
+                if f.endswith(".cube"):
+                    try:
+                        os.remove(os.path.join(d, f))
+                        count += 1
+                    except OSError:
+                        pass
     _HIGHRES_CUBE_CACHE.clear()
     try:
         from ..step_4_orbitals import _CUBE_CACHE
@@ -154,8 +156,10 @@ def unpack_molecule_bundle(data_b64: str) -> MoleculeBundleResult:
 def _convert_and_pack_orbitals(megajson: Dict[str, Any], zf: zipfile.ZipFile, isovalue: float = 0.035) -> Tuple[List[str], int]:
     """Calculate lightweight 3D surface meshes from cubes, pack them into zip, and never pack .cube files."""
     sources: Dict[str, Any] = {}
-    if os.path.exists(CUBE_DIR):
-        sources.update({f[:-5]: os.path.join(CUBE_DIR, f) for f in os.listdir(CUBE_DIR) if f.endswith(".cube")})
+    legacy_d = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "trajectories", "cubes"))
+    for d in (CUBE_DIR, legacy_d):
+        if os.path.exists(d):
+            sources.update({f[:-5]: os.path.join(d, f) for f in os.listdir(d) if f.endswith(".cube")})
 
     for k, text in _HIGHRES_CUBE_CACHE.items():
         if "_" in k and not k.startswith("res"):

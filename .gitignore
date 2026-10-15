@@ -11,6 +11,7 @@ venv.bak/
 
 # Project output / data
 output/
+out/
 data/
 
 # IDE
@@ -23,6 +24,7 @@ data/
 # Local configuration & state
 .env
 reaction_state.json
+multistep_state.json
 irc_trajectory.json
 *_trajectory.json
 *.rxnbundle

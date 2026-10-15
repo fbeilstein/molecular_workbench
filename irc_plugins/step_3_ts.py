@@ -1,9 +1,12 @@
+import os
 from typing import Any, Dict
 from .base import PipelineStep, StepResult
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-LOG_PATH = 'optimization.log'
+OUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'out'))
+os.makedirs(OUT_DIR, exist_ok=True)
+LOG_PATH = os.path.join(OUT_DIR, 'optimization.log')
 
 
 def _evaluate_frequency_mode(atoms, model, log):

@@ -6,25 +6,31 @@ import urllib.parse
 from multistep_plugins import get_all_steps, get_step_by_id
 
 PORT = 8083
-STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'multistep_state.json')
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUT_DIR = os.path.join(ROOT_DIR, 'out')
+os.makedirs(OUT_DIR, exist_ok=True)
+STATE_FILE = os.path.join(OUT_DIR, 'multistep_state.json')
+LEGACY_STATE_FILE = os.path.join(ROOT_DIR, 'multistep_state.json')
 pipeline_state = {}
 
 
 def load_saved_state():
     global pipeline_state
-    if os.path.exists(STATE_FILE):
+    sf = STATE_FILE if os.path.exists(STATE_FILE) else (LEGACY_STATE_FILE if os.path.exists(LEGACY_STATE_FILE) else None)
+    if sf and os.path.exists(sf):
         try:
-            with open(STATE_FILE, 'r') as f:
+            with open(sf, 'r') as f:
                 data = json.load(f)
                 pipeline_state.clear()
                 pipeline_state.update(data)
-                print(f"[Multistep] Loaded persistent state: {list(pipeline_state.keys())}")
+                print(f"[Multistep] Loaded persistent state from {sf}: {list(pipeline_state.keys())}")
         except Exception as e:
             print(f"[Multistep] Failed to load state: {e}")
 
 
 def save_current_state():
     try:
+        os.makedirs(OUT_DIR, exist_ok=True)
         with open(STATE_FILE, 'w') as f:
             json.dump(pipeline_state, f, indent=2)
     except Exception as e:
@@ -58,7 +64,7 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/':
             self.path = '/templates_multistep/index.html'
             return super().do_HEAD()
-        if path.startswith('/static_multistep/') or path.startswith('/trajectories/'):
+        if path.startswith('/static_multistep/') or path.startswith('/trajectories/') or path.startswith('/out/'):
             return super().do_HEAD()
         if path in ('/api/plugins', '/api/state'):
             self.send_response(200)
@@ -106,7 +112,7 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
             self.path = '/templates_multistep/index.html'
             return super().do_GET()
 
-        if path.startswith('/static_multistep/') or path.startswith('/trajectories/'):
+        if path.startswith('/static_multistep/') or path.startswith('/trajectories/') or path.startswith('/out/'):
             return super().do_GET()
 
         if path == '/api/plugins':
