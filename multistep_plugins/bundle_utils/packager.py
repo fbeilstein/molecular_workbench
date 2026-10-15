@@ -5,7 +5,7 @@ import os
 import zipfile
 from typing import Any, Dict, List, Tuple
 from .standalone_template import generate_standalone_html
-from .highres_engine import _HIGHRES_CUBE_CACHE
+from .highres_engine import _HIGHRES_CUBE_CACHE, CUBE_DIR
 
 
 def generate_xyz(megajson: Dict[str, Any]) -> str:
@@ -108,7 +108,20 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
 
         # Store all high-resolution cubes
         highres_cubes = megajson.get("highres_cubes", {})
-        for key, cube_text in highres_cubes.items():
+        for key, val in highres_cubes.items():
+            cube_text = None
+            if key in _HIGHRES_CUBE_CACHE:
+                cube_text = _HIGHRES_CUBE_CACHE[key]
+            elif isinstance(val, str) and "\n" in val:
+                cube_text = val
+            else:
+                cube_file = os.path.join(CUBE_DIR, f"{key}.cube")
+                if os.path.exists(cube_file):
+                    try:
+                        with open(cube_file, "r", encoding="utf-8") as f:
+                            cube_text = f.read()
+                    except Exception:
+                        pass
             if cube_text:
                 fn = f"orbitals/{key}.cube"
                 zf.writestr(fn, cube_text)

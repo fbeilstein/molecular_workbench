@@ -55,6 +55,7 @@ class Step5BundleViewer(PipelineStep):
                 "message": "No stitched pathway found. Complete earlier steps first."
             }
 
+
         frames = megajson.get("frames", [])
         timeline = megajson.get("orbital_timeline") or current_state.get("step_4_orbitals", {}).get("orbital_timeline", {})
         highres_cubes = megajson.get("highres_cubes", {})
@@ -68,10 +69,17 @@ class Step5BundleViewer(PipelineStep):
             for m_id, data in molecule_bundles.items()
         }
 
+        ui_megajson = dict(megajson)
+        if "highres_cubes" in ui_megajson:
+            ui_megajson["highres_cubes"] = {
+                k: (v if (isinstance(v, str) and "\n" not in v) else True)
+                for k, v in ui_megajson["highres_cubes"].items()
+            }
+
         return {
             "type": "bundle_viewer_ui",
             "has_megajson": True,
-            "megajson": megajson,
+            "megajson": ui_megajson,
             "total_frames": len(frames),
             "step_boundaries": megajson.get("step_boundaries", []),
             "overall_barrier_kcal": megajson.get("overall_barrier_kcal", 0.0),
@@ -135,12 +143,22 @@ class Step5BundleViewer(PipelineStep):
         if action == "save_mechanism_svg":
             svg_text = user_input.get("svg_text", "")
             megajson["mechanism_svg"] = svg_text
+            for s_key in ("step_5_bundle_viewer", "step_4_orbitals", "step_3_energy_stitch"):
+                if s_key in global_state and isinstance(global_state[s_key], dict):
+                    s_mj = global_state[s_key].get("megajson")
+                    if isinstance(s_mj, dict):
+                        s_mj["mechanism_svg"] = svg_text
             _save_state_to_file(global_state)
             return {"success": True, "svg_length": len(svg_text)}
 
         if action == "save_svg_wiring":
             wiring = user_input.get("wiring", {})
             megajson["svg_wiring"] = wiring
+            for s_key in ("step_5_bundle_viewer", "step_4_orbitals", "step_3_energy_stitch"):
+                if s_key in global_state and isinstance(global_state[s_key], dict):
+                    s_mj = global_state[s_key].get("megajson")
+                    if isinstance(s_mj, dict):
+                        s_mj["svg_wiring"] = wiring
             _save_state_to_file(global_state)
             return {"success": True, "wired_count": len(wiring)}
 

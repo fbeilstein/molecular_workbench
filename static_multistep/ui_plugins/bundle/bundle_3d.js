@@ -13,6 +13,7 @@ export class Bundle3DViewer {
         this.cubeCache = {};
         this.hasInitializedCamera = false;
         this.moleculeScale = 1.0;
+        this.init();
     }
 
     init() {

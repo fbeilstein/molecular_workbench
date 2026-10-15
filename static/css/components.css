@@ -1,0 +1,351 @@
+
+.map-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid rgba(42, 42, 69, 0.5);
+}
+
+.map-table tr:hover td {
+    background: var(--bg-hover);
+}
+
+.map-cell-r strong {
+    color: #00d68f;
+}
+
+.map-cell-p strong {
+    color: #6c8cff;
+}
+
+.map-cell-arrow {
+    color: var(--accent);
+    font-weight: 700;
+    text-align: center;
+    width: 30px;
+}
+
+.map-frag-tag {
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-dim);
+    margin-left: 4px;
+    font-weight: 500;
+}
+
+.map-select {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.map-select:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.map-section-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.viewer-panel {
+    flex: 1.2;
+    min-width: 350px;
+    border-right: none;
+    flex-direction: row;
+}
+
+.viz-sidebar {
+    display: flex;
+    flex-direction: column;
+    width: 220px;
+    min-width: 180px;
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+}
+
+.viz-sidebar-header {
+    padding: 8px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-hover);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.viz-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--bg-hover);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    min-height: 40px;
+    flex-shrink: 0;
+}
+
+.viz-controls label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+}
+
+.viz-controls select {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 11px;
+}
+
+#orbital-toggles {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    gap: 0;
+    overflow-y: auto;
+    max-height: 100%;
+}
+
+/* ── Orbital Tree ──────────────────────────────────────────────── */
+
+.orb-tree {
+    width: 100%;
+    font-size: 12px;
+}
+
+.orb-section {
+    border-bottom: 1px solid var(--border);
+}
+
+.orb-section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--text);
+    transition: background 0.1s;
+}
+
+.orb-section-header:hover {
+    background: var(--bg-hover);
+}
+
+.orb-chevron {
+    font-size: 10px;
+    width: 12px;
+    text-align: center;
+    color: var(--text-dim);
+}
+
+.orb-section-label {
+    flex: 1;
+}
+
+.orb-all-btn {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg-panel);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.orb-all-btn:hover {
+    background: var(--accent-glow);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.orb-children {
+    padding: 0 0 4px 0;
+    transition: max-height 0.2s ease;
+}
+
+.orb-section.collapsed .orb-children {
+    display: none;
+}
+
+.orb-leaf {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px 3px 28px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text-dim);
+    transition: all 0.1s;
+    font-family: 'SF Mono', Monaco, 'Consolas', monospace;
+}
+
+.orb-leaf:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+}
+
+.orb-leaf.active {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.orb-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    opacity: 0.4;
+    transition: opacity 0.15s;
+}
+
+.orb-leaf.active .orb-dot {
+    opacity: 1;
+    box-shadow: 0 0 6px currentColor;
+}
+
+.orb-leaf-label {
+    flex: 1;
+}
+
+.map-section-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-bottom: 4px;
+}
+
+.viewer-info {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: var(--text-dim);
+    background: rgba(15, 15, 26, 0.8);
+    padding: 6px 14px;
+    border-radius: 20px;
+    pointer-events: none;
+}
+
+/* ── Log Drawer ───────────────────────────────────────────────────── */
+
+.log-drawer {
+    position: fixed;
+    bottom: 24px;
+    left: 0;
+    right: 0;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    transition: height 0.3s ease;
+    height: 32px;
+    overflow: hidden;
+    z-index: 50;
+}
+
+.log-drawer.open {
+    height: var(--log-height, 300px);
+}
+
+.log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--bg-hover);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+}
+
+.log-header:hover {
+    background: var(--border);
+}
+
+.log-toggle {
+    transition: transform 0.3s;
+}
+
+.log-drawer.open .log-toggle {
+    transform: rotate(180deg);
+}
+
+.log-content {
+    padding: 8px 16px;
+    font-family: 'SF Mono', Monaco, 'Consolas', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--green);
+    overflow-y: auto;
+    height: calc(100% - 32px);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* ── Status Bar ───────────────────────────────────────────────────── */
+
+.status-bar {
+    height: 24px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.resizer {
+    width: 6px;
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    cursor: col-resize;
+    z-index: 10;
+    flex-shrink: 0;
+    transition: background 0.2s;
+}
+
+.resizer:hover, .resizer:active {
+    background: var(--accent);
+}
+
+.log-resizer {
+    height: 4px;
+    background: transparent;
+    cursor: row-resize;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 60;
+}
+.log-drawer.open .log-resizer:hover, .log-drawer.open .log-resizer:active {
+    background: var(--accent);
+}
+.log-drawer.dragging {
+    transition: none !important;
+}

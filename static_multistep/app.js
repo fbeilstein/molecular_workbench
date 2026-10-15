@@ -2,16 +2,14 @@ import { ChooseJSONsUI } from './ui_plugins/choose_jsons_ui.js';
 import { StitchAlignUI } from './ui_plugins/stitch_align_ui.js';
 import { EnergyStitchUI } from './ui_plugins/energy_stitch_ui.js';
 import { OrbitalsUI } from './ui_plugins/orbitals_ui.js';
-import { BundleViewerUI } from './ui_plugins/bundle_viewer_ui.js';
-import { MegaViewerUI } from './ui_plugins/mega_viewer_ui.js';
+import { BundleViewerUI } from './ui_plugins/bundle_viewer_ui.js?v=2.0.1';
 
 const UIRegistry = {
     'choose_jsons_ui': ChooseJSONsUI,
     'stitch_align_ui': StitchAlignUI,
     'energy_stitch_ui': EnergyStitchUI,
     'orbitals_ui': OrbitalsUI,
-    'bundle_viewer_ui': BundleViewerUI,
-    'mega_viewer_ui': MegaViewerUI
+    'bundle_viewer_ui': BundleViewerUI
 };
 
 async function executeStepRun(stepId, userInput) {

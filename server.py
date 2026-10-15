@@ -17,14 +17,9 @@ Launch:
 import http.server
 import json
 import os
-import signal
-import subprocess
 import sys
 import threading
 import urllib.parse
-import zipfile
-
-# ── Path setup ───────────────────────────────────────────────────────────────
 
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = PACKAGE_DIR
@@ -36,10 +31,19 @@ VENV_PYTHON = os.path.join(PROJECT_DIR, '.venv', 'bin', 'python')
 if not os.path.exists(VENV_PYTHON):
     VENV_PYTHON = sys.executable
 
+if TOOLS_DIR not in sys.path:
+    sys.path.insert(0, TOOLS_DIR)
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+from server_bundle import (
+    load_cube_converter,
+    package_custom_bundle,
+    purge_cube_dir,
+    read_bundle_entry
+)
+from server_jobs import execute_script_job, kill_job
 
-# ── Ketcher download ────────────────────────────────────────────────────────
 
 def _ensure_ketcher():
     """Download Ketcher standalone if not present."""
@@ -48,7 +52,10 @@ def _ensure_ketcher():
     print("Downloading Ketcher editor...")
     os.makedirs(KETCHER_DIR, exist_ok=True)
     url = "https://github.com/nicedouble/KetcherFinder/releases/download/v1.0/ketcher-standalone-2.27.0.tgz"
-    import tarfile, urllib.request, io, shutil
+    import io
+    import shutil
+    import tarfile
+    import urllib.request
     try:
         resp = urllib.request.urlopen(url, timeout=60)
         data = resp.read()
@@ -64,8 +71,6 @@ def _ensure_ketcher():
         print(f"Warning: Could not download Ketcher: {e}")
 
 
-# ── MIME types ───────────────────────────────────────────────────────────────
-
 MIME = {
     '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
     '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -79,118 +84,6 @@ def _mime(path):
     ext = os.path.splitext(path)[1].lower()
     return MIME.get(ext, 'application/octet-stream')
 
-
-# ── Utility Helpers ──────────────────────────────────────────────────────────
-
-def _try_remesh(item, name, isovalue, converter, remeshed_meshes):
-    if not (isovalue and converter):
-        return None
-    if not (item.filename.endswith('_pos.json') or item.filename.endswith('_neg.json')):
-        return None
-    if item.filename.endswith('esp_pos.json') or item.filename.endswith('esp_neg.json'):
-        return None
-
-    base_name = os.path.basename(item.filename).replace('_pos.json', '').replace('_neg.json', '')
-    raw_cube = os.path.join(OUTPUT_DIR, name, 'orbitals_raw', f'{base_name}.cube')
-    if not os.path.exists(raw_cube):
-        raw_cube = os.path.join(OUTPUT_DIR, name, 'mep_orbitals', f'{base_name}.cube')
-    if not os.path.exists(raw_cube):
-        return None
-
-    sign = 1 if item.filename.endswith('_pos.json') else -1
-    cache_key = (raw_cube, sign * float(isovalue))
-
-    if cache_key not in remeshed_meshes:
-        try:
-            vol, origin, step = converter.read_cube(raw_cube)
-            remeshed_meshes[cache_key] = converter.extract_mesh(vol, origin, step, cache_key[1])
-        except Exception as e:
-            remeshed_meshes[cache_key] = None
-            print(f"Error remeshing {raw_cube}: {e}")
-
-    return remeshed_meshes.get(cache_key)
-
-
-def _kill_job(job):
-    if not hasattr(job, 'pid'):
-        return
-    try:
-        os.killpg(os.getpgid(job.pid), signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-
-def _is_bundle_metadata(filename):
-    if filename == 'manifest.json' or filename.endswith('.xyz'):
-        return True
-    return filename.endswith('.json') and not filename.endswith('_pos.json') and not filename.endswith('_neg.json')
-
-
-def _purge_cube_dir(dir_path):
-    if not os.path.exists(dir_path):
-        return 0
-    count = 0
-    for f in os.listdir(dir_path):
-        if not f.endswith('.cube'):
-            continue
-        try:
-            os.remove(os.path.join(dir_path, f))
-            count += 1
-        except OSError:
-            pass
-    return count
-
-
-def _load_cube_converter():
-    sys.path.insert(0, TOOLS_DIR)
-    try:
-        from cube_converter import CubeConverter
-        return CubeConverter
-    except ImportError:
-        return None
-
-
-def _execute_script_job(log_path, script_path, active_jobs, name):
-    with open(log_path, 'w') as lf:
-        p = subprocess.Popen(["bash", script_path], stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
-        active_jobs[name] = p
-        p.wait()
-        active_jobs.pop(name, None)
-
-
-def _package_custom_bundle(zip_path, custom_zip_path, keep_files, isovalue, name):
-    converter = _load_cube_converter() if isovalue else None
-    remeshed_meshes = {}
-    seen_files = set()
-
-    with zipfile.ZipFile(zip_path, 'r') as zin, zipfile.ZipFile(custom_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
-        for item in zin.infolist():
-            if item.filename in seen_files:
-                continue
-            seen_files.add(item.filename)
-
-            keep_item = _is_bundle_metadata(item.filename) or item.filename in keep_files
-            if not keep_item:
-                continue
-
-            mesh = _try_remesh(item, name, isovalue, converter, remeshed_meshes)
-            if mesh:
-                zout.writestr(item, json.dumps(mesh))
-            else:
-                zout.writestr(item, zin.read(item.filename))
-
-
-def _read_bundle_entry(zip_path, inner_path):
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as z:
-            return z.read(inner_path), None
-    except KeyError:
-        if inner_path.endswith('_pos.json') or inner_path.endswith('_neg.json'):
-            return b'{"vertices": [], "faces": []}', None
-        return None, f'File not found in bundle: {inner_path}'
-
-
-# ── Request handler ──────────────────────────────────────────────────────────
 
 class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
 
@@ -233,10 +126,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             return handler(body)
         self.send_error(404)
 
-    # ── API: Compute Script ───────────────────────────────────────────
-
     def _api_compute_script(self, body):
-        sys.path.insert(0, TOOLS_DIR)
         from script_builder import build_compute_script
 
         script_path, name, job_dir = build_compute_script(body, OUTPUT_DIR, VENV_PYTHON, TOOLS_DIR)
@@ -247,12 +137,11 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         self.server.active_jobs[name] = "starting"
 
         t = threading.Thread(
-            target=_execute_script_job,
+            target=execute_script_job,
             args=(log_path, script_path, self.server.active_jobs, name),
             daemon=True
         )
         t.start()
-
         self._json_response({'status': 'started', 'name': name})
 
     def _api_job_status(self, qs):
@@ -280,7 +169,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         if name not in jobs:
             return self._json_response({'status': 'not_running'})
 
-        _kill_job(jobs[name])
+        kill_job(jobs[name])
         jobs.pop(name, None)
         self._json_response({'status': 'stopped'})
 
@@ -293,7 +182,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         if not os.path.exists(zip_path):
             return self.send_error(404, f'No bundle: {zip_path}')
 
-        data, err = _read_bundle_entry(zip_path, inner_path)
+        data, err = read_bundle_entry(zip_path, inner_path)
         if err:
             return self.send_error(404, err)
 
@@ -317,7 +206,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             return self.send_error(404, 'Bundle not found')
 
         custom_zip_path = os.path.join(OUTPUT_DIR, name, f'{name}_custom.rxnbundle.zip')
-        _package_custom_bundle(zip_path, custom_zip_path, set(body.get('files', [])), body.get('isovalue'), name)
+        package_custom_bundle(zip_path, custom_zip_path, set(body.get('files', [])), body.get('isovalue'), name)
         self._json_response({'download_url': f'/output/{name}/{name}_custom.rxnbundle.zip'})
 
     def _api_orbital_remesh(self, body):
@@ -335,7 +224,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             if not os.path.exists(raw_cube):
                 return self._json_response({'error': f'Cube file not found: {base_name}.cube'})
 
-        converter = _load_cube_converter()
+        converter = load_cube_converter()
         if not converter:
             return self._json_response({'error': 'CubeConverter tool unavailable'})
 
@@ -352,11 +241,9 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         if not name:
             return self.send_error(400)
 
-        count = _purge_cube_dir(os.path.join(OUTPUT_DIR, name, 'orbitals_raw'))
-        count += _purge_cube_dir(os.path.join(OUTPUT_DIR, name, 'mep_orbitals'))
+        count = purge_cube_dir(os.path.join(OUTPUT_DIR, name, 'orbitals_raw'))
+        count += purge_cube_dir(os.path.join(OUTPUT_DIR, name, 'mep_orbitals'))
         self._json_response({'status': 'ok', 'purged': count})
-
-    # ── Utility methods ───────────────────────────────────────────────
 
     def _serve_file(self, filepath):
         if not os.path.isfile(filepath):
@@ -386,10 +273,8 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def log_message(self, fmt, *args):
-        pass  # Quiet
+        pass
 
-
-# ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
     import argparse

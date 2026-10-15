@@ -3,15 +3,25 @@
  */
 
 export class BundlePesChart {
-    constructor(canvasEl, onSeek) {
+    constructor(canvasEl, optionsOrSeek) {
         this.canvas = canvasEl;
         this.ctx = canvasEl ? canvasEl.getContext('2d') : null;
-        this.onSeek = onSeek;
-        this.energies = [];
-        this.landmarks = [];
+        if (typeof optionsOrSeek === 'function') {
+            this.onSeek = optionsOrSeek;
+            this.energies = [];
+            this.landmarks = [];
+        } else {
+            const opts = optionsOrSeek || {};
+            this.onSeek = opts.onSeekFrame || opts.onSeek || null;
+            this.energies = opts.energies || [];
+            this.landmarks = opts.boundaries || opts.landmarks || [];
+        }
         this.currentFrame = 0;
         this.isDragging = false;
         this.initEvents();
+        if (this.energies.length > 0) {
+            this.draw();
+        }
     }
 
     setData(energies, landmarks) {

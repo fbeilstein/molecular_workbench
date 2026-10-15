@@ -32,18 +32,52 @@ def save_current_state():
 
 
 class MultistepHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, format, *args):
+        try:
+            super().log_message(format, *args)
+        except Exception:
+            pass
+
     def end_headers(self):
         # Prevent caching for live development
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         self.send_header('Pragma', 'no-cache')
         self.send_header('Expires', '0')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         super().end_headers()
 
-    def _send_json(self, data, status=200):
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json')
+    def do_OPTIONS(self):
+        self.send_response(204)
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+
+    def do_HEAD(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        if path == '/':
+            self.path = '/templates_multistep/index.html'
+            return super().do_HEAD()
+        if path.startswith('/static_multistep/') or path.startswith('/trajectories/'):
+            return super().do_HEAD()
+        if path in ('/api/plugins', '/api/state'):
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def _send_json(self, data, status=200):
+        try:
+            body = json.dumps(data).encode('utf-8')
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _read_json_body(self):
         content_length = int(self.headers.get('Content-Length', 0))
@@ -79,7 +113,21 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
             return self._handle_get_plugins()
 
         if path == '/api/state':
-            return self._send_json(pipeline_state)
+            clean_state = {}
+            for k, v in pipeline_state.items():
+                if isinstance(v, dict) and "megajson" in v and isinstance(v["megajson"], dict):
+                    v_copy = dict(v)
+                    mj_copy = dict(v["megajson"])
+                    if "highres_cubes" in mj_copy:
+                        mj_copy["highres_cubes"] = {
+                            ck: (cv if (isinstance(cv, str) and "\n" not in cv) else True)
+                            for ck, cv in mj_copy["highres_cubes"].items()
+                        }
+                    v_copy["megajson"] = mj_copy
+                    clean_state[k] = v_copy
+                else:
+                    clean_state[k] = v
+            return self._send_json(clean_state)
 
         self.send_response(404)
         self.end_headers()

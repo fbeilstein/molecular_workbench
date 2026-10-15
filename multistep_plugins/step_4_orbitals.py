@@ -65,14 +65,14 @@ class Step4Orbitals(PipelineStep):
         megajson = self._get_megajson(current_state)
         if not megajson or not megajson.get("frames"):
             return {"type": "orbitals_ui", "has_megajson": False, "message": "No pathway found. Complete earlier steps first."}
-        scf_0 = self._ensure_frame_computed(0, megajson)
         ep = megajson.get("energy_profile", {}).get("frame_energies_kcal", []) or [f.get("rel_energy_kcal", 0.0) for f in megajson["frames"]]
+        timeline = megajson.get("orbital_timeline") or {"default_isovalue": 0.03, "tracks": []}
         return {
             "type": "orbitals_ui", "has_megajson": True, "total_frames": len(megajson["frames"]),
             "step_boundaries": megajson.get("step_boundaries", []), "symbols": megajson.get("symbols", []),
             "trajectory": [f["coords"] for f in megajson["frames"]],
             "landmarks": [], "energy_profile": ep,
-            "timeline": megajson.get("orbital_timeline") or _build_dynamic_default_timeline(megajson, scf_0),
+            "timeline": timeline,
             "trajectory_charges": megajson.get("trajectory_charges", []),
             "default_isovalue": 0.03, "message": "Reaction Orbital Studio: dynamic QM discovery & timeline."
         }

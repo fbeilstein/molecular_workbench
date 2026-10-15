@@ -1,9 +1,12 @@
+import os
 from typing import Any, Dict, List, Optional
 from irc_plugins.ts_engine import orbital_engine
 from ..step_4_orbitals import Step4Orbitals, _resolve_orbital_key
 
 _HIGHRES_GRID_CACHE: Dict[int, Any] = {}
 _HIGHRES_CUBE_CACHE: Dict[str, str] = {}
+CUBE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "trajectories", "cubes"))
+os.makedirs(CUBE_DIR, exist_ok=True)
 
 
 def get_highres_grid(megajson: Dict[str, Any], resolution: int):
@@ -16,11 +19,28 @@ def get_highres_grid(megajson: Dict[str, Any], resolution: int):
 
 
 def get_cached_highres_cube(frame_idx: int, orb_key: str, megajson: Dict[str, Any]) -> Optional[str]:
-    """Retrieve high-res cube from memory cache or megajson if available."""
+    """Retrieve high-res cube from memory cache or disk if available."""
     cache_k = f"{frame_idx}_{orb_key}"
     if cache_k in _HIGHRES_CUBE_CACHE:
         return _HIGHRES_CUBE_CACHE[cache_k]
-    return megajson.get("highres_cubes", {}).get(cache_k)
+
+    # Check on-disk cubes
+    cube_file = os.path.join(CUBE_DIR, f"{cache_k}.cube")
+    if os.path.exists(cube_file):
+        try:
+            with open(cube_file, "r", encoding="utf-8") as f:
+                content = f.read()
+                _HIGHRES_CUBE_CACHE[cache_k] = content
+                return content
+        except Exception:
+            pass
+
+    # Fallback to string if present in legacy state
+    val = megajson.get("highres_cubes", {}).get(cache_k)
+    if isinstance(val, str) and len(val) > 200:
+        _HIGHRES_CUBE_CACHE[cache_k] = val
+        return val
+    return None
 
 
 def recompute_highres_batch(
@@ -70,7 +90,14 @@ def recompute_highres_batch(
 
                 cube_content = _HIGHRES_CUBE_CACHE[kr]
                 _HIGHRES_CUBE_CACHE[f"{fi}_{ok}"] = cube_content
-                highres_dict[f"{fi}_{ok}"] = cube_content
+                cube_filename = f"{fi}_{ok}.cube"
+                cube_disk_path = os.path.join(CUBE_DIR, cube_filename)
+                try:
+                    with open(cube_disk_path, "w", encoding="utf-8") as cf:
+                        cf.write(cube_content)
+                except Exception as ce:
+                    print(f"[HighresEngine] Warning: could not write {cube_disk_path}: {ce}")
+                highres_dict[f"{fi}_{ok}"] = f"trajectories/cubes/{cube_filename}"
                 computed_cubes[f"{fi}_{ok}"] = True
 
     pct = int(round((ef + 1) / total_frames * 100))

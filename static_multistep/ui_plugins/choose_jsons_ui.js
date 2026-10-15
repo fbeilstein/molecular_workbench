@@ -1,13 +1,12 @@
+import { Choose3DPreviewer } from './choose/choose_preview_3d.js';
+import { renderCatalogList, renderSequenceQueue } from './choose/choose_queue_dom.js';
+
 export const ChooseJSONsUI = {
     state: {
         available: [],
         sequence: [],
         activeFilename: null,
-        activeTraj: null,
-        currentFrame: 0,
-        isPlaying: false,
-        playTimer: null,
-        viewer: null,
+        player: null,
         stepId: 'step_1_choose_jsons'
     },
 
@@ -15,6 +14,7 @@ export const ChooseJSONsUI = {
         this.state.stepId = stepId;
         this.state.available = uiSchema.available_trajectories || [];
         this.state.sequence = [...(uiSchema.selected_sequence || [])];
+        this.state.player = new Choose3DPreviewer();
 
         container.innerHTML = `
             <div class="choose-container">
@@ -104,19 +104,17 @@ export const ChooseJSONsUI = {
             </div>
         `;
 
-        this.initEventListeners();
+        this.attachGlobalEvents();
         this.renderQueue();
         this.renderCatalog();
 
-        // Default preview to the first file in sequence or catalog
-        const initialToPreview = this.state.sequence[0] || (this.state.available[0] ? this.state.available[0].filename : null);
-        if (initialToPreview) {
-            this.loadAndPreview(initialToPreview);
+        if (this.state.available.length > 0) {
+            const first = this.state.sequence[0] || this.state.available[0].filename;
+            this.loadAndPreview(first);
         }
     },
 
-    initEventListeners() {
-        // Clear Queue button
+    attachGlobalEvents() {
         const clearBtn = document.getElementById('btn-clear-queue');
         if (clearBtn) {
             clearBtn.onclick = () => {
@@ -126,48 +124,43 @@ export const ChooseJSONsUI = {
             };
         }
 
-        // Upload Dropzone
-        const dropzone = document.getElementById('upload-zone');
-        const fileInput = document.getElementById('file-input-upload');
-        if (dropzone && fileInput) {
-            dropzone.onclick = () => fileInput.click();
-            fileInput.onchange = (e) => {
-                if (e.target.files && e.target.files[0]) {
-                    this.handleFileUpload(e.target.files[0]);
-                }
-            };
-            dropzone.ondragover = (e) => {
-                e.preventDefault();
-                dropzone.classList.add('dragover');
-            };
-            dropzone.ondragleave = () => dropzone.classList.remove('dragover');
-            dropzone.ondrop = (e) => {
-                e.preventDefault();
-                dropzone.classList.remove('dragover');
-                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                    this.handleFileUpload(e.dataTransfer.files[0]);
-                }
-            };
-        }
-
-        // Rescan button
         const rescanBtn = document.getElementById('btn-rescan-traj');
         if (rescanBtn) {
             rescanBtn.onclick = async () => {
-                const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action_type: 'rescan' })
-                });
-                const data = await res.json();
-                if (data.available) {
-                    this.state.available = data.available;
-                    this.renderCatalog();
+                rescanBtn.classList.add('rotating');
+                try {
+                    const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action_type: 'rescan' })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        this.state.available = data.available;
+                        this.renderCatalog();
+                    }
+                } finally {
+                    rescanBtn.classList.remove('rotating');
                 }
             };
         }
 
-        // Add to sequence button in preview header
+        const uploadZone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-input-upload');
+        if (uploadZone && fileInput) {
+            uploadZone.onclick = () => fileInput.click();
+            fileInput.onchange = (e) => {
+                if (e.target.files.length > 0) this.handleFileUpload(e.target.files[0]);
+            };
+            uploadZone.ondragover = (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); };
+            uploadZone.ondragleave = () => uploadZone.classList.remove('dragover');
+            uploadZone.ondrop = (e) => {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+                if (e.dataTransfer.files.length > 0) this.handleFileUpload(e.dataTransfer.files[0]);
+            };
+        }
+
         const addBtn = document.getElementById('btn-add-to-sequence');
         if (addBtn) {
             addBtn.onclick = () => {
@@ -175,32 +168,31 @@ export const ChooseJSONsUI = {
                     this.state.sequence.push(this.state.activeFilename);
                     this.renderQueue();
                     this.renderCatalog();
+                    addBtn.style.display = 'none';
                 }
             };
         }
 
-        // Playback Controls
+        const p = this.state.player;
         const playBtn = document.getElementById('btn-play-pause');
-        const scrubber = document.getElementById('frame-scrubber');
         const prevBtn = document.getElementById('btn-prev-frame');
         const nextBtn = document.getElementById('btn-next-frame');
         const tsBtn = document.getElementById('btn-jump-ts');
+        const scrubber = document.getElementById('frame-scrubber');
 
-        if (playBtn) playBtn.onclick = () => this.togglePlay();
-        if (prevBtn) prevBtn.onclick = () => this.stepFrame(-1);
-        if (nextBtn) nextBtn.onclick = () => this.stepFrame(1);
-        if (tsBtn) {
-            tsBtn.onclick = () => {
-                if (this.state.activeTraj) {
-                    const tsIdx = this.state.activeTraj.ts_frame_index || 0;
-                    this.setFrame(tsIdx);
-                }
-            };
-        }
+        if (playBtn) playBtn.onclick = () => p.togglePlay();
+        if (prevBtn) prevBtn.onclick = () => p.stepFrame(-1);
+        if (nextBtn) nextBtn.onclick = () => p.stepFrame(1);
+        if (tsBtn) tsBtn.onclick = () => {
+            if (p.activeTraj && p.activeTraj.ts_frame_index !== undefined) {
+                p.pause();
+                p.setFrame(p.activeTraj.ts_frame_index);
+            }
+        };
         if (scrubber) {
             scrubber.oninput = (e) => {
-                this.pause();
-                this.setFrame(parseInt(e.target.value, 10));
+                p.pause();
+                p.setFrame(parseInt(e.target.value, 10));
             };
         }
     },
@@ -208,129 +200,28 @@ export const ChooseJSONsUI = {
     renderQueue() {
         const queueList = document.getElementById('sequence-queue-list');
         const badge = document.getElementById('queue-count-badge');
-        if (badge) badge.innerText = `${this.state.sequence.length} Steps`;
-
-        if (!queueList) return;
-
-        if (this.state.sequence.length === 0) {
-            queueList.innerHTML = `<div class="empty-state" style="padding: 1.5rem; font-size: 0.8rem; color: var(--text-muted);">No trajectories selected yet. Click "+ Add" on any trajectory from the catalog below.</div>`;
-            return;
-        }
-
-        queueList.innerHTML = this.state.sequence.map((filename, idx) => {
-            const summary = this.state.available.find(a => a.filename === filename);
-            const rxnTitle = summary ? summary.reaction_smiles : filename;
-            return `
-                <div class="queue-item" data-filename="${filename}">
-                    <div style="display: flex; align-items: center; overflow: hidden; cursor: pointer;" class="queue-item-click">
-                        <span class="queue-step-badge">Step ${idx + 1}</span>
-                        <div class="queue-file-title" title="${rxnTitle}">${filename}</div>
-                    </div>
-                    <div class="queue-actions">
-                        <button class="btn-icon" data-action="up" data-idx="${idx}" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
-                        <button class="btn-icon" data-action="down" data-idx="${idx}" title="Move down" ${idx === this.state.sequence.length - 1 ? 'disabled' : ''}>▼</button>
-                        <button class="btn-icon danger" data-action="remove" data-idx="${idx}" title="Remove">✕</button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        // Attach action handlers
-        queueList.querySelectorAll('.queue-item-click').forEach(el => {
-            el.onclick = () => {
-                const fn = el.closest('.queue-item').dataset.filename;
-                this.loadAndPreview(fn);
-            };
-        });
-
-        queueList.querySelectorAll('button[data-action]').forEach(btn => {
-            btn.onclick = (e) => {
-                e.stopPropagation();
-                const action = btn.dataset.action;
-                const idx = parseInt(btn.dataset.idx, 10);
-                if (action === 'up' && idx > 0) {
-                    const temp = this.state.sequence[idx - 1];
-                    this.state.sequence[idx - 1] = this.state.sequence[idx];
-                    this.state.sequence[idx] = temp;
-                } else if (action === 'down' && idx < this.state.sequence.length - 1) {
-                    const temp = this.state.sequence[idx + 1];
-                    this.state.sequence[idx + 1] = this.state.sequence[idx];
-                    this.state.sequence[idx] = temp;
-                } else if (action === 'remove') {
-                    this.state.sequence.splice(idx, 1);
-                }
+        renderSequenceQueue(queueList, badge, this.state, {
+            onSelect: (fn) => this.loadAndPreview(fn),
+            onChanged: () => {
                 this.renderQueue();
                 this.renderCatalog();
-            };
+            }
         });
     },
 
     renderCatalog() {
         const catalogList = document.getElementById('catalog-list');
-        if (!catalogList) return;
-
-        if (this.state.available.length === 0) {
-            catalogList.innerHTML = `<div class="empty-state" style="padding: 1.5rem; font-size: 0.8rem;">No trajectories found. Upload one to get started.</div>`;
-            return;
-        }
-
-        catalogList.innerHTML = this.state.available.map(item => {
-            const isSelected = item.filename === this.state.activeFilename;
-            const inQueue = this.state.sequence.includes(item.filename);
-            const queueIdx = inQueue ? this.state.sequence.indexOf(item.filename) + 1 : null;
-
-            return `
-                <div class="catalog-item ${isSelected ? 'selected-for-preview' : ''}" data-filename="${item.filename}">
-                    <div class="catalog-header">
-                        <span class="catalog-filename">${item.filename}</span>
-                        <div style="display: flex; gap: 0.4rem; align-items: center;">
-                            ${inQueue ? `<span class="chip blue" style="font-size: 0.7rem;">Step ${queueIdx}</span>` : ''}
-                            <button class="btn btn-sm ${inQueue ? 'btn-ghost danger-hover' : 'btn-primary'} btn-toggle-queue" data-filename="${item.filename}" style="padding: 0.2rem 0.55rem; font-size: 0.725rem;">
-                                ${inQueue ? '✕ Remove' : '+ Add'}
-                            </button>
-                        </div>
-                    </div>
-                    <div style="font-size: 0.775rem; color: #e2e8f0; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                        ${item.reaction_smiles}
-                    </div>
-                    <div class="catalog-chips">
-                        <span class="chip">${item.n_atoms} atoms</span>
-                        <span class="chip">${item.total_frames} frames</span>
-                        <span class="chip amber">ΔE‡ fwd: ${item.forward_barrier_kcal.toFixed(1)} kcal/mol</span>
-                        <span class="chip emerald">ΔE rxn: ${item.reaction_energy_kcal.toFixed(1)} kcal/mol</span>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        // Clicking card previews
-        catalogList.querySelectorAll('.catalog-item').forEach(el => {
-            el.onclick = () => {
-                const fn = el.dataset.filename;
-                this.loadAndPreview(fn);
-            };
-        });
-
-        // Add/remove button handler
-        catalogList.querySelectorAll('.btn-toggle-queue').forEach(btn => {
-            btn.onclick = (e) => {
-                e.stopPropagation();
-                const fn = btn.dataset.filename;
-                const idx = this.state.sequence.indexOf(fn);
-                if (idx >= 0) {
-                    this.state.sequence.splice(idx, 1);
-                } else {
-                    this.state.sequence.push(fn);
-                }
+        renderCatalogList(catalogList, this.state, {
+            onSelect: (fn) => this.loadAndPreview(fn),
+            onChanged: () => {
                 this.renderQueue();
                 this.renderCatalog();
-            };
+            }
         });
     },
 
-
     async loadAndPreview(filename) {
-        this.pause();
+        this.state.player.pause();
         this.state.activeFilename = filename;
         this.renderCatalog();
 
@@ -355,7 +246,6 @@ export const ChooseJSONsUI = {
                 return;
             }
 
-            this.state.activeTraj = data.trajectory;
             const traj = data.trajectory;
             const frames = traj.frames || [];
             const barriers = traj.barriers || {};
@@ -375,7 +265,6 @@ export const ChooseJSONsUI = {
                 addBtn.style.display = inQueue ? 'none' : 'inline-flex';
             }
 
-            // Details
             const details = document.getElementById('preview-details');
             const rText = document.getElementById('preview-reactants-text');
             const pText = document.getElementById('preview-products-text');
@@ -385,7 +274,6 @@ export const ChooseJSONsUI = {
                 if (pText) pText.innerText = (traj.fragments.products || []).map(f => f.formula || f.smiles).join(' + ') || 'Products';
             }
 
-            // Enable playback bar
             const pbar = document.getElementById('playback-bar');
             const scrubber = document.getElementById('frame-scrubber');
             if (pbar) {
@@ -397,131 +285,13 @@ export const ChooseJSONsUI = {
                 scrubber.value = 0;
             }
 
-            this.init3DViewer();
-            this.setFrame(0, true);
+            this.state.player.init(document.getElementById('preview-viewport-3d'));
+            this.state.player.setTrajectory(traj);
 
         } catch (err) {
             if (title) title.innerText = `Error: ${err.message}`;
         }
     },
-
-    init3DViewer() {
-        const container = document.getElementById('preview-viewport-3d');
-        if (!container) return;
-
-        if (!this.state.viewer) {
-            container.innerHTML = '';
-            this.state.viewer = $3Dmol.createViewer(container, {
-                defaultcolors: $3Dmol.rasmolElementColors,
-                backgroundColor: '0x0d121c'
-            });
-        }
-    },
-
-    _buildXYZ(symbols, coords) {
-        const n = symbols.length;
-        let xyz = `${n}\nFrame\n`;
-        for (let i = 0; i < n; i++) {
-            const sym = symbols[i];
-            const [x, y, z] = coords[i];
-            xyz += `${sym} ${x.toFixed(6)} ${y.toFixed(6)} ${z.toFixed(6)}\n`;
-        }
-        return xyz;
-    },
-
-    setFrame(index, resetCamera = false) {
-        if (!this.state.activeTraj || !this.state.viewer) return;
-        const frames = this.state.activeTraj.frames || [];
-        if (index < 0 || index >= frames.length) return;
-
-        this.state.currentFrame = index;
-        const frame = frames[index];
-        const symbols = this.state.activeTraj.symbols;
-        const coords = frame.coords;
-
-        const xyz = this._buildXYZ(symbols, coords);
-        this.state.viewer.clear();
-        this.state.viewer.addModel(xyz, 'xyz');
-        this.state.viewer.setStyle({}, {
-            stick: { radius: 0.14 },
-            sphere: { scale: 0.25 }
-        });
-
-        if (resetCamera) {
-            this.state.viewer.zoomTo();
-        }
-        this.state.viewer.render();
-
-        // Update UI counters
-        const scrubber = document.getElementById('frame-scrubber');
-        const counter = document.getElementById('frame-label');
-        const badge = document.getElementById('preview-status-badge');
-
-        if (scrubber) scrubber.value = index;
-        if (counter) counter.innerText = `${index + 1} / ${frames.length}`;
-
-        if (badge) {
-            const isTS = index === this.state.activeTraj.ts_frame_index;
-            const energy = frame.energy_kcal !== undefined ? frame.energy_kcal.toFixed(2) : '0.00';
-            badge.innerText = `Frame ${index + 1} / ${frames.length} | Energy: ${energy} kcal/mol ${isTS ? ' ⭐ [TRANSITION STATE]' : ''}`;
-        }
-    },
-
-    stepFrame(delta) {
-        this.pause();
-        const frames = this.state.activeTraj ? this.state.activeTraj.frames : [];
-        if (!frames || frames.length === 0) return;
-        let target = this.state.currentFrame + delta;
-        target = Math.max(0, Math.min(frames.length - 1, target));
-        this.setFrame(target);
-    },
-
-    togglePlay() {
-        if (this.state.isPlaying) {
-            this.pause();
-        } else {
-            this.play();
-        }
-    },
-
-    play() {
-        if (!this.state.activeTraj) return;
-        const frames = this.state.activeTraj.frames || [];
-        if (frames.length === 0) return;
-
-        // If at the end, restart from the beginning
-        if (this.state.currentFrame >= frames.length - 1) {
-            this.setFrame(0);
-        }
-
-        this.state.isPlaying = true;
-        const btn = document.getElementById('btn-play-pause');
-        if (btn) btn.innerHTML = '⏸';
-
-        clearInterval(this.state.playTimer);
-        this.state.playTimer = setInterval(() => {
-            const next = this.state.currentFrame + 1;
-            if (next >= frames.length) {
-                this.pause();
-                return;
-            }
-            this.setFrame(next);
-        }, 100);
-    },
-
-    pause() {
-        this.state.isPlaying = false;
-        clearInterval(this.state.playTimer);
-        const btn = document.getElementById('btn-play-pause');
-        if (btn) {
-            btn.innerHTML = `
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-            `;
-        }
-    },
-
 
     async handleFileUpload(file) {
         try {
