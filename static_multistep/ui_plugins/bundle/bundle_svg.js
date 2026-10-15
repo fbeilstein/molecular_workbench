@@ -117,9 +117,14 @@ export class SvgMechanismManager {
                 if (cfg.role === 'arrow') {
                     el.classList.add('svg-clickable-arrow');
                     el.title = `Reaction Arrow: Play frames ${cfg.startFrame || 0} → ${cfg.endFrame || 0} (${cfg.direction || 'forward'})`;
-                } else if (cfg.role === 'state') {
+                } else if (cfg.role === 'state' || cfg.role === 'state_molecule') {
                     el.classList.add('svg-clickable-state');
-                    el.title = `State: Jump to frame ${cfg.targetFrame || 0}`;
+                    if (cfg.role === 'state_molecule' || cfg.moleculeName) {
+                        el.classList.add('svg-clickable-molecule');
+                        el.title = `${cfg.moleculeName || 'Intermediate'} (Frame ${cfg.targetFrame || 0}): Click to jump, Right-click for orbitals`;
+                    } else {
+                        el.title = `State: Jump to frame ${cfg.targetFrame || 0}`;
+                    }
                 } else if (cfg.role === 'molecule') {
                     el.classList.add('svg-clickable-molecule');
                     el.title = `${cfg.moleculeName || 'Molecule'}: Right-click for orbitals`;
@@ -151,7 +156,7 @@ export class SvgMechanismManager {
                     const ef = cfg.endFrame !== undefined ? parseInt(cfg.endFrame, 10) : 100;
                     const dir = cfg.direction || 'forward';
                     this.onPlaySegment(sf, ef, dir);
-                } else if (cfg.role === 'state') {
+                } else if (cfg.role === 'state' || cfg.role === 'state_molecule') {
                     const tf = cfg.targetFrame !== undefined ? parseInt(cfg.targetFrame, 10) : 0;
                     this.onJumpFrame(tf);
                 } else if (cfg.role === 'molecule') {
@@ -171,7 +176,7 @@ export class SvgMechanismManager {
             const lbl = target.getAttribute('inkscape:label') || target.getAttribute('label') || grpId;
             const cfg = this.wiring[grpId] || this.wiring[lbl];
 
-            if (cfg && cfg.role === 'molecule') {
+            if (cfg && (cfg.role === 'molecule' || cfg.role === 'state_molecule' || (cfg.role === 'state' && cfg.moleculeName))) {
                 e.preventDefault();
                 e.stopPropagation();
                 this.onOpenMolecule(grpId, cfg);

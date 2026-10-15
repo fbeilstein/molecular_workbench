@@ -13,6 +13,10 @@ export class Bundle3DViewer {
         this.meshCache = {};
         this.cubeCache = {};
         this.vdoCache = {};
+        this.espMeshCache = {};
+        this._espInFlight = new Set();
+        this.activeFrameIdx = 0;
+        this._isPrewarming = false;
         this.hasInitializedCamera = false;
         this.moleculeScale = 1.0;
         this.init();
@@ -22,6 +26,9 @@ export class Bundle3DViewer {
         this.meshCache = {};
         this.cubeCache = {};
         this.vdoCache = {};
+        this.espMeshCache = {};
+        this._espInFlight.clear();
+        this._isPrewarming = false;
     }
 
     init() {
@@ -80,8 +87,9 @@ export class Bundle3DViewer {
         this.statusEl.style.color = isError ? '#f87171' : '#94a3b8';
     }
 
-    renderMolecule(symbols, coords, charges = null, showCharges = false) {
+    renderMolecule(symbols, coords, charges = null, showCharges = false, showEspSurface = false, frameIdx = 0) {
         if (!this.viewer || !symbols || !coords) return;
+        this.activeFrameIdx = frameIdx;
         this.viewer.clear();
 
         const n = Math.min(symbols.length, coords.length);
@@ -98,17 +106,61 @@ export class Bundle3DViewer {
             sphere: { scale: 0.28 * this.moleculeScale }
         });
 
-        if (showCharges && charges && charges.length >= n) {
-            const atoms = this.viewer.selectedAtoms({});
-            for (let i = 0; i < atoms.length && i < charges.length; i++) {
-                atoms[i].partialCharge = charges[i] || 0.0;
-                atoms[i].properties = atoms[i].properties || {};
-                atoms[i].properties.partialCharge = charges[i] || 0.0;
+        // 1. ESP Potential Surface (cached WebGL mesh or client VDW extraction)
+        if (showEspSurface && charges && charges.length >= n) {
+            const cachedEsp = this.espMeshCache[frameIdx];
+            if (cachedEsp && cachedEsp.vertexArr && cachedEsp.faceArr) {
+                this.viewer.addCustom({
+                    vertexArr: cachedEsp.vertexArr,
+                    faceArr: cachedEsp.faceArr,
+                    color: cachedEsp.color,
+                    opacity: 0.65
+                });
+            } else if (!this._espInFlight.has(frameIdx)) {
+                this._espInFlight.add(frameIdx);
+                const atoms = this.viewer.selectedAtoms({});
+                for (let i = 0; i < atoms.length && i < charges.length; i++) {
+                    atoms[i].partialCharge = charges[i] || 0.0;
+                    atoms[i].properties = { partialCharge: charges[i] || 0.0 };
+                }
+                const p = this.viewer.addSurface($3Dmol.SurfaceType.VDW, {
+                    opacity: 0.65,
+                    colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
+                });
+                if (p && typeof p.then === 'function') {
+                    p.then(sId => {
+                        this._espInFlight.delete(frameIdx);
+                        const sObj = this.viewer.surfaces ? this.viewer.surfaces[sId] : null;
+                        const grp = sObj?.geo?.geometryGroups?.[0];
+                        if (grp && grp.vertexArray && grp.faceArray) {
+                            const vCount = grp.vertices || Math.floor(grp.vertexArray.length / 3);
+                            const verts = [];
+                            for (let vi = 0; vi < vCount; vi++) {
+                                verts.push({ x: grp.vertexArray[vi * 3], y: grp.vertexArray[vi * 3 + 1], z: grp.vertexArray[vi * 3 + 2] });
+                            }
+                            const faces = Array.from(grp.faceArray.slice(0, grp.faces * 3));
+                            const cols = [];
+                            if (grp.colorArray && grp.colorArray.length >= vCount * 3) {
+                                for (let ci = 0; ci < vCount; ci++) {
+                                    cols.push({ r: grp.colorArray[ci * 3], g: grp.colorArray[ci * 3 + 1], b: grp.colorArray[ci * 3 + 2] });
+                                }
+                            }
+                            this.espMeshCache[frameIdx] = {
+                                vertexArr: verts,
+                                faceArr: faces,
+                                color: cols.length ? cols : undefined
+                            };
+                        }
+                        if (this.activeFrameIdx !== frameIdx) {
+                            try { this.viewer.removeSurface(sId); } catch (e) {}
+                        }
+                    }).catch(() => { this._espInFlight.delete(frameIdx); });
+                }
             }
-            this.viewer.addSurface($3Dmol.SurfaceType.VDW, {
-                opacity: 0.65,
-                colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
-            });
+        }
+
+        // 2. Atom Numeric Partial Charge Labels
+        if (showCharges && charges && charges.length >= n) {
             for (let i = 0; i < n; i++) {
                 const q = charges[i];
                 const [x, y, z] = coords[i];
@@ -122,6 +174,71 @@ export class Bundle3DViewer {
             }
         }
         this.viewer.render();
+    }
+
+    async prewarmEspCache(symbols, frames, trajectoryCharges, onProgress) {
+        if (this._isPrewarming || !symbols || !frames || !frames.length) return;
+        this._isPrewarming = true;
+        try {
+            if (!this._bgDiv) {
+                this._bgDiv = document.createElement('div');
+                this._bgDiv.style.cssText = 'position:fixed;left:-9999px;width:120px;height:120px;opacity:0;pointer-events:none;';
+                document.body.appendChild(this._bgDiv);
+                this._bgViewer = $3Dmol.createViewer(this._bgDiv);
+            }
+            const bg = this._bgViewer;
+            const total = frames.length, n = symbols.length;
+
+            for (let f = 0; f < total; f++) {
+                if (!this._isPrewarming) break;
+                if (this.espMeshCache[f]) continue;
+                const coords = frames[f]?.coords || frames[f]?.positions;
+                const charges = trajectoryCharges?.[f] || frames[f]?.charges;
+                if (!coords || !charges || charges.length < n) continue;
+
+                bg.clear();
+                let mdl = `${n}\nFrame Model\n`;
+                for (let i = 0; i < n; i++) {
+                    const [x, y, z] = coords[i];
+                    mdl += `${symbols[i]} ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`;
+                }
+                bg.addModel(mdl, 'xyz');
+                const atoms = bg.selectedAtoms({});
+                for (let i = 0; i < atoms.length && i < charges.length; i++) {
+                    atoms[i].partialCharge = charges[i] || 0.0;
+                    atoms[i].properties = { partialCharge: charges[i] || 0.0 };
+                }
+                const p = bg.addSurface($3Dmol.SurfaceType.VDW, {
+                    opacity: 0.65,
+                    colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
+                });
+                if (p && typeof p.then === 'function') {
+                    const sId = await p;
+                    const grp = bg.surfaces?.[sId]?.geo?.geometryGroups?.[0];
+                    if (grp && grp.vertexArray && grp.faceArray) {
+                        const vCount = grp.vertices || Math.floor(grp.vertexArray.length / 3);
+                        const verts = [];
+                        for (let vi = 0; vi < vCount; vi++) {
+                            verts.push({ x: grp.vertexArray[vi * 3], y: grp.vertexArray[vi * 3 + 1], z: grp.vertexArray[vi * 3 + 2] });
+                        }
+                        const faces = Array.from(grp.faceArray.slice(0, grp.faces * 3));
+                        const cols = [];
+                        if (grp.colorArray && grp.colorArray.length >= vCount * 3) {
+                            for (let ci = 0; ci < vCount; ci++) {
+                                cols.push({ r: grp.colorArray[ci * 3], g: grp.colorArray[ci * 3 + 1], b: grp.colorArray[ci * 3 + 2] });
+                            }
+                        }
+                        this.espMeshCache[f] = { vertexArr: verts, faceArr: faces, color: cols.length ? cols : undefined };
+                    }
+                    try { bg.removeSurface(sId); } catch (e) {}
+                }
+                if (onProgress) onProgress(f + 1, total);
+            }
+        } catch (e) {
+            console.warn('[Bundle3DViewer] ESP prewarm error:', e);
+        } finally {
+            this._isPrewarming = false;
+        }
     }
 
     _drawOrbitalLayer(orb, frameIdx, isovalue) {
@@ -183,9 +300,9 @@ export class Bundle3DViewer {
         }
     }
 
-    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false) {
+    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false, showEspSurface = false) {
         if (!this.viewer || !symbols || !coords) return;
-        this.renderMolecule(symbols, coords, charges, showCharges);
+        this.renderMolecule(symbols, coords, charges, showCharges, showEspSurface, frameIdx);
 
         if (!this.hasInitializedCamera) {
             this.viewer.zoomTo();
@@ -202,7 +319,7 @@ export class Bundle3DViewer {
 
     async renderScene(options) {
         const {
-            symbols, coords, charges, showCharges,
+            symbols, coords, charges, showCharges, showEspSurface,
             activeOrbitals, isovalue, frameIdx,
             hideAllOrbitals, fetchCubeFn, resetCamera
         } = options;
@@ -242,7 +359,7 @@ export class Bundle3DViewer {
         }
 
         // 2. Render atoms and electrostatic surface
-        this.renderMolecule(symbols, coords, charges, showCharges);
+        this.renderMolecule(symbols, coords, charges, showCharges, showEspSurface, frameIdx);
 
         // 3. ZoomTo on first render or explicit reset
         if (!this.hasInitializedCamera || resetCamera) {

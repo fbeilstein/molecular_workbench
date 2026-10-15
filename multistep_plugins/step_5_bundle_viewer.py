@@ -263,40 +263,69 @@ class Step5BundleViewer(PipelineStep):
             data_b64 = user_input.get("data_b64", "")
 
             try:
-                orbitals_found, files_dict = unpack_molecule_bundle(data_b64)
+                b_res = unpack_molecule_bundle(data_b64)
             except Exception as e:
                 return {"success": False, "error": f"Failed to parse ZIP bundle: {e}"}
 
             bundles = megajson.setdefault("molecule_bundles", {})
-            bundles[m_id] = {
+            entry = {
                 "filename": filename,
-                "orbitals": orbitals_found,
-                "files": files_dict,
+                "molecule_id": m_id,
+                "molecule_key": b_res.get("molecule_key", m_id),
+                "orbitals": b_res.get("orbitals", []),
+                "orbitals_tree": b_res.get("orbitals_tree", []),
+                "xyz": b_res.get("xyz", ""),
+                "esp_surface": b_res.get("esp_surface"),
+                "files": b_res.get("files", {}),
                 "data_b64": data_b64
             }
+            bundles[m_id] = entry
+            if b_res.get("molecule_key") and b_res["molecule_key"] != m_id:
+                bundles[b_res["molecule_key"]] = entry
+
             _save_state_to_file(global_state)
             return {
                 "success": True,
                 "molecule_id": m_id,
-                "orbitals": orbitals_found,
-                "count": len(orbitals_found)
+                "molecule_key": b_res.get("molecule_key", m_id),
+                "orbitals": b_res.get("orbitals", []),
+                "orbitals_tree": b_res.get("orbitals_tree", []),
+                "xyz": b_res.get("xyz", ""),
+                "esp_surface": b_res.get("esp_surface"),
+                "files": b_res.get("files", {}),
+                "count": len(b_res.get("orbitals", []))
             }
 
         if action == "get_molecule_bundle":
             m_id = str(user_input.get("molecule_id", ""))
-            b = megajson.get("molecule_bundles", {}).get(m_id)
+            bundles = megajson.get("molecule_bundles", {})
+            b = bundles.get(m_id)
+            if not b:
+                for k, v in bundles.items():
+                    if k.lower() == m_id.lower() or v.get("molecule_key", "").lower() == m_id.lower():
+                        b = v
+                        break
             if not b:
                 return {"success": False, "error": f"No bundle found for molecule '{m_id}'"}
             return {
                 "success": True,
                 "molecule_id": m_id,
+                "molecule_key": b.get("molecule_key", m_id),
                 "filename": b.get("filename"),
                 "orbitals": b.get("orbitals", []),
+                "orbitals_tree": b.get("orbitals_tree", []),
+                "xyz": b.get("xyz", ""),
+                "esp_surface": b.get("esp_surface"),
                 "files": b.get("files", {})
             }
 
         # 5. Maximal Compression Bundle Repacker
         if action in ["repack_bundle", "export_bundle"]:
+            esp_surfaces = user_input.get("esp_surfaces")
+            if esp_surfaces and isinstance(esp_surfaces, dict):
+                megajson.setdefault("esp_surfaces", {}).update(esp_surfaces)
+                _save_state_to_file(global_state)
+
             bundle_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static_multistep", "bundles")
             os.makedirs(bundle_dir, exist_ok=True)
             bundle_filename = "multistep_reaction_bundle_maxcomp.zip"

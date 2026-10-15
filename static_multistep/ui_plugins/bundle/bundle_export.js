@@ -28,7 +28,7 @@ export function exportMultiModelXyz(megajson) {
     URL.revokeObjectURL(url);
 }
 
-export async function exportMaxCompBundleZip(stepId = 'step_5_bundle_viewer') {
+export async function exportMaxCompBundleZip(stepId = 'step_5_bundle_viewer', extraPayload = {}) {
     // Show loading indicator
     let toast = document.createElement('div');
     toast.id = 'toast-repack-progress';
@@ -45,7 +45,7 @@ export async function exportMaxCompBundleZip(stepId = 'step_5_bundle_viewer') {
         const res = await fetch(`/api/step/${stepId}/custom`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action_type: 'repack_bundle' })
+            body: JSON.stringify({ action_type: 'repack_bundle', ...extraPayload })
         });
         const data = await res.json();
         toast.remove();
@@ -116,6 +116,8 @@ function showRepackSuccessModal(filename, sizeMb, origMb, ratioPct) {
                     <ul style="margin-left: 1.2rem; margin-top: 0.3rem;">
                         <li>Standalone zero-dependency HTML viewer (<code>index.html</code>)</li>
                         <li>Lightweight 3D orbital surface meshes (<code>orbitals/*_pos.json</code>, <code>*_neg.json</code>)</li>
+                        <li>Continuous 3D Electrostatic Potential surfaces (<code>esp/frame_*.json</code>)</li>
+                        <li>Unpacked molecule discovery bundles (<code>molecules/*</code>)</li>
                         <li>Reaction mechanism SVG & dynamic wiring (<code>mechanism.svg</code>, <code>svg_wiring.json</code>)</li>
                         <li>Trajectory JSON & Multi-model XYZ</li>
                     </ul>

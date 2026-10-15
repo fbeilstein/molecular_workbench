@@ -107,9 +107,14 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                         </div>
                         <input type="range" id="slider-bundle-isovalue" min="0.01" max="0.08" step="0.005" value="${state.isovalue}" class="scrub-slider">
                     </div>
-                    <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" id="chk-bundle-esp" ${state.showCharges ? 'checked' : ''} style="accent-color: #a855f7;"> Show Mulliken Charges
-                    </label>
+                    <div style="display: flex; gap: 0.75rem; align-items: center; margin-top: 2px;">
+                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" id="chk-bundle-charges" ${state.showCharges ? 'checked' : ''} style="accent-color: #a855f7;"> 🏷 Atom Charges
+                        </label>
+                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" id="chk-bundle-esp-surface" ${state.showEspSurface ? 'checked' : ''} style="accent-color: #38bdf8;"> ⚡ ESP Surface
+                        </label>
+                    </div>
                     <div id="bundle-tracks-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem;"></div>
                 </div>
 

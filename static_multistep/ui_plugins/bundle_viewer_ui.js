@@ -19,7 +19,7 @@ export const BundleViewerUI = {
         isPlaying: false, playDirection: 'forward', playbackSpeed: 1.0, playTimer: null,
         viewer3D: null, pesChart: null, svgManager: null, highresManager: null,
         moleculeModal: null, transport: null, wiringMgr: null, activeOrbitals: new Set(),
-        showCharges: false, hideAllOrbitals: false, isovalue: 0.03, orbitalResolution: 32,
+        showCharges: false, showEspSurface: false, hideAllOrbitals: false, isovalue: 0.03, orbitalResolution: 32,
         tracks: [], frameDataCache: {}, activeTab: 'interactive'
     },
 
@@ -37,12 +37,13 @@ export const BundleViewerUI = {
         const timeline = uiSchema.orbital_timeline || megajson.orbital_timeline || { tracks: [] };
         this.state.tracks = timeline.tracks || [];
         this.state.isovalue = timeline.default_isovalue || 0.03;
-        this.state.showCharges = this.state.tracks.some(t => t.orbital_key === 'track_esp_charge');
+        this.state.showCharges = false;
+        this.state.showEspSurface = this.state.tracks.some(t => t.orbital_key === 'track_esp_charge');
         this.state.orbitalResolution = uiSchema.orbital_resolution || megajson.orbital_resolution || 32;
 
         const initialActive = new Set();
         this.state.tracks.forEach(trk => {
-            if (trk.default_on && trk.orbital_key) initialActive.add(trk.orbital_key);
+            if ((trk.default_on || trk.orbital_key === 'track_esp_charge') && trk.orbital_key) initialActive.add(trk.orbital_key);
         });
         this.state.activeOrbitals = initialActive;
 
@@ -70,6 +71,8 @@ export const BundleViewerUI = {
         } catch (seekErr) {
             console.error('[BundleViewer] Failed to render initial frame 0:', seekErr);
         }
+        if (megajson.esp_surfaces) Object.assign(this.state.viewer3D.espMeshCache, megajson.esp_surfaces);
+        if (this.state.showEspSurface) this.state.viewer3D.prewarmEspCache(megajson.symbols, megajson.frames, megajson.trajectory_charges);
         this.preloadAllCachedCubes();
     },
 
@@ -122,7 +125,12 @@ export const BundleViewerUI = {
     renderTracksList() {
         const list = document.querySelector('#bundle-tracks-list');
         renderOrbitalTracksSidebar(list, this.state.tracks, this.state.activeOrbitals, {
-            onChanged: () => this.refreshViewer()
+            onChanged: () => {
+                const espCb = document.querySelector('#chk-bundle-esp-surface');
+                if (espCb) espCb.checked = this.state.activeOrbitals.has('track_esp_charge');
+                this.state.showEspSurface = this.state.activeOrbitals.has('track_esp_charge');
+                this.refreshViewer();
+            }
         });
     },
 
@@ -182,32 +190,23 @@ export const BundleViewerUI = {
         const hint = container.querySelector('#label-wiring-hint');
         const wiringStatus = container.querySelector('#label-wiring-status');
 
-        tabInteractive.addEventListener('click', () => {
-            tabInteractive.classList.add('active', 'btn-primary');
-            tabInteractive.classList.remove('btn-secondary');
-            tabWiring.classList.remove('active', 'btn-primary');
-            tabWiring.classList.add('btn-secondary');
-            hint.textContent = 'Click arrows to play • Right-click molecules';
+        const setMode = (isWiring) => {
+            tabWiring.classList.toggle('active', isWiring);
+            tabWiring.classList.toggle('btn-primary', isWiring);
+            tabWiring.classList.toggle('btn-secondary', !isWiring);
+            tabInteractive.classList.toggle('active', !isWiring);
+            tabInteractive.classList.toggle('btn-primary', !isWiring);
+            tabInteractive.classList.toggle('btn-secondary', isWiring);
+            hint.textContent = isWiring ? 'Click element in tree/canvas to wire' : 'Click arrows to play • Right-click molecules';
             if (wiringStatus) {
-                wiringStatus.textContent = 'Hierarchy';
-                wiringStatus.className = 'chip blue';
+                wiringStatus.textContent = isWiring ? 'Wiring Mode' : 'Hierarchy';
+                wiringStatus.className = isWiring ? 'chip amber' : 'chip blue';
             }
-            this.state.svgManager.setMode('interactive');
-        });
-
-        tabWiring.addEventListener('click', () => {
-            tabWiring.classList.add('active', 'btn-primary');
-            tabWiring.classList.remove('btn-secondary');
-            tabInteractive.classList.remove('active', 'btn-primary');
-            tabInteractive.classList.add('btn-secondary');
-            hint.textContent = 'Click element in tree/canvas to wire actions';
-            if (wiringStatus) {
-                wiringStatus.textContent = 'Wiring Mode';
-                wiringStatus.className = 'chip amber';
-            }
-            this.state.svgManager.setMode('edit');
-            this.renderGroupsTree();
-        });
+            this.state.svgManager.setMode(isWiring ? 'edit' : 'interactive');
+            if (isWiring) this.renderGroupsTree();
+        };
+        tabInteractive.addEventListener('click', () => setMode(false));
+        tabWiring.addEventListener('click', () => setMode(true));
 
         const t = this.state.transport;
         container.querySelector('#btn-play-fwd').addEventListener('click', () => t.playForward());
@@ -244,7 +243,9 @@ export const BundleViewerUI = {
             this.state.highresManager.renderModal(container, this.state.tracks);
         });
 
-        container.querySelector('#btn-export-bundle-zip').addEventListener('click', () => exportMaxCompBundleZip(this.state.stepId));
+        container.querySelector('#btn-export-bundle-zip').addEventListener('click', () => {
+            exportMaxCompBundleZip(this.state.stepId, { esp_surfaces: this.state.viewer3D?.espMeshCache || {} });
+        });
         container.querySelector('#btn-export-xyz').addEventListener('click', () => exportMultiModelXyz(this.state.megajson));
         container.querySelector('#btn-purge-cubes')?.addEventListener('click', () => purgeTemporaryCubes(this.state.stepId));
 
@@ -252,8 +253,19 @@ export const BundleViewerUI = {
         container.querySelector('#btn-bundle-zoom-out')?.addEventListener('click', () => this.state.viewer3D?.zoomOut());
         container.querySelector('#btn-bundle-zoom-fit')?.addEventListener('click', () => this.state.viewer3D?.resetCamera());
 
-        container.querySelector('#chk-bundle-esp').addEventListener('change', (e) => {
+        container.querySelector('#chk-bundle-charges')?.addEventListener('change', (e) => {
             this.state.showCharges = e.target.checked;
+            this.refreshViewer();
+        });
+        container.querySelector('#chk-bundle-esp-surface')?.addEventListener('change', (e) => {
+            this.state.showEspSurface = e.target.checked;
+            if (e.target.checked) {
+                this.state.activeOrbitals.add('track_esp_charge');
+                this.state.viewer3D?.prewarmEspCache(this.state.megajson.symbols, this.state.megajson.frames, this.state.megajson.trajectory_charges);
+            } else {
+                this.state.activeOrbitals.delete('track_esp_charge');
+            }
+            this.renderTracksList();
             this.refreshViewer();
         });
         container.querySelector('#chk-bundle-mute').addEventListener('change', (e) => {
@@ -314,22 +326,20 @@ export const BundleViewerUI = {
         const frame = this.state.megajson.frames[f];
         if (!frame) return;
 
-        const espActive = this.state.activeOrbitals.has('track_esp_charge');
-        const showCharges = this.state.showCharges || espActive;
+        const showEspSurface = this.state.showEspSurface || this.state.activeOrbitals.has('track_esp_charge');
+        const showCharges = this.state.showCharges;
         const charges = (this.state.frameDataCache[f] && this.state.frameDataCache[f].charges) ||
                         (this.state.megajson.trajectory_charges && this.state.megajson.trajectory_charges[f]) || null;
         const activeTracks = this.state.tracks.filter(t => this.state.activeOrbitals.has(t.orbital_key));
         const moTracks = this.state.hideAllOrbitals ? [] : activeTracks.filter(t => t.orbital_key !== 'track_esp_charge');
 
-        this.state.viewer3D.renderFastFrame(
-            this.state.megajson.symbols,
-            frame.coords,
-            moTracks,
-            this.state.isovalue,
-            f,
-            charges,
-            showCharges
-        );
+        const doRender = () => {
+            this.state.viewer3D.renderFastFrame(
+                this.state.megajson.symbols, frame.coords, moTracks,
+                this.state.isovalue, f, charges, showCharges, showEspSurface
+            );
+        };
+        doRender();
 
         for (const orb of moTracks) {
             const ok = orb.orbital_key || orb.key || orb;
@@ -343,17 +353,7 @@ export const BundleViewerUI = {
                         } else if (res.cube) {
                             this.state.viewer3D.cubeCache[`${f}_${ok}`] = res.cube;
                         }
-                        if (this.state.currentFrame === f) {
-                            this.state.viewer3D.renderFastFrame(
-                                this.state.megajson.symbols,
-                                frame.coords,
-                                moTracks,
-                                this.state.isovalue,
-                                f,
-                                charges,
-                                showCharges
-                            );
-                        }
+                        if (this.state.currentFrame === f) doRender();
                     }
                 }).catch(() => {});
             }
@@ -362,7 +362,8 @@ export const BundleViewerUI = {
 
     openMoleculeOrbitals(molId, cfg) {
         const molName = (cfg && cfg.moleculeName) || molId;
-        const existingBundle = (this.state.megajson.molecule_bundles && this.state.megajson.molecule_bundles[molId]) || null;
+        const b = this.state.megajson.molecule_bundles || {};
+        const existingBundle = b[molId] || b[molName] || Object.values(b).find(v => v.molecule_key === molId || v.molecule_id === molId) || null;
         this.state.moleculeModal.show(document.body, molId, molName, existingBundle);
     },
 

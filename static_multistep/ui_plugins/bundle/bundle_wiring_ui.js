@@ -26,6 +26,7 @@ export class BundleWiringManager {
             let roleBadge = '';
             if (cfg) {
                 if (cfg.role === 'arrow') roleBadge = '<span class="chip-mini blue">Arrow</span>';
+                else if (cfg.role === 'state_molecule') roleBadge = '<span class="chip-mini purple">State+Mol</span>';
                 else if (cfg.role === 'state') roleBadge = '<span class="chip-mini amber">State</span>';
                 else if (cfg.role === 'molecule') roleBadge = '<span class="chip-mini emerald">Mol</span>';
                 else if (cfg.role === 'push_arrow') roleBadge = '<span class="chip-mini purple">Push</span>';
@@ -74,7 +75,8 @@ export class BundleWiringManager {
             <div style="display: flex; gap: 0.3rem; margin-bottom: 0.6rem; flex-wrap: wrap;">
                 <button class="btn btn-xxs btn-role ${currentRole === 'none' ? 'active btn-primary' : 'btn-secondary'}" data-role="none">None</button>
                 <button class="btn btn-xxs btn-role ${currentRole === 'arrow' ? 'active btn-primary' : 'btn-secondary'}" data-role="arrow">Reaction Arrow</button>
-                <button class="btn btn-xxs btn-role ${currentRole === 'state' ? 'active btn-primary' : 'btn-secondary'}" data-role="state">State / Frame</button>
+                <button class="btn btn-xxs btn-role ${currentRole === 'state' ? 'active btn-primary' : 'btn-secondary'}" data-role="state">State</button>
+                <button class="btn btn-xxs btn-role ${currentRole === 'state_molecule' ? 'active btn-primary' : 'btn-secondary'}" data-role="state_molecule">State + Mol</button>
                 <button class="btn btn-xxs btn-role ${currentRole === 'molecule' ? 'active btn-primary' : 'btn-secondary'}" data-role="molecule">Molecule</button>
                 <button class="btn btn-xxs btn-role ${currentRole === 'push_arrow' ? 'active btn-primary' : 'btn-secondary'}" data-role="push_arrow">Push Arrow</button>
             </div>
@@ -144,6 +146,22 @@ export class BundleWiringManager {
                         <input type="number" id="inp-state-target" value="${data.targetFrame}" class="input-xs" style="width: 60px;">
                         <button class="btn btn-xxs btn-secondary" id="btn-use-cur-target">Cur</button>
                     </div>
+                </div>
+            `;
+        }
+        if (role === 'state_molecule') {
+            return `
+                <div style="display: flex; gap: 0.8rem; align-items: center; font-size: 0.74rem; flex-wrap: wrap;">
+                    <div>
+                        <label>Target Frame:</label>
+                        <input type="number" id="inp-state-target" value="${data.targetFrame}" class="input-xs" style="width: 55px;">
+                        <button class="btn btn-xxs btn-secondary" id="btn-use-cur-target">Cur</button>
+                    </div>
+                    <div>
+                        <label>Molecule/Bundle:</label>
+                        <input type="text" id="inp-mol-name" value="${data.molName}" class="input-xs" style="width: 110px;">
+                    </div>
+                    <button class="btn btn-xxs btn-secondary" id="btn-inspect-mol">Orbitals</button>
                 </div>
             `;
         }
@@ -218,6 +236,13 @@ export class BundleWiringManager {
             return {
                 role: 'state',
                 targetFrame: parseInt(panel.querySelector('#inp-state-target')?.value || 0, 10)
+            };
+        }
+        if (role === 'state_molecule') {
+            return {
+                role: 'state_molecule',
+                targetFrame: parseInt(panel.querySelector('#inp-state-target')?.value || 0, 10),
+                moleculeName: panel.querySelector('#inp-mol-name')?.value || 'Molecule'
             };
         }
         if (role === 'molecule') {
