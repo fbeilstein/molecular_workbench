@@ -23,7 +23,7 @@ async function executeStepRun(stepId, userInput) {
     return await res.json();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+function initApp() {
     let plugins = [];
     let state = {};
     let activeStepIndex = 0;
@@ -176,4 +176,10 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     loadPipeline();
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}

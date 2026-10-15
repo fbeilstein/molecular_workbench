@@ -99,17 +99,34 @@ def compute_frame_ibos(
     """Compute all IBOs with cross-frame orbital overlap continuity and textbook antibonds."""
     nocc = mol.nelectron // 2 if mol.spin == 0 else mol.nelec[0]
     occ_mo = mf.mo_coeff[:, :nocc] if mol.spin == 0 else mf.mo_coeff[0][:, :nocc]
-    ibo_coeff = lo.ibo.ibo(mol, occ_mo, verbose=0)
+    mo_e = (mf.mo_energy[:nocc] if mol.spin == 0 else mf.mo_energy[0][:nocc]) * 27.2114
+    core_mask = mo_e < -50.0
+    core_mo = occ_mo[:, core_mask]
+    val_mo = occ_mo[:, ~core_mask]
+    ibo_val = lo.ibo.ibo(mol, val_mo, verbose=0)
 
-    # Match and orient orbitals using cross-frame overlap matrix
+    # Match and orient core and valence orbitals using cross-frame overlap matrix
     if prev_data and "mol" in prev_data and "ibo_coeff" in prev_data:
+        n_prev_core = prev_data.get("n_core", core_mo.shape[1])
         s_cross = gto.intor_cross("int1e_ovlp", prev_data["mol"], mol)
-        ovlp_mat = prev_data["ibo_coeff"].T @ s_cross @ ibo_coeff
+        if core_mo.shape[1] == n_prev_core:
+            prev_core = prev_data["ibo_coeff"][:, :n_prev_core]
+            ovlp_core = prev_core.T @ s_cross @ core_mo
+            rc, cc = linear_sum_assignment(-np.abs(ovlp_core))
+            core_mo = core_mo[:, cc]
+            for k in range(core_mo.shape[1]):
+                if ovlp_core[k, cc[k]] < 0.0:
+                    core_mo[:, k] = -core_mo[:, k]
+
+        prev_val = prev_data["ibo_coeff"][:, n_prev_core:]
+        ovlp_mat = prev_val.T @ s_cross @ ibo_val
         r, c = linear_sum_assignment(-np.abs(ovlp_mat))
-        ibo_coeff = ibo_coeff[:, c]
-        for k in range(nocc):
+        ibo_val = ibo_val[:, c]
+        for k in range(ibo_val.shape[1]):
             if ovlp_mat[k, c[k]] < 0.0:
-                ibo_coeff[:, k] = -ibo_coeff[:, k]
+                ibo_val[:, k] = -ibo_val[:, k]
+
+    ibo_coeff = np.hstack([core_mo, ibo_val])
 
     ovlp = mol.intor_symmetric("int1e_ovlp")
     ao_atom = [int(l.split()[0]) for l in mol.ao_labels()]

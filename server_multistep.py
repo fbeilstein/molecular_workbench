@@ -107,6 +107,7 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
         })
 
     def _handle_step_custom(self, step, user_input):
+        print(f"CUSTOM_REQ: action={user_input.get('action_type')} f={user_input.get('frame_index')} orb={user_input.get('orbital')} chem={user_input.get('chem_key')} sel={len(user_input.get('selected_tracks', []))}")
         result_data = step.custom_action(user_input, pipeline_state) if hasattr(step, 'custom_action') else {}
         self._send_json(result_data)
 
@@ -123,7 +124,7 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
         user_input = self._read_json_body()
         if action == 'run':
             return self._handle_step_run(step, user_input)
-        if action == 'custom':
+        if action in ('custom', 'action'):
             return self._handle_step_custom(step, user_input)
 
         self._send_json({"error": f"Unknown action: {action}"}, 400)

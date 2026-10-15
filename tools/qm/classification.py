@@ -22,12 +22,28 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
     major = [(i, frac[i]) for i in range(mol.natm) if frac[i] > 0.04]
     major.sort(key=lambda x: -x[1])
 
-    # Core is handled pre-localization, so if >95% on one heavy atom, it's a Valence Lone Pair
-    if len(major) == 1 and major[0][1] > 0.95:
-        aidx = major[0][0]
-        sym = atom_labels[aidx]
+    # Valence Lone Pair:
+    # Lone pairs on electronegative heteroatoms (O, N, F, Cl, Br, I, S, P) frequently participate
+    # in negative hyperconjugation (e.g. oxyanion n_O -> sigma*(C-Cl) or sigma*(C-O)), yielding
+    # 75-90% on the heteroatom and 10-25% on adjacent atoms.
+    # If >=75% is on a single non-H atom, or if the primary atom holds >=68% with >=3:1 ratio
+    # over the secondary atom, this is a Valence Lone Pair (non-bonding), NOT a covalent 2-center bond.
+    if len(major) >= 1:
+        top_idx, top_frac = major[0]
+        sym = atom_labels[top_idx]
         if sym != 'H':
-            return {'type': 'lone_pair', 'atom': atom_ids[aidx]}
+            is_lp = False
+            if top_frac >= 0.75:
+                is_lp = True
+            elif top_frac >= 0.68 and len(major) >= 2:
+                second_frac = major[1][1]
+                if top_frac / max(second_frac, 1e-4) >= 3.0:
+                    is_lp = True
+            elif len(major) == 1:
+                is_lp = True
+
+            if is_lp:
+                return {'type': 'lone_pair', 'atom': atom_ids[top_idx]}
 
     # Bond: two+ atoms with >10% population
     if len(major) >= 2:
@@ -60,7 +76,7 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
             bond_type = _classify_sigma_pi(mol, mo_coeff, a1_idx, a2_idx)
             return {'type': bond_type, 'atoms': [atom_ids[a1_idx], atom_ids[a2_idx]]}
 
-    # Lone pair fallback (if only 1 atom has >10% population, or it failed bond checks)
+    # Fallback (if failed bond checks)
     idx = major[0][0]
     if atom_labels[idx] == 'H':
         coords = mol.atom_coords()
@@ -149,6 +165,15 @@ def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     # Hydrogens cannot form pi bonds.
     if mol.atom_symbol(atom1_idx) == 'H' or mol.atom_symbol(atom2_idx) == 'H':
         return 'sigma'
+
+    # Tetrahedral / 4-coordinate atoms (like sp3 carbon) cannot form pi bonds without violating octet rules.
+    for a_idx in (atom1_idx, atom2_idx):
+        if mol.atom_symbol(a_idx) in ('C', 'Si'):
+            dists = np.linalg.norm(coords - coords[a_idx], axis=1)
+            # count bonded neighbors within 1.95 A (excluding self)
+            n_neighbors = int(np.sum((dists > 0.2) & (dists < 1.95)))
+            if n_neighbors >= 4:
+                return 'sigma'
 
     bond_vec = coords[atom2_idx] - coords[atom1_idx]
     bond_len = np.linalg.norm(bond_vec)

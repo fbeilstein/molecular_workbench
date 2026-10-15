@@ -1,3 +1,12 @@
+/**
+ * Step 5: Master Multistep Reaction Studio & Viewer facade.
+ * Modular architecture coordinates Bundle3DViewer, BundlePesChart, and bundle_export.
+ * Completely dynamic: displays tracks configured in Step 4; full zoom and scaling.
+ */
+import { Bundle3DViewer } from './bundle/bundle_3d.js';
+import { BundlePesChart } from './bundle/bundle_pes.js';
+import { exportMultiModelXyz, exportBundleZip } from './bundle/bundle_export.js';
+
 export const BundleViewerUI = {
     state: {
         stepId: 'step_5_bundle_viewer',
@@ -5,555 +14,247 @@ export const BundleViewerUI = {
         currentFrame: 0,
         isPlaying: false,
         playTimer: null,
-        viewer: null,
-        landmarkMeshes: {},
-        activeOrbital: 'forming_bond',
-        showOrbitals: true
+        viewer3D: null,
+        pesChart: null,
+        activeOrbitals: new Set(),
+        showCharges: false,
+        hideAllOrbitals: false,
+        isovalue: 0.03,
+        tracks: [],
+        frameDataCache: {}
     },
 
     async render(container, uiSchema, globalState, stepId) {
         this.state.stepId = stepId;
         const megajson = uiSchema.megajson;
         this.state.megajson = megajson;
-        this.state.landmarkMeshes = megajson.landmark_orbital_meshes || {};
 
         if (!megajson || !megajson.frames) {
-            container.innerHTML = `<div class="empty-state">No stitched pathway available. Please complete earlier steps first.</div>`;
+            container.innerHTML = `<div class="empty-state" style="padding: 2rem; text-align: center;">No stitched reaction pathway found. Complete earlier steps first.</div>`;
             return;
         }
 
-        const totalFrames = megajson.frames ? megajson.frames.length : 0;
-        const boundaries = megajson.step_boundaries || [];
-        const landmarks = uiSchema.landmarks || [];
+        const totalFrames = megajson.frames.length;
+        const timeline = uiSchema.orbital_timeline || megajson.orbital_timeline || { tracks: [] };
+        this.state.tracks = timeline.tracks || [];
+        this.state.isovalue = timeline.default_isovalue || 0.03;
+
+        const initialActive = new Set();
+        this.state.tracks.forEach(trk => {
+            if (trk.default_on && trk.orbital_key) initialActive.add(trk.orbital_key);
+        });
+        this.state.activeOrbitals = initialActive;
+
+        const ep = (megajson.energy_profile && megajson.energy_profile.frame_energies_kcal) ||
+                   megajson.frames.map(f => f.rel_energy_kcal || 0.0);
 
         container.innerHTML = `
-            <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; color: var(--text-main);">
                 <!-- Header with Export Actions -->
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; background: rgba(0,0,0,0.25); padding: 0.6rem 0.8rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
                     <div>
-                        <h2 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main);">Master Multistep Reaction Bundle & Viewer</h2>
-                        <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
+                        <h2 style="font-size: 1.1rem; font-weight: 700; color: #f8fafc; margin: 0;">Master Reaction Studio Viewer</h2>
+                        <div style="font-size: 0.78rem; color: #94a3b8; display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
                             <span class="chip blue">${megajson.symbols.length} atoms</span>
-                            <span class="chip">${totalFrames} total frames</span>
-                            <span class="chip amber">Overall Barrier ΔG‡: ${(megajson.overall_barrier_kcal || 0).toFixed(2)} kcal/mol</span>
-                            <span class="chip emerald">Net Reaction ΔG°: ${(megajson.overall_reaction_energy_kcal || 0).toFixed(2)} kcal/mol</span>
+                            <span class="chip">${totalFrames} frames</span>
+                            <span class="chip amber">Barrier: ${(megajson.overall_barrier_kcal || 0).toFixed(1)} kcal/mol</span>
+                            <span class="chip emerald">Net ΔG: ${(megajson.overall_reaction_energy_kcal || 0).toFixed(1)} kcal/mol</span>
                         </div>
                     </div>
-                    <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                         <button id="btn-export-bundle-zip" class="btn btn-primary btn-sm" style="background: linear-gradient(135deg, #10b981, #059669); border-color: #059669;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-                            </svg>
                             Export Bundle (.zip)
                         </button>
-                        <button id="btn-export-xyz" class="btn btn-secondary btn-sm">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-                            </svg>
-                            Multi-Model XYZ
-                        </button>
-                        <button id="btn-export-json" class="btn btn-secondary btn-sm">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-                            </svg>
-                            MegaJSON
-                        </button>
+                        <button id="btn-export-xyz" class="btn btn-secondary btn-sm">Multi-Model XYZ</button>
                     </div>
                 </div>
 
-                <!-- 3D Viewport with Orbital Overlay Controls -->
-                <div class="viewer-wrapper" style="height: 420px; position: relative;">
-                    <div id="bundle-viewport-3d" class="viewport-3d"></div>
-                    <div id="bundle-status-badge" class="viewer-overlay-badge">Frame 1 / ${totalFrames}</div>
-                    
-                    <!-- Overlay orbital controls -->
-                    <div style="position: absolute; top: 12px; right: 12px; background: rgba(11, 15, 23, 0.85); backdrop-filter: blur(8px); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.4rem 0.6rem; display: flex; align-items: center; gap: 0.6rem; z-index: 5; font-size: 0.75rem;">
-                        <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer; color: var(--text-main); font-weight: 600;">
-                            <input type="checkbox" id="bundle-toggle-orbitals" checked> Show Orbitals
-                        </label>
-                        <select id="bundle-select-orbital" style="background: rgba(0,0,0,0.5); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.2rem 0.4rem; font-size: 0.75rem;">
-                            <option value="forming_bond">Forming C-O Bond (LP → σ)</option>
-                            <option value="carbonyl_pi">Carbonyl π / Oxyanion LP</option>
-                            <option value="leaving_group">Leaving Group C-Cl → Cl⁻</option>
-                            <option value="LUMO">Acceptor LUMO (π*)</option>
-                            <option value="HOMO">Canonical HOMO</option>
-                        </select>
+                <!-- Main Work Area: Left Checkboxes, Center 3D Viewer -->
+                <div style="display: flex; gap: 0.6rem; height: 480px; max-height: 480px;">
+                    <!-- Orbital & Overlay Selection Sidebar -->
+                    <div style="width: 280px; height: 100%; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.6rem; display: flex; flex-direction: column; gap: 0.6rem; overflow: hidden;">
+                        <span style="font-size: 0.82rem; font-weight: 600; color: #f1f5f9;">Configured Reaction Tracks</span>
+                        <div id="bundle-tracks-list" style="flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.35rem; padding-right: 4px;"></div>
+
+                        <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: #cbd5e1; cursor: pointer;">
+                                <input type="checkbox" id="chk-bundle-esp" ${this.state.showCharges ? 'checked' : ''}>
+                                ⚡ Electrostatic Surface & Charges
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: #cbd5e1; cursor: pointer;">
+                                <input type="checkbox" id="chk-bundle-mute" ${this.state.hideAllOrbitals ? 'checked' : ''}>
+                                🚫 Mute All Orbitals (Lecture Mode)
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 3D Viewer Container with Zoom & Scale Controls -->
+                    <div style="flex: 1; height: 100%; position: relative; border-radius: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08);">
+                        <div id="bundle-3d-canvas" style="width: 100%; height: 100%;"></div>
+                        <div style="position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 4px; z-index: 10;">
+                            <button id="btn-bundle-zoom-in" class="btn btn-xs btn-secondary" title="Zoom In (+)" style="font-size: 0.85rem; padding: 2px 7px; background: rgba(15,23,42,0.85);">+</button>
+                            <button id="btn-bundle-zoom-out" class="btn btn-xs btn-secondary" title="Zoom Out (-)" style="font-size: 0.85rem; padding: 2px 7px; background: rgba(15,23,42,0.85);">−</button>
+                            <button id="btn-bundle-zoom-fit" class="btn btn-xs btn-secondary" title="Fit to View (0)" style="font-size: 0.72rem; padding: 2px 5px; background: rgba(15,23,42,0.85);">⟲</button>
+                        </div>
+                        <div id="bundle-status-bar" style="position: absolute; bottom: 8px; left: 8px; font-size: 0.72rem; color: #94a3b8; background: rgba(15,23,42,0.75); padding: 2px 6px; border-radius: 4px; pointer-events: none;">
+                            Ready
+                        </div>
                     </div>
                 </div>
 
-                <!-- Playback Control Bar -->
-                <div class="playback-bar">
-                    <button id="btn-bundle-play" class="btn btn-sm btn-secondary" title="Play / Pause">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                            <polygon points="5 3 19 12 5 21 5 3"/>
-                        </svg>
-                    </button>
-                    <button id="btn-bundle-prev" class="btn btn-sm btn-secondary" title="Previous Frame">⏮</button>
-                    <input type="range" id="bundle-scrubber" class="scrub-slider" min="0" max="${Math.max(0, totalFrames - 1)}" value="0">
-                    <button id="btn-bundle-next" class="btn btn-sm btn-secondary" title="Next Frame">⏭</button>
-                    <div id="bundle-counter" class="frame-counter">1 / ${totalFrames}</div>
-                </div>
-
-                <!-- Synchronized Free Energy Canvas Diagram -->
-                <div style="background: #080c14; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Synchronized Free Energy Profile (ΔG in Water):</span>
-                        <span style="font-family: var(--font-mono); font-size: 0.75rem; color: #6ee7b7;" id="bundle-pes-energy-label">0.00 kcal/mol</span>
+                <!-- Interactive 2D Canvas PES Energy Profile Chart & Scrubber -->
+                <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; gap: 0.6rem;">
+                        <span style="font-size: 0.8rem; font-weight: 600; color: #e2e8f0; white-space: nowrap;">Energy Profile & Scrubber</span>
+                        <div style="display: flex; gap: 0.5rem; align-items: center; flex: 1; max-width: 500px;">
+                            <button id="btn-bundle-play" class="btn btn-xs btn-primary">▶ Play</button>
+                            <input type="range" id="bundle-frame-scrubber" min="0" max="${totalFrames - 1}" value="0" style="flex: 1; cursor: pointer; accent-color: #38bdf8; height: 6px;">
+                            <span id="bundle-frame-readout" style="font-size: 0.72rem; color: #94a3b8; min-width: 85px; text-align: right;">Frame 0 / ${totalFrames - 1}</span>
+                        </div>
                     </div>
-                    <canvas id="bundle-pes-canvas" width="1100" height="130" style="width: 100%; height: 130px; display: block; cursor: crosshair;"></canvas>
-                </div>
-
-                <!-- Step & Landmark Jump Shortcuts -->
-                <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                    <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Landmarks:</span>
-                    ${boundaries.map(b => `
-                        <button class="btn btn-sm btn-secondary jump-step-btn" data-ts="${b.ts_frame}">
-                            Step ${b.step_index} TS (f${b.ts_frame + 1})
-                        </button>
-                    `).join('')}
-                    ${landmarks.map(lm => `
-                        <button class="btn btn-sm btn-secondary jump-lm-btn" data-frame="${lm.frame_index}">
-                            ${lm.name} (f${lm.frame_index + 1})
-                        </button>
-                    `).join('')}
+                    <canvas id="bundle-pes-canvas" style="width: 100%; height: 140px; display: block;"></canvas>
                 </div>
             </div>
         `;
 
-        this.initEventListeners();
-        this.init3DViewer();
-        this.drawPESChart();
-        this.setFrame(0, true);
+        const canvas3D = container.querySelector('#bundle-3d-canvas');
+        const statusBar = container.querySelector('#bundle-status-bar');
+        const canvasPes = container.querySelector('#bundle-pes-canvas');
+
+        this.state.viewer3D = new Bundle3DViewer(canvas3D, statusBar);
+        this.state.viewer3D.init();
+
+        this.state.pesChart = new BundlePesChart(canvasPes, (f) => this.seekFrame(f));
+        this.state.pesChart.setData(ep, uiSchema.landmarks || []);
+
+        this.renderTracksList(container);
+        this.bindEvents(container);
+
+        await this.seekFrame(0);
     },
 
-    initEventListeners() {
-        const playBtn = document.getElementById('btn-bundle-play');
-        const prevBtn = document.getElementById('btn-bundle-prev');
-        const nextBtn = document.getElementById('btn-bundle-next');
-        const scrubber = document.getElementById('bundle-scrubber');
-        const canvas = document.getElementById('bundle-pes-canvas');
-        const toggleOrb = document.getElementById('bundle-toggle-orbitals');
-        const selectOrb = document.getElementById('bundle-select-orbital');
+    renderTracksList(container) {
+        const listEl = container.querySelector('#bundle-tracks-list');
+        if (!listEl) return;
 
-        if (playBtn) playBtn.onclick = () => this.togglePlay();
-        if (prevBtn) prevBtn.onclick = () => this.stepFrame(-1);
-        if (nextBtn) nextBtn.onclick = () => this.stepFrame(1);
+        if (this.state.tracks.length === 0) {
+            listEl.innerHTML = `<div style="font-size: 0.72rem; color: #64748b; padding: 0.5rem;">No tracks configured. Return to Step 4 to audition and add tracks.</div>`;
+            return;
+        }
+
+        let html = '';
+        this.state.tracks.forEach(trk => {
+            if (trk.orbital_key === 'track_esp_charge') return;
+            const isChecked = this.state.activeOrbitals.has(trk.orbital_key);
+            html += `
+                <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0.5rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; font-size: 0.75rem; cursor: pointer;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden;">
+                        <input type="checkbox" class="chk-track-orb" data-key="${trk.orbital_key}" ${isChecked ? 'checked' : ''}>
+                        <span style="color: ${trk.color || '#38bdf8'}; font-weight: 600;">●</span>
+                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #e2e8f0;" title="${trk.title}">${trk.title}</span>
+                    </div>
+                </label>
+            `;
+        });
+        listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.chk-track-orb').forEach(chk => {
+            chk.addEventListener('change', () => {
+                const k = chk.dataset.key;
+                if (chk.checked) this.state.activeOrbitals.add(k);
+                else this.state.activeOrbitals.delete(k);
+                this.refreshViewer();
+            });
+        });
+    },
+
+    bindEvents(container) {
+        container.querySelector('#chk-bundle-esp').addEventListener('change', (e) => {
+            this.state.showCharges = e.target.checked;
+            this.refreshViewer();
+        });
+        container.querySelector('#chk-bundle-mute').addEventListener('change', (e) => {
+            this.state.hideAllOrbitals = e.target.checked;
+            this.refreshViewer();
+        });
+        container.querySelector('#btn-bundle-play').addEventListener('click', () => this.togglePlay());
+        const scrubber = container.querySelector('#bundle-frame-scrubber');
         if (scrubber) {
-            scrubber.oninput = (e) => {
-                this.pause();
-                this.setFrame(parseInt(e.target.value, 10));
-            };
+            scrubber.addEventListener('input', (e) => this.seekFrame(parseInt(e.target.value, 10)));
         }
+        container.querySelector('#btn-export-xyz').addEventListener('click', () => exportMultiModelXyz(this.state.megajson));
+        container.querySelector('#btn-export-bundle-zip').addEventListener('click', () => exportBundleZip(this.state.megajson));
 
-        if (toggleOrb) {
-            toggleOrb.onchange = (e) => {
-                this.state.showOrbitals = e.target.checked;
-                this.setFrame(this.state.currentFrame);
-            };
-        }
+        container.querySelector('#btn-bundle-zoom-in')?.addEventListener('click', () => this.state.viewer3D?.zoomIn());
+        container.querySelector('#btn-bundle-zoom-out')?.addEventListener('click', () => this.state.viewer3D?.zoomOut());
+        container.querySelector('#btn-bundle-zoom-fit')?.addEventListener('click', () => this.state.viewer3D?.resetCamera());
+    },
 
-        if (selectOrb) {
-            selectOrb.onchange = (e) => {
-                this.state.activeOrbital = e.target.value;
-                this.setFrame(this.state.currentFrame);
-            };
-        }
+    async seekFrame(f) {
+        this.state.currentFrame = f;
+        if (this.state.pesChart) this.state.pesChart.setCurrentFrame(f);
+        const scrubber = document.querySelector('#bundle-frame-scrubber');
+        if (scrubber) scrubber.value = f;
+        const readout = document.querySelector('#bundle-frame-readout');
+        if (readout && this.state.megajson) readout.textContent = `Frame ${f} / ${this.state.megajson.frames.length - 1}`;
+        await this.refreshViewer();
+    },
 
-        if (canvas) {
-            const handleCanvasClick = (e) => {
-                const rect = canvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const total = (this.state.megajson.frames || []).length;
-                if (total <= 1) return;
-                const padLeft = 45;
-                const padRight = 15;
-                const plotW = rect.width - padLeft - padRight;
-                const relX = Math.max(0, Math.min(plotW, x - padLeft));
-                const targetFrame = Math.round((relX / plotW) * (total - 1));
-                this.pause();
-                this.setFrame(targetFrame);
-            };
-
-            canvas.onmousedown = (e) => {
-                handleCanvasClick(e);
-                const onMove = (ev) => handleCanvasClick(ev);
-                const onUp = () => {
-                    window.removeEventListener('mousemove', onMove);
-                    window.removeEventListener('mouseup', onUp);
-                };
-                window.addEventListener('mousemove', onMove);
-                window.addEventListener('mouseup', onUp);
-            };
-        }
-
-        // Jump Buttons
-        document.querySelectorAll('.jump-step-btn').forEach(btn => {
-            btn.onclick = () => {
-                this.pause();
-                const tsFrame = parseInt(btn.dataset.ts, 10);
-                this.setFrame(tsFrame);
-            };
+    async fetchCube(frameIdx, orbKey, chemKey, isovalue) {
+        const res = await fetch(`/api/step/step_4_orbitals/custom`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action_type: 'get_cube', frame_index: frameIdx, orbital: orbKey, chem_key: chemKey, isovalue: isovalue })
         });
+        return await res.json();
+    },
 
-        document.querySelectorAll('.jump-lm-btn').forEach(btn => {
-            btn.onclick = () => {
-                this.pause();
-                const f = parseInt(btn.dataset.frame, 10);
-                this.setFrame(f);
-            };
-        });
+    async refreshViewer() {
+        const f = this.state.currentFrame;
+        const frame = this.state.megajson.frames[f];
+        if (!frame) return;
 
-        // Export Standalone Bundle (.zip)
-        const expBundle = document.getElementById('btn-export-bundle-zip');
-        if (expBundle) {
-            expBundle.onclick = async () => {
-                expBundle.disabled = true;
-                expBundle.innerText = "Packaging Bundle...";
-                try {
-                    const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action_type: 'export_bundle' })
-                    });
-                    const data = await res.json();
-                    if (data.success && data.download_url) {
-                        const a = document.createElement('a');
-                        a.href = data.download_url;
-                        a.download = data.filename || 'multistep_reaction_bundle.zip';
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                    }
-                } catch (e) {
-                    alert("Bundle export error: " + e.message);
-                } finally {
-                    expBundle.disabled = false;
-                    expBundle.innerHTML = `
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-                        </svg>
-                        Export Bundle (.zip)
-                    `;
-                }
-            };
-        }
-
-        // Export XYZ & JSON
-        const expXyz = document.getElementById('btn-export-xyz');
-        const expJson = document.getElementById('btn-export-json');
-
-        if (expXyz) {
-            expXyz.onclick = async () => {
-                const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
+        if (!this.state.frameDataCache[f]) {
+            try {
+                const res = await fetch(`/api/step/step_4_orbitals/custom`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action_type: 'get_xyz' })
+                    body: JSON.stringify({ action_type: 'get_frame_orbitals', frame_index: f })
                 });
-                const data = await res.json();
-                if (data.success && data.xyz) {
-                    this._downloadFile(data.xyz, data.filename || 'multistep_pathway.xyz', 'text/plain');
-                }
-            };
+                const d = await res.json();
+                if (d.success) this.state.frameDataCache[f] = d;
+            } catch (err) {}
         }
 
-        if (expJson) {
-            expJson.onclick = async () => {
-                const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action_type: 'get_megajson' })
-                });
-                const data = await res.json();
-                if (data.success && data.megajson) {
-                    this._downloadFile(JSON.stringify(data.megajson, null, 2), data.filename || 'multistep_pathway.json', 'application/json');
-                }
-            };
-        }
-    },
+        const fd = this.state.frameDataCache[f];
+        const activeTracks = this.state.tracks.filter(t => this.state.activeOrbitals.has(t.orbital_key));
 
-    _downloadFile(content, filename, type) {
-        const blob = new Blob([content], { type });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    },
-
-    init3DViewer() {
-        const container = document.getElementById('bundle-viewport-3d');
-        if (!container) return;
-        container.innerHTML = '';
-        this.state.viewer = $3Dmol.createViewer(container, {
-            defaultcolors: $3Dmol.rasmolElementColors,
-            backgroundColor: '0x0d121c'
+        await this.state.viewer3D.renderScene({
+            symbols: this.state.megajson.symbols,
+            coords: frame.coords,
+            charges: fd ? fd.charges : null,
+            showCharges: this.state.showCharges,
+            activeOrbitals: activeTracks,
+            isovalue: this.state.isovalue,
+            frameIdx: f,
+            hideAllOrbitals: this.state.hideAllOrbitals,
+            fetchCubeFn: (fi, ok, ck, iso) => this.fetchCube(fi, ok, ck, iso)
         });
-    },
-
-    _buildXYZ(symbols, coords) {
-        const n = symbols.length;
-        let xyz = `${n}\nFrame\n`;
-        for (let i = 0; i < n; i++) {
-            const sym = symbols[i];
-            const [x, y, z] = coords[i];
-            xyz += `${sym} ${x.toFixed(6)} ${y.toFixed(6)} ${z.toFixed(6)}\n`;
-        }
-        return xyz;
-    },
-
-    drawPESChart() {
-        const canvas = document.getElementById('bundle-pes-canvas');
-        if (!canvas || !this.state.megajson) return;
-
-        const ctx = canvas.getContext('2d');
-        const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        ctx.scale(dpr, dpr);
-
-        const w = rect.width;
-        const h = rect.height;
-        const padLeft = 45;
-        const padRight = 15;
-        const padTop = 15;
-        const padBottom = 20;
-        const plotW = w - padLeft - padRight;
-        const plotH = h - padTop - padBottom;
-
-        const frames = this.state.megajson.frames || [];
-        if (!frames.length) return;
-
-        const energies = frames.map(f => f.energy_kcal !== undefined ? f.energy_kcal : (f.rel_energy_kcal || 0));
-        const minE = Math.min(...energies);
-        const maxE = Math.max(...energies);
-        const rangeE = (maxE - minE) > 1e-3 ? (maxE - minE) : 1.0;
-
-        const toX = (idx) => padLeft + (idx / (energies.length - 1)) * plotW;
-        const toY = (val) => padTop + plotH - ((val - minE) / rangeE) * plotH;
-
-        ctx.clearRect(0, 0, w, h);
-
-        // Grid lines
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-        ctx.lineWidth = 1;
-        for (let i = 0; i <= 4; i++) {
-            const y = padTop + (plotH / 4) * i;
-            ctx.beginPath();
-            ctx.moveTo(padLeft, y);
-            ctx.lineTo(padLeft + plotW, y);
-            ctx.stroke();
-
-            const eVal = maxE - (rangeE / 4) * i;
-            ctx.fillStyle = '#6b7280';
-            ctx.font = '10px Inter, sans-serif';
-            ctx.textAlign = 'right';
-            ctx.fillText(eVal.toFixed(1), padLeft - 6, y + 3);
-        }
-
-        // Reaction steps tint
-        const boundaries = this.state.megajson.step_boundaries || [];
-        boundaries.forEach((b, k) => {
-            const xStart = toX(b.start_frame);
-            const xEnd = toX(b.end_frame);
-            ctx.fillStyle = k % 2 === 0 ? 'rgba(59, 130, 246, 0.04)' : 'rgba(168, 85, 247, 0.04)';
-            ctx.fillRect(xStart, padTop, xEnd - xStart, plotH);
-        });
-
-        // PES curve
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        energies.forEach((val, i) => {
-            const x = toX(i);
-            const y = toY(val);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        });
-        ctx.strokeStyle = '#38bdf8';
-        ctx.stroke();
-
-        // Fill gradient
-        const grad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
-        grad.addColorStop(0, 'rgba(56, 189, 248, 0.2)');
-        grad.addColorStop(1, 'rgba(56, 189, 248, 0.0)');
-        ctx.lineTo(toX(energies.length - 1), toY(minE));
-        ctx.lineTo(toX(0), toY(minE));
-        ctx.closePath();
-        ctx.fillStyle = grad;
-        ctx.fill();
-
-        // TS markers
-        boundaries.forEach(b => {
-            const tsIdx = b.ts_frame;
-            if (tsIdx !== undefined && tsIdx < energies.length) {
-                const x = toX(tsIdx);
-                const y = toY(energies[tsIdx]);
-                ctx.fillStyle = '#f59e0b';
-                ctx.beginPath();
-                ctx.arc(x, y, 4, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-        });
-
-        // Active frame cursor
-        const activeX = toX(this.state.currentFrame);
-        const activeY = toY(energies[this.state.currentFrame]);
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(activeX, padTop);
-        ctx.lineTo(activeX, padTop + plotH);
-        ctx.stroke();
-
-        ctx.fillStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.arc(activeX, activeY, 4.5, 0, 2 * Math.PI);
-        ctx.fill();
-    },
-
-    setFrame(index, resetCamera = false) {
-        if (!this.state.megajson || !this.state.viewer) return;
-        const frames = this.state.megajson.frames || [];
-        if (index < 0 || index >= frames.length) return;
-
-        this.state.currentFrame = index;
-        const frame = frames[index];
-        const symbols = this.state.megajson.symbols;
-        const coords = frame.coords || frame.positions;
-
-        const xyz = this._buildXYZ(symbols, coords);
-        this.state.viewer.clear();
-        this.state.viewer.addModel(xyz, 'xyz');
-        this.state.viewer.setStyle({}, {
-            stick: { radius: 0.14, colorscheme: 'rasmol' },
-            sphere: { scale: 0.28, colorscheme: 'rasmol' }
-        });
-
-        // If orbitals enabled, overlay cube VolumeData or mesh for landmark frames
-        if (this.state.showOrbitals) {
-            const frameStr = String(index);
-            const orbName = this.state.activeOrbital;
-            const landmarkCubes = this.state.megajson.landmark_cubes || {};
-            const cubeKey = `${index}_${orbName}`;
-            const cubeText = landmarkCubes[cubeKey];
-
-            if (cubeText && typeof $3Dmol.VolumeData === 'function') {
-                try {
-                    const palettes = {
-                        'forming_bond': { pos: '#06b6d4', neg: '#f97316' },
-                        'carbonyl_pi': { pos: '#a855f7', neg: '#ec4899' },
-                        'leaving_group': { pos: '#10b981', neg: '#84cc16' },
-                        'LUMO': { pos: '#f59e0b', neg: '#fbbf24' },
-                        'HOMO': { pos: '#38bdf8', neg: '#60a5fa' }
-                    };
-                    const pal = palettes[orbName] || { pos: '#2979ff', neg: '#ff9100' };
-                    const vol = new $3Dmol.VolumeData(cubeText, 'cube');
-                    this.state.viewer.addIsosurface(vol, { isoval: 0.03, color: pal.pos, alpha: 0.75, smoothness: 1 });
-                    this.state.viewer.addIsosurface(vol, { isoval: -0.03, color: pal.neg, alpha: 0.75, smoothness: 1 });
-                } catch (e) {
-                    console.warn("VolumeData render error:", e);
-                }
-            } else {
-                const meshes = this.state.landmarkMeshes[frameStr];
-                if (meshes && meshes[orbName]) {
-                    const m = meshes[orbName];
-                    if (m.pos && (m.pos.vertexArr || m.pos.vertices)) {
-                        this.state.viewer.addCustom({
-                            vertexArr: m.pos.vertexArr || m.pos.vertices,
-                            faceArr: m.pos.faceArr || m.pos.faces,
-                            normalArr: m.pos.normalArr || undefined,
-                            color: $3Dmol.CC.color('#2979ff'),
-                            alpha: 0.75
-                        });
-                    }
-                    if (m.neg && (m.neg.vertexArr || m.neg.vertices)) {
-                        this.state.viewer.addCustom({
-                            vertexArr: m.neg.vertexArr || m.neg.vertices,
-                            faceArr: m.neg.faceArr || m.neg.faces,
-                            normalArr: m.neg.normalArr || undefined,
-                            color: $3Dmol.CC.color('#ff9100'),
-                            alpha: 0.75
-                        });
-                    }
-                }
-            }
-        }
-
-        if (resetCamera) {
-            this.state.viewer.zoomTo();
-        }
-        this.state.viewer.render();
-
-        // Update UI
-        const scrubber = document.getElementById('bundle-scrubber');
-        if (scrubber) scrubber.value = index;
-        const counter = document.getElementById('bundle-counter');
-        if (counter) counter.innerText = `${index + 1} / ${frames.length}`;
-        const badge = document.getElementById('bundle-status-badge');
-        if (badge) {
-            const stepNum = frame.step_index || 1;
-            const tsBadge = frame.is_ts ? ' [Transition State]' : '';
-            badge.innerText = `Frame ${index + 1} / ${frames.length} | Step ${stepNum}${tsBadge}`;
-        }
-        const eLabel = document.getElementById('bundle-pes-energy-label');
-        if (eLabel) {
-            const eVal = frame.energy_kcal !== undefined ? frame.energy_kcal : (frame.rel_energy_kcal || 0);
-            eLabel.innerText = `${eVal >= 0 ? '+' : ''}${eVal.toFixed(2)} kcal/mol`;
-        }
-
-        this.drawPESChart();
-    },
-
-    stepFrame(delta) {
-        this.pause();
-        const frames = this.state.megajson.frames || [];
-        const next = Math.max(0, Math.min(frames.length - 1, this.state.currentFrame + delta));
-        this.setFrame(next);
     },
 
     togglePlay() {
-        if (this.state.isPlaying) this.pause();
-        else this.play();
-    },
+        this.state.isPlaying = !this.state.isPlaying;
+        const btn = document.querySelector('#btn-bundle-play');
+        if (btn) btn.textContent = this.state.isPlaying ? '⏸ Pause' : '▶ Play';
 
-    play() {
-        const frames = this.state.megajson.frames || [];
-        if (this.state.currentFrame >= frames.length - 1) {
-            this.setFrame(0);
+        if (this.state.isPlaying) {
+            const total = this.state.megajson.frames.length;
+            this.state.playTimer = setInterval(() => {
+                if (this.state.currentFrame >= total - 1) this.seekFrame(0);
+                else this.seekFrame(this.state.currentFrame + 1);
+            }, 120);
+        } else {
+            clearInterval(this.state.playTimer);
         }
-
-        this.state.isPlaying = true;
-        const btn = document.getElementById('btn-bundle-play');
-        if (btn) btn.innerHTML = '⏸';
-
-        clearInterval(this.state.playTimer);
-        this.state.playTimer = setInterval(() => {
-            const next = this.state.currentFrame + 1;
-            if (next >= frames.length) {
-                this.pause();
-                return;
-            }
-            this.setFrame(next);
-        }, 100);
-    },
-
-    pause() {
-        this.state.isPlaying = false;
-        clearInterval(this.state.playTimer);
-        const btn = document.getElementById('btn-bundle-play');
-        if (btn) {
-            btn.innerHTML = `
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-            `;
-        }
-    },
-
-    async getData(uiSchema) {
-        return { completed: true };
     }
 };

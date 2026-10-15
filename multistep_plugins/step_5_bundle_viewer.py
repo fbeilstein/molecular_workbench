@@ -38,6 +38,7 @@ class Step5BundleViewer(PipelineStep):
             }
 
         frames = megajson.get("frames", [])
+        timeline = megajson.get("orbital_timeline") or current_state.get("step_4_orbitals", {}).get("orbital_timeline", {})
         return {
             "type": "bundle_viewer_ui",
             "has_megajson": True,
@@ -48,6 +49,7 @@ class Step5BundleViewer(PipelineStep):
             "overall_reaction_energy_kcal": megajson.get("overall_reaction_energy_kcal", 0.0),
             "energy_profile": megajson.get("energy_profile", {}),
             "symbols": megajson.get("symbols", []),
+            "orbital_timeline": timeline,
             "orbital_schedule": megajson.get("orbital_schedule", {}),
             "landmarks": current_state.get("step_4_orbitals", {}).get("landmarks", []),
             "message": "Synchronized 3D pathway, orbitals, and Free Energy profile ready for analysis and export."
@@ -140,6 +142,11 @@ class Step5BundleViewer(PipelineStep):
                 "filename": bundle_filename,
                 "size_bytes": len(zip_bytes)
             }
+
+        if action in ["get_cube", "get_orbital_mesh", "get_frame_orbitals", "batch_precompute_cubes"]:
+            from .step_4_orbitals import Step4Orbitals
+            s4 = Step4Orbitals()
+            return s4.custom_action(user_input, global_state)
 
         return {"error": f"Unknown action: {action}"}
 
