@@ -10,27 +10,14 @@ import { OrbitalsPrecompute } from './orbitals/orbitals_precompute.js';
 
 export const OrbitalsUI = {
     state: {
-        stepId: 'step_4_orbitals',
-        uiSchema: null,
-        totalFrames: 0,
-        currentFrame: 0,
-        isPlaying: false,
-        playTimer: null,
-        loadTimer: null,
-        hideAllOrbitals: false,
-        showCharges: false,
-        isovalue: 0.03,
-        viewer3D: null,
-        pool: null,
-        timeline: null,
-        precompute: null,
-        frameDataCache: {},
-        trajectory: []
+        stepId: 'step_4_orbitals', uiSchema: null, totalFrames: 0, currentFrame: 0,
+        isPlaying: false, playTimer: null, loadTimer: null, hideAllOrbitals: false,
+        showCharges: false, isovalue: 0.03, viewer3D: null, pool: null,
+        timeline: null, precompute: null, frameDataCache: {}, trajectory: []
     },
 
     async render(container, uiSchema, globalState, stepId) {
-        this.state.stepId = stepId;
-        this.state.uiSchema = uiSchema;
+        this.state.stepId = stepId; this.state.uiSchema = uiSchema;
         this.state.totalFrames = uiSchema.total_frames || 0;
         this.state.isovalue = uiSchema.default_isovalue || 0.03;
         this.state.trajectory = uiSchema.trajectory || [];
@@ -86,23 +73,13 @@ export const OrbitalsUI = {
             </div>
         `;
 
-        const statusEl = container.querySelector('#orbitals-status-label');
-        const canvasEl = container.querySelector('#orbitals-3d-canvas');
-        const poolEl = container.querySelector('#orbitals-pool-container');
-        const tlEl = container.querySelector('#orbitals-timeline-container');
-
-        this.state.viewer3D = new Orbitals3DViewer(canvasEl, statusEl);
+        this.state.viewer3D = new Orbitals3DViewer(container.querySelector('#orbitals-3d-canvas'), container.querySelector('#orbitals-status-label'));
         this.state.viewer3D.init();
+        this.state.pool = new OrbitalsPool(container.querySelector('#orbitals-pool-container'), (orb) => this.onAuditionOrbital(orb), (orb) => this.onAddToTimeline(orb));
 
-        this.state.pool = new OrbitalsPool(poolEl, (orb) => this.onAuditionOrbital(orb), (orb) => this.onAddToTimeline(orb));
-
-        this.state.timeline = new OrbitalsTimeline(tlEl, {
-            totalFrames: this.state.totalFrames,
-            currentFrame: this.state.currentFrame,
-            isovalue: this.state.isovalue,
-            onSeek: (f) => this.seekFrame(f),
-            onVisibilityChange: () => this.refreshViewer(),
-            onTimelineChange: (tl) => this.saveTimeline(tl)
+        this.state.timeline = new OrbitalsTimeline(container.querySelector('#orbitals-timeline-container'), {
+            totalFrames: this.state.totalFrames, currentFrame: this.state.currentFrame, isovalue: this.state.isovalue,
+            onSeek: (f) => this.seekFrame(f), onVisibilityChange: () => this.refreshViewer(), onTimelineChange: (tl) => this.saveTimeline(tl)
         });
         this.state.timeline.setTimelineData(uiSchema.timeline, this.state.totalFrames);
 
@@ -121,25 +98,19 @@ export const OrbitalsUI = {
 
         this.bindEvents(container);
         await this.loadFrameData(this.state.currentFrame);
+        this.preloadAllCachedCubes();
     },
 
     getPrecomputeTargets() {
         const targets = [];
-        if (this.state.timeline) {
-            for (const t of (this.state.timeline.getTimelineObject().tracks || [])) {
-                if (t.orbital_key && t.orbital_key !== 'track_esp_charge') targets.push({ orbital_key: t.orbital_key, chem_key: t.chem_key });
-            }
+        for (const t of (this.state.timeline?.getTimelineObject().tracks || [])) {
+            if (t.orbital_key && t.orbital_key !== 'track_esp_charge') targets.push({ orbital_key: t.orbital_key, chem_key: t.chem_key });
         }
-        if (this.state.pool) {
-            for (const a of this.state.pool.getAuditionedOrbitals()) {
-                const ok = a.key || a.orbital_key, ck = a.chem_key || ok;
-                if (!targets.some(t => t.orbital_key === ok)) targets.push({ orbital_key: ok, chem_key: ck });
-            }
+        for (const a of (this.state.pool?.getAuditionedOrbitals() || [])) {
+            const ok = a.key || a.orbital_key, ck = a.chem_key || ok;
+            if (!targets.some(t => t.orbital_key === ok)) targets.push({ orbital_key: ok, chem_key: ck });
         }
-        if (targets.length === 0) {
-            targets.push({ orbital_key: 'HOMO', chem_key: 'HOMO' }, { orbital_key: 'LUMO', chem_key: 'LUMO' });
-        }
-        return targets;
+        return targets.length ? targets : [{ orbital_key: 'HOMO', chem_key: 'HOMO' }, { orbital_key: 'LUMO', chem_key: 'LUMO' }];
     },
 
     bindEvents(container) {
@@ -163,10 +134,8 @@ export const OrbitalsUI = {
         container.querySelector('#btn-zoom-out')?.addEventListener('click', () => v3?.zoomOut());
         container.querySelector('#btn-zoom-fit')?.addEventListener('click', () => v3?.resetCamera());
         window.addEventListener('keydown', (e) => {
-            if (e.target && e.target.tagName === 'INPUT') return;
-            if (e.key === '+' || e.key === '=') v3?.zoomIn();
-            else if (e.key === '-' || e.key === '_') v3?.zoomOut();
-            else if (e.key === '0') v3?.resetCamera();
+            if (e.target?.tagName === 'INPUT') return;
+            if (e.key === '+' || e.key === '=') v3?.zoomIn(); else if (e.key === '-' || e.key === '_') v3?.zoomOut(); else if (e.key === '0') v3?.resetCamera();
         });
 
         container.querySelector('#pool-search-input').addEventListener('input', (e) => this.state.pool.setSearch(e.target.value));
@@ -181,8 +150,7 @@ export const OrbitalsUI = {
         if (!this.state.frameDataCache[frameIdx]) {
             try {
                 const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action_type: 'get_frame_orbitals', frame_index: frameIdx })
                 });
                 const data = await res.json();
@@ -205,14 +173,10 @@ export const OrbitalsUI = {
         return await res.json();
     },
 
-    async refreshViewer() {
-        const f = this.state.currentFrame, fd = this.state.frameDataCache[f];
-        const coords = (fd && fd.coords) || (this.state.trajectory && this.state.trajectory[f]);
-        if (!coords) return;
+    _getActiveOrbitals(f) {
         const muted = new Set(this.state.timeline ? this.state.timeline.getMutedOrbitalKeys() : []);
         const activeTracks = (this.state.timeline ? this.state.timeline.getActiveOrbitalsAtFrame(f) : []).filter(t => !muted.has(t.orbital_key) && !muted.has(t.chem_key));
         const auditioned = (this.state.pool ? this.state.pool.getAuditionedOrbitals() : []).filter(a => !muted.has(a.key) && !muted.has(a.chem_key));
-
         const merged = [...activeTracks];
         for (const a of auditioned) {
             const aKey = a.orbital_key || a.key, aChem = a.chem_key || aKey;
@@ -220,7 +184,14 @@ export const OrbitalsUI = {
                 merged.push({ id: 'audition_' + aKey, orbital_key: aKey, chem_key: aChem, title: a.label || aKey, color: a.color || '#06b6d4' });
             }
         }
+        return merged;
+    },
 
+    async refreshViewer() {
+        const f = this.state.currentFrame, fd = this.state.frameDataCache[f];
+        const coords = (fd && fd.coords) || (this.state.trajectory && this.state.trajectory[f]);
+        if (!coords) return;
+        const merged = this._getActiveOrbitals(f);
         const espActive = merged.some(t => t.orbital_key === 'track_esp_charge');
         const moTracks = merged.filter(t => t.orbital_key !== 'track_esp_charge');
 
@@ -242,13 +213,29 @@ export const OrbitalsUI = {
 
         const coords = (this.state.trajectory && this.state.trajectory[frameIdx]) || (this.state.frameDataCache[frameIdx] && this.state.frameDataCache[frameIdx].coords);
         if (coords) {
-            if (isPlayback) {
-                const muted = new Set(this.state.timeline ? this.state.timeline.getMutedOrbitalKeys() : []);
-                const activeTracks = (this.state.timeline ? this.state.timeline.getActiveOrbitalsAtFrame(frameIdx) : []).filter(t => !muted.has(t.orbital_key) && !muted.has(t.chem_key));
-                const auditioned = (this.state.pool ? this.state.pool.getAuditionedOrbitals() : []).filter(a => !muted.has(a.key) && !muted.has(a.chem_key));
-                this.state.viewer3D.renderFastFrame(this.state.uiSchema.symbols, coords, [...activeTracks, ...auditioned], this.state.isovalue, frameIdx);
-            } else {
-                this.state.viewer3D.renderMoleculeFast(this.state.uiSchema.symbols, coords);
+            const merged = this._getActiveOrbitals(frameIdx);
+            const fd = this.state.frameDataCache[frameIdx];
+            const espActive = merged.some(t => t.orbital_key === 'track_esp_charge');
+            const moTracks = this.state.hideAllOrbitals ? [] : merged.filter(t => t.orbital_key !== 'track_esp_charge');
+            this.state.viewer3D.renderFastFrame(
+                this.state.uiSchema.symbols, coords, moTracks, this.state.isovalue,
+                frameIdx, fd ? fd.charges : null, this.state.showCharges || espActive
+            );
+            for (const orb of moTracks) {
+                const ok = orb.orbital_key || orb.key || orb, ck = orb.chem_key || ok;
+                if (!this.state.viewer3D.cubeCache[`${frameIdx}_${ok}`]) {
+                    this.fetchCube(frameIdx, ok, ck, this.state.isovalue).then(res => {
+                        if (res && res.success && res.cube) {
+                            this.state.viewer3D.cubeCache[`${frameIdx}_${ok}`] = res.cube;
+                            if (this.state.currentFrame === frameIdx) {
+                                this.state.viewer3D.renderFastFrame(
+                                    this.state.uiSchema.symbols, coords, moTracks, this.state.isovalue,
+                                    frameIdx, fd ? fd.charges : null, this.state.showCharges || espActive
+                                );
+                            }
+                        }
+                    }).catch(() => {});
+                }
             }
         }
 
@@ -267,6 +254,7 @@ export const OrbitalsUI = {
         const btn = document.querySelector('#btn-play-pause');
         if (btn) btn.textContent = this.state.isPlaying ? '⏸ Pause' : '▶ Play';
         if (this.state.isPlaying) {
+            this.preloadAllCachedCubes();
             this.state.playTimer = setInterval(() => {
                 if (this.state.currentFrame >= this.state.totalFrames - 1) this.seekFrame(0, true);
                 else this.stepFrame(1);
@@ -277,12 +265,22 @@ export const OrbitalsUI = {
         }
     },
 
-    onAuditionOrbital() { this.refreshViewer(); },
+    preloadAllCachedCubes() {
+        if (this.state.precompute && this.state.viewer3D) {
+            this.state.precompute.preloadCached(
+                this.state.viewer3D.cubeCache, this.state.totalFrames,
+                (f) => { if (f.includes(this.state.currentFrame)) this.refreshViewer(); }
+            );
+        }
+    },
+
+    onAuditionOrbital() { this.refreshViewer(); this.preloadAllCachedCubes(); },
     onAddToTimeline(orbital) {
         if (this.state.timeline) {
             this.state.timeline.addTrack(orbital);
             if (this.state.pool && orbital) { this.state.pool.auditionKeys.delete(orbital.key); this.state.pool.render(); }
             this.refreshViewer();
+            this.preloadAllCachedCubes();
         }
     },
 

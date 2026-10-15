@@ -1,3 +1,4 @@
+import threading
 from typing import Any, Dict, List, Optional
 from rdkit import Chem
 from .base import PipelineStep, StepResult
@@ -6,6 +7,9 @@ from irc_plugins.ts_engine import orbital_engine
 _SCF_CACHE: Dict[int, Dict[str, Any]] = {}
 _GRID_CACHE: Dict[str, Any] = {}
 _CUBE_CACHE: Dict[str, str] = {}
+
+
+_CACHE_LOCK = threading.Lock()
 
 
 def _get_system_charge(megajson: Dict[str, Any]) -> int:
@@ -22,11 +26,11 @@ def _resolve_orbital_key(d: Dict[str, Any], orb_name: str, chem_key: str = None)
     if orb_name in d.get("vecs", {}):
         return orb_name
     all_metas = {**d.get("ibos_meta", {}), **d.get("canonical_pi_meta", {}), **d.get("antibonds_meta", {}), **d.get("meta", {})}
-    for target in [chem_key, orb_name]:
+    for target in [orb_name, chem_key]:
         if not target:
             continue
         for k, meta in all_metas.items():
-            if (meta.get("chem_key") == target or meta.get("name") == target) and k in d.get("vecs", {}):
+            if (meta.get("name") == target or meta.get("chem_key") == target) and k in d.get("vecs", {}):
                 return k
     return None
 
@@ -78,27 +82,47 @@ class Step4Orbitals(PipelineStep):
             _GRID_CACHE["lo"], _GRID_CACHE["step"], _GRID_CACHE["npts"] = orbital_engine.build_global_grid(all_pos, grid_points=32, margin_angstrom=2.5)
         return _GRID_CACHE["lo"], _GRID_CACHE["step"], _GRID_CACHE["npts"]
 
-    def _ensure_frame_computed(self, frame_idx: int, megajson: Dict[str, Any]):
-        if frame_idx in _SCF_CACHE:
-            return _SCF_CACHE[frame_idx]
+    def _compute_single_frame(self, fi: int, prev_data: Optional[Dict[str, Any]], megajson: Dict[str, Any]) -> Dict[str, Any]:
         symbols, charge = megajson["symbols"], _get_system_charge(megajson)
-        if 0 not in _SCF_CACHE:
-            mol0, mf0, mull0 = orbital_engine.compute_frame_scf(symbols, megajson["frames"][0]["coords"], charge=charge, spin=0)
-            ibos_m0, star_m0, ibos_v0, pops0, ibo_c0 = orbital_engine.compute_frame_ibos(mol0, mf0, symbols)
-            f_meta0, c_meta0, f_vecs0 = orbital_engine.extract_frontier_orbitals(mol0, mf0, None, None, ibos_m0, star_m0, ibos_v0)
-            n_core0 = len([k for k, v in ibos_m0.items() if v.get("type") == "core"])
-            _SCF_CACHE[0] = {"mol": mol0, "mf": mf0, "meta": f_meta0, "ibos_meta": ibos_m0, "antibonds_meta": star_m0, "canonical_pi_meta": c_meta0, "ibo_pops": pops0, "ibo_coeff": ibo_c0, "vecs": {**ibos_v0, **f_vecs0}, "charges": mull0, "n_core": n_core0}
+        coords = megajson["frames"][fi]["coords"]
+        mol, mf, mull = orbital_engine.compute_frame_scf(symbols, coords, charge=charge, spin=0)
+        if prev_data is None:
+            ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols)
+            f_meta, c_meta, f_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, None, None, ibos_m, star_m, ibos_v)
+            n_c = len([k for k, v in ibos_m.items() if v.get("type") == "core"])
+        else:
+            n_c = prev_data.get("n_core", 11)
+            ref_dict = {"mol": prev_data["mol"], "ibo_coeff": prev_data["ibo_coeff"], "n_core": n_c}
+            ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols, ref_dict)
+            f_meta, c_meta, f_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, prev_data["mol"], prev_data["vecs"], ibos_m, star_m, ibos_v)
+        frame_dict = {
+            "mol": mol, "mf": mf, "meta": f_meta, "ibos_meta": ibos_m,
+            "antibonds_meta": star_m, "canonical_pi_meta": c_meta,
+            "ibo_pops": pops, "ibo_coeff": ibo_c, "vecs": {**ibos_v, **f_vecs},
+            "charges": mull, "n_core": n_c
+        }
+        _SCF_CACHE[fi] = frame_dict
+        return frame_dict
+
+    def _ensure_frame_computed(self, frame_idx: int, megajson: Dict[str, Any]) -> Dict[str, Any]:
+        with _CACHE_LOCK:
+            if frame_idx in _SCF_CACHE:
+                return _SCF_CACHE[frame_idx]
+            if 0 not in _SCF_CACHE:
+                self._compute_single_frame(0, None, megajson)
             if frame_idx == 0:
                 return _SCF_CACHE[0]
 
-        ref_idx = min(_SCF_CACHE.keys(), key=lambda k: abs(k - frame_idx))
-        ref_data = _SCF_CACHE[ref_idx]
-        mol, mf, mull = orbital_engine.compute_frame_scf(symbols, megajson["frames"][frame_idx]["coords"], charge=charge, spin=0)
-        n_c = ref_data.get("n_core", 11)
-        ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols, {"mol": ref_data["mol"], "ibo_coeff": ref_data["ibo_coeff"], "n_core": n_c})
-        f_meta, c_meta, f_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, ref_data["mol"], ref_data["vecs"], ibos_m, star_m, ibos_v)
-        _SCF_CACHE[frame_idx] = {"mol": mol, "mf": mf, "meta": f_meta, "ibos_meta": ibos_m, "antibonds_meta": star_m, "canonical_pi_meta": c_meta, "ibo_pops": pops, "ibo_coeff": ibo_c, "vecs": {**ibos_v, **f_vecs}, "charges": mull, "n_core": n_c}
-        return _SCF_CACHE[frame_idx]
+            closest = min(_SCF_CACHE.keys(), key=lambda k: abs(k - frame_idx))
+            if closest < frame_idx:
+                for fi in range(closest + 1, frame_idx + 1):
+                    if fi not in _SCF_CACHE:
+                        self._compute_single_frame(fi, _SCF_CACHE[fi - 1], megajson)
+            elif closest > frame_idx:
+                for fi in range(closest - 1, frame_idx - 1, -1):
+                    if fi not in _SCF_CACHE:
+                        self._compute_single_frame(fi, _SCF_CACHE[fi + 1], megajson)
+            return _SCF_CACHE[frame_idx]
 
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         megajson = self._get_megajson(global_state or {})
@@ -109,6 +133,13 @@ class Step4Orbitals(PipelineStep):
         n_frames = len(megajson.get("frames", []))
         if frame_idx < 0 or frame_idx >= n_frames:
             return {"error": f"Frame {frame_idx} out of range"}
+
+        if action == "clear_cache":
+            with _CACHE_LOCK:
+                _SCF_CACHE.clear()
+                _CUBE_CACHE.clear()
+                _GRID_CACHE.clear()
+            return {"success": True, "message": "Orbital and cube caches cleared"}
 
         if action == "get_frame_orbitals":
             data = self._ensure_frame_computed(frame_idx, megajson)
@@ -143,16 +174,12 @@ class Step4Orbitals(PipelineStep):
                             _CUBE_CACHE[kr] = orbital_engine.generate_cube_text(f"F{fi}_{rk}", megajson["symbols"], megajson["frames"][fi]["coords"], v, lo, step, npts)
                         _CUBE_CACHE[f"{fi}_{ok}"] = _CUBE_CACHE[kr]
                         batch_cubes[f"{fi}_{ok}"] = _CUBE_CACHE[kr]
-                        if ck:
-                            _CUBE_CACHE[f"{fi}_{ck}"] = _CUBE_CACHE[kr]
-                            batch_cubes[f"{fi}_{ck}"] = _CUBE_CACHE[kr]
             return {"success": True, "start_frame": sf, "end_frame": ef, "total_frames": n_frames, "percent": int(round((ef + 1) / n_frames * 100)), "is_complete": bool(ef >= n_frames - 1), "cubes": batch_cubes}
 
         if action in ["get_orbital_mesh", "get_cube"]:
             ok, ck, iso = str(user_input.get("orbital", "HOMO")), user_input.get("chem_key"), float(user_input.get("isovalue", 0.03))
-            for k in [f"{frame_idx}_{ok}", f"{frame_idx}_{ck}" if ck else None]:
-                if k and k in _CUBE_CACHE:
-                    return {"success": True, "frame_index": frame_idx, "orbital": ok, "isovalue": iso, "cube": _CUBE_CACHE[k], "filename": f"{ok}_f{frame_idx}.cube", "coords": megajson["frames"][frame_idx]["coords"]}
+            if f"{frame_idx}_{ok}" in _CUBE_CACHE:
+                return {"success": True, "frame_index": frame_idx, "orbital": ok, "isovalue": iso, "cube": _CUBE_CACHE[f"{frame_idx}_{ok}"], "filename": f"{ok}_f{frame_idx}.cube", "coords": megajson["frames"][frame_idx]["coords"]}
             d = self._ensure_frame_computed(frame_idx, megajson)
             rk = _resolve_orbital_key(d, ok, ck)
             if not rk or rk not in d.get("vecs", {}):
@@ -163,9 +190,18 @@ class Step4Orbitals(PipelineStep):
                 v = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][rk], lo, step, npts)
                 _CUBE_CACHE[kr] = orbital_engine.generate_cube_text(f"F{frame_idx}_{rk}", megajson["symbols"], megajson["frames"][frame_idx]["coords"], v, lo, step, npts)
             _CUBE_CACHE[f"{frame_idx}_{ok}"] = _CUBE_CACHE[kr]
-            if ck:
-                _CUBE_CACHE[f"{frame_idx}_{ck}"] = _CUBE_CACHE[kr]
             return {"success": True, "frame_index": frame_idx, "orbital": ok, "isovalue": iso, "cube": _CUBE_CACHE[kr], "filename": f"{ok}_f{frame_idx}.cube", "coords": megajson["frames"][frame_idx]["coords"]}
+
+        if action == "get_cached_cubes":
+            frames = [int(x) for x in user_input.get("frames", [])]
+            tracks = user_input.get("tracks", [])
+            found = {}
+            for fi in frames:
+                for trk in tracks:
+                    ok = trk.get("orbital_key") if isinstance(trk, dict) else str(trk)
+                    if f"{fi}_{ok}" in _CUBE_CACHE:
+                        found[f"{fi}_{ok}"] = _CUBE_CACHE[f"{fi}_{ok}"]
+            return {"success": True, "cubes": found}
 
         return {"error": f"Unknown action: {action}"}
 

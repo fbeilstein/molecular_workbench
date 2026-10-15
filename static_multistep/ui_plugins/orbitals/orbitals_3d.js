@@ -11,6 +11,7 @@ export class Orbitals3DViewer {
         this.viewer = null;
         this.renderSeq = 0;
         this.cubeCache = {};
+        this.vdoCache = {};
         this.hasInitializedCamera = false;
         this.moleculeScale = 1.0;
     }
@@ -123,31 +124,53 @@ export class Orbitals3DViewer {
         }
     }
 
-    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx) {
+    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false) {
         if (!this.viewer || !symbols || !coords) return;
-        const atoms = this.viewer.selectedAtoms({});
-        if (atoms && atoms.length === coords.length) {
-            for (let i = 0; i < atoms.length; i++) {
-                atoms[i].x = coords[i][0];
-                atoms[i].y = coords[i][1];
-                atoms[i].z = coords[i][2];
+        this.viewer.clear();
+
+        const n = Math.min(symbols.length, coords.length);
+        let mdl = `${n}\nFrame Model\n`;
+        for (let i = 0; i < n; i++) {
+            const sym = symbols[i];
+            const [x, y, z] = coords[i];
+            mdl += `${sym} ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`;
+        }
+        this.viewer.addModel(mdl, 'xyz');
+        this.viewer.setStyle({}, {
+            stick: { radius: 0.14 * this.moleculeScale, colorscheme: 'Jmol' },
+            sphere: { scale: 0.28 * this.moleculeScale, colorscheme: 'Jmol' }
+        });
+
+        if (showCharges && charges && charges.length >= n) {
+            const atoms = this.viewer.selectedAtoms({});
+            for (let i = 0; i < atoms.length && i < charges.length; i++) {
+                atoms[i].partialCharge = charges[i] || 0.0;
             }
-            this.viewer.removeAllSurfaces();
-        } else {
-            this.renderMoleculeFast(symbols, coords);
+            this.viewer.addSurface($3Dmol.SurfaceType.VDW, {
+                opacity: 0.72,
+                colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
+            });
         }
 
         if (activeOrbitals && activeOrbitals.length > 0) {
             for (const orb of activeOrbitals) {
                 const orbKey = orb.orbital_key || orb.key || orb;
-                const cacheKey = `${frameIdx}_${orbKey}`;
-                const cubeData = this.cubeCache[cacheKey];
+                const cubeData = this.cubeCache[`${frameIdx}_${orbKey}`];
                 if (cubeData) {
-                    try {
-                        const vdo = new $3Dmol.VolumeData(cubeData, 'cube');
-                        this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: orb.color || '#06b6d4', opacity: 0.72 });
-                        this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: '#f43f5e', opacity: 0.72 });
-                    } catch (e) {}
+                    const vKey = `${frameIdx}_${orbKey}`;
+                    let vdo = this.vdoCache[vKey];
+                    if (!vdo) {
+                        try {
+                            vdo = new $3Dmol.VolumeData(cubeData, 'cube');
+                            this.vdoCache[vKey] = vdo;
+                        } catch (e) {}
+                    }
+                    if (vdo) {
+                        try {
+                            this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: orb.color || '#06b6d4', opacity: 0.72 });
+                            this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: '#f43f5e', opacity: 0.72 });
+                        } catch (e) {}
+                    }
                 }
             }
         }
@@ -203,11 +226,20 @@ export class Orbitals3DViewer {
             const color = orb.color || '#06b6d4';
             const cubeData = this.cubeCache[`${frameIdx}_${orbKey}`];
             if (cubeData) {
-                try {
-                    const vdo = new $3Dmol.VolumeData(cubeData, 'cube');
-                    this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: color, opacity: 0.72 });
-                    this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: '#f43f5e', opacity: 0.72 });
-                } catch (err) {}
+                const vKey = `${frameIdx}_${orbKey}`;
+                let vdo = this.vdoCache[vKey];
+                if (!vdo) {
+                    try {
+                        vdo = new $3Dmol.VolumeData(cubeData, 'cube');
+                        this.vdoCache[vKey] = vdo;
+                    } catch (err) {}
+                }
+                if (vdo) {
+                    try {
+                        this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: color, opacity: 0.72 });
+                        this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: '#f43f5e', opacity: 0.72 });
+                    } catch (err) {}
+                }
             }
         }
 
@@ -219,5 +251,6 @@ export class Orbitals3DViewer {
 
     clearCache() {
         this.cubeCache = {};
+        this.vdoCache = {};
     }
 }

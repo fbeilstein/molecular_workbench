@@ -75,6 +75,36 @@ export class OrbitalsPrecompute {
         }
     }
 
+    async preloadCached(cubeCache, totalFrames, onFrameLoaded) {
+        const targets = this.getTargetsFn ? this.getTargetsFn() : [];
+        if (!targets || targets.length === 0) return;
+        const batchSize = 35;
+        for (let start = 0; start < totalFrames; start += batchSize) {
+            const end = Math.min(totalFrames, start + batchSize), frames = [];
+            for (let i = start; i < end; i++) {
+                const need = targets.some(t => {
+                    const ok = t.orbital_key || t.key;
+                    return !cubeCache[`${i}_${ok}`];
+                });
+                if (need) frames.push(i);
+            }
+            if (frames.length > 0) {
+                try {
+                    const res = await fetch(`/api/step/${this.stepId}/custom`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action_type: 'get_cached_cubes', frames, tracks: targets })
+                    });
+                    const data = await res.json();
+                    if (data && data.success && data.cubes) {
+                        Object.assign(cubeCache, data.cubes);
+                        if (onFrameLoaded) onFrameLoaded(frames);
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+
     abort() {
         if (this.isPrecomputing) {
             this.abortFlag = true;
