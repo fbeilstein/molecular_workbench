@@ -10,11 +10,18 @@ export class Bundle3DViewer {
         this.statusEl = (options && options.nodeType) ? options : (options && options.statusEl) || null;
         this.viewer = null;
         this.renderSeq = 0;
+        this.meshCache = {};
         this.cubeCache = {};
         this.vdoCache = {};
         this.hasInitializedCamera = false;
         this.moleculeScale = 1.0;
         this.init();
+    }
+
+    clearCache() {
+        this.meshCache = {};
+        this.cubeCache = {};
+        this.vdoCache = {};
     }
 
     init() {
@@ -117,6 +124,65 @@ export class Bundle3DViewer {
         this.viewer.render();
     }
 
+    _drawOrbitalLayer(orb, frameIdx, isovalue) {
+        const orbKey = orb.orbital_key || orb.key || orb;
+        if (orbKey === 'track_esp_charge') return;
+        const pc = getPhaseColors(orb.color || '#06b6d4');
+        const mKey = `${frameIdx}_${orbKey}`;
+
+        // 1. Prefer precalculated 3D surface mesh (Direct WebGL vertex/face buffers)
+        const mesh = this.meshCache[mKey];
+        if (mesh) {
+            if (mesh.pos && mesh.pos.vertices && mesh.pos.faces) {
+                this.viewer.addCustom({
+                    vertexArr: mesh.pos.vertices,
+                    faceArr: mesh.pos.faces,
+                    normalArr: mesh.pos.normals || undefined,
+                    color: $3Dmol.CC.color(pc.pos),
+                    opacity: 0.72
+                });
+            }
+            if (mesh.neg && mesh.neg.vertices && mesh.neg.faces) {
+                this.viewer.addCustom({
+                    vertexArr: mesh.neg.vertices,
+                    faceArr: mesh.neg.faces,
+                    normalArr: mesh.neg.normals || undefined,
+                    color: $3Dmol.CC.color(pc.neg),
+                    opacity: 0.72
+                });
+            }
+            return;
+        }
+
+        // 2. Fallback to volumetric cube isosurface
+        const cubeData = this.cubeCache[mKey];
+        if (cubeData) {
+            let vdo = this.vdoCache[mKey];
+            if (!vdo) {
+                try {
+                    vdo = new $3Dmol.VolumeData(cubeData, 'cube');
+                    this.vdoCache[mKey] = vdo;
+                } catch (e) {}
+            }
+            if (vdo) {
+                try {
+                    this.viewer.addIsosurface(vdo, {
+                        isoval: Math.abs(isovalue),
+                        color: pc.pos,
+                        opacity: 0.72,
+                        wireframe: false
+                    });
+                    this.viewer.addIsosurface(vdo, {
+                        isoval: -Math.abs(isovalue),
+                        color: pc.neg,
+                        opacity: 0.72,
+                        wireframe: false
+                    });
+                } catch (e) {}
+            }
+        }
+    }
+
     renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false) {
         if (!this.viewer || !symbols || !coords) return;
         this.renderMolecule(symbols, coords, charges, showCharges);
@@ -128,36 +194,7 @@ export class Bundle3DViewer {
 
         if (activeOrbitals && activeOrbitals.length > 0) {
             for (const orb of activeOrbitals) {
-                const orbKey = orb.orbital_key || orb.key || orb;
-                if (orbKey === 'track_esp_charge') continue;
-                const cubeData = this.cubeCache[`${frameIdx}_${orbKey}`];
-                if (cubeData) {
-                    const vKey = `${frameIdx}_${orbKey}`;
-                    let vdo = this.vdoCache[vKey];
-                    if (!vdo) {
-                        try {
-                            vdo = new $3Dmol.VolumeData(cubeData, 'cube');
-                            this.vdoCache[vKey] = vdo;
-                        } catch (e) {}
-                    }
-                    if (vdo) {
-                        try {
-                            const pc = getPhaseColors(orb.color || '#06b6d4');
-                            this.viewer.addIsosurface(vdo, {
-                                isoval: Math.abs(isovalue),
-                                color: pc.pos,
-                                opacity: 0.72,
-                                wireframe: false
-                            });
-                            this.viewer.addIsosurface(vdo, {
-                                isoval: -Math.abs(isovalue),
-                                color: pc.neg,
-                                opacity: 0.72,
-                                wireframe: false
-                            });
-                        } catch (e) {}
-                    }
-                }
+                this._drawOrbitalLayer(orb, frameIdx, isovalue);
             }
         }
         this.viewer.render();
@@ -173,19 +210,26 @@ export class Bundle3DViewer {
         if (!this.viewer) return;
         const currentSeq = ++this.renderSeq;
 
-        // 1. Fetch missing orbital cubes in parallel (skip ESP pseudo-track)
+        // 1. Fetch missing orbital surfaces/cubes in parallel (skip ESP pseudo-track)
         const missing = [];
         if (!hideAllOrbitals && activeOrbitals && activeOrbitals.length > 0 && fetchCubeFn) {
             for (const orb of activeOrbitals) {
                 const orbKey = orb.orbital_key || orb.key || orb;
                 if (orbKey === 'track_esp_charge') continue;
                 const cacheKey = `${frameIdx}_${orbKey}`;
-                if (!this.cubeCache[cacheKey]) {
+                if (!this.meshCache[cacheKey] && !this.cubeCache[cacheKey]) {
                     missing.push(fetchCubeFn(frameIdx, orbKey, orb.chem_key || null, isovalue).then(res => {
-                        if (res && res.success && res.cube) this.cubeCache[cacheKey] = res.cube;
-                        else this.cubeCache[cacheKey] = null;
+                        if (res && res.success) {
+                            if (res.pos || res.neg) {
+                                this.meshCache[cacheKey] = { pos: res.pos, neg: res.neg };
+                            } else if (res.cube) {
+                                this.cubeCache[cacheKey] = res.cube;
+                            }
+                        } else {
+                            this.meshCache[cacheKey] = null;
+                        }
                     }).catch(() => {
-                        this.cubeCache[cacheKey] = null;
+                        this.meshCache[cacheKey] = null;
                     }));
                 }
             }
@@ -207,44 +251,10 @@ export class Bundle3DViewer {
             this.hasInitializedCamera = true;
         }
 
-        // 4. Render orbital isosurfaces from cached VolumeData
+        // 4. Render orbital layers (prefers surfaces)
         if (!hideAllOrbitals && activeOrbitals && activeOrbitals.length > 0) {
             for (const orb of activeOrbitals) {
-                const orbKey = orb.orbital_key || orb.key || orb;
-                if (orbKey === 'track_esp_charge') continue;
-                const color = orb.color || '#06b6d4';
-                const cubeData = this.cubeCache[`${frameIdx}_${orbKey}`];
-                if (cubeData) {
-                    const vKey = `${frameIdx}_${orbKey}`;
-                    let vdo = this.vdoCache[vKey];
-                    if (!vdo) {
-                        try {
-                            vdo = new $3Dmol.VolumeData(cubeData, 'cube');
-                            this.vdoCache[vKey] = vdo;
-                        } catch (e) {
-                            console.warn(`Error parsing VolumeData for ${orbKey}:`, e);
-                        }
-                    }
-                    if (vdo) {
-                        try {
-                            const pc = getPhaseColors(color);
-                            this.viewer.addIsosurface(vdo, {
-                                isoval: Math.abs(isovalue),
-                                color: pc.pos,
-                                opacity: 0.72,
-                                wireframe: false
-                            });
-                            this.viewer.addIsosurface(vdo, {
-                                isoval: -Math.abs(isovalue),
-                                color: pc.neg,
-                                opacity: 0.72,
-                                wireframe: false
-                            });
-                        } catch (err) {
-                            console.warn(`Error drawing isosurface for ${orbKey}:`, err);
-                        }
-                    }
-                }
+                this._drawOrbitalLayer(orb, frameIdx, isovalue);
             }
         }
 

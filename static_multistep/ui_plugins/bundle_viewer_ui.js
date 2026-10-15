@@ -2,12 +2,12 @@
  * Step 5: Master Multistep Reaction Studio & Viewer facade.
  */
 
-import { Bundle3DViewer } from './bundle/bundle_3d.js?v=2.0.3';
+import { Bundle3DViewer } from './bundle/bundle_3d.js?v=2.0.5';
 import { BundlePesChart } from './bundle/bundle_pes.js?v=2.0.3';
 import { SvgMechanismManager } from './bundle/bundle_svg.js?v=2.0.4';
 import { BundleHighresManager } from './bundle/bundle_highres.js?v=2.0.3';
 import { BundleMoleculeModal } from './bundle/bundle_molecule_modal.js';
-import { exportMultiModelXyz, exportMaxCompBundleZip } from './bundle/bundle_export.js';
+import { exportMultiModelXyz, exportMaxCompBundleZip, purgeTemporaryCubes } from './bundle/bundle_export.js';
 import { BundleTransportController } from './bundle/bundle_transport.js?v=2.0.4';
 import { BundleWiringManager } from './bundle/bundle_wiring_ui.js';
 import { renderOrbitalTracksSidebar } from './bundle/bundle_orbital_panel.js';
@@ -246,6 +246,7 @@ export const BundleViewerUI = {
 
         container.querySelector('#btn-export-bundle-zip').addEventListener('click', () => exportMaxCompBundleZip(this.state.stepId));
         container.querySelector('#btn-export-xyz').addEventListener('click', () => exportMultiModelXyz(this.state.megajson));
+        container.querySelector('#btn-purge-cubes')?.addEventListener('click', () => purgeTemporaryCubes(this.state.stepId));
 
         container.querySelector('#btn-bundle-zoom-in')?.addEventListener('click', () => this.state.viewer3D?.zoomIn());
         container.querySelector('#btn-bundle-zoom-out')?.addEventListener('click', () => this.state.viewer3D?.zoomOut());
@@ -272,7 +273,7 @@ export const BundleViewerUI = {
             const end = Math.min(total, start + batchSize);
             const frames = [];
             for (let i = start; i < end; i++) {
-                const need = targets.some(t => !this.state.viewer3D.cubeCache[`${i}_${t.orbital_key}`]);
+                const need = targets.some(t => !this.state.viewer3D.meshCache[`${i}_${t.orbital_key}`] && !this.state.viewer3D.cubeCache[`${i}_${t.orbital_key}`]);
                 if (need) frames.push(i);
             }
             if (frames.length > 0) {
@@ -280,14 +281,13 @@ export const BundleViewerUI = {
                     const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action_type: 'get_cached_cubes', frames, tracks: targets })
+                        body: JSON.stringify({ action_type: 'get_cached_meshes', frames, tracks: targets, isovalue: this.state.isovalue })
                     });
                     const d = await res.json();
-                    if (d && d.success && d.cubes) {
-                        Object.assign(this.state.viewer3D.cubeCache, d.cubes);
-                        if (frames.includes(this.state.currentFrame)) {
-                            this.refreshViewer();
-                        }
+                    if (d && d.success) {
+                        if (d.meshes) Object.assign(this.state.viewer3D.meshCache, d.meshes);
+                        if (d.cubes) Object.assign(this.state.viewer3D.cubeCache, d.cubes);
+                        if (frames.includes(this.state.currentFrame)) this.refreshViewer();
                     }
                 } catch (e) {}
             }
@@ -299,7 +299,7 @@ export const BundleViewerUI = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                action_type: 'get_cube',
+                action_type: 'get_orbital_mesh',
                 frame_index: frameIdx,
                 orbital: orbKey,
                 chem_key: chemKey,
@@ -334,10 +334,15 @@ export const BundleViewerUI = {
         for (const orb of moTracks) {
             const ok = orb.orbital_key || orb.key || orb;
             const ck = orb.chem_key || ok;
-            if (!this.state.viewer3D.cubeCache[`${f}_${ok}`]) {
+            const hasData = this.state.viewer3D.meshCache[`${f}_${ok}`] || this.state.viewer3D.cubeCache[`${f}_${ok}`];
+            if (!hasData) {
                 this.fetchCube(f, ok, ck, this.state.isovalue).then(res => {
-                    if (res && res.success && res.cube) {
-                        this.state.viewer3D.cubeCache[`${f}_${ok}`] = res.cube;
+                    if (res && res.success) {
+                        if (res.pos || res.neg) {
+                            this.state.viewer3D.meshCache[`${f}_${ok}`] = { pos: res.pos, neg: res.neg };
+                        } else if (res.cube) {
+                            this.state.viewer3D.cubeCache[`${f}_${ok}`] = res.cube;
+                        }
                         if (this.state.currentFrame === f) {
                             this.state.viewer3D.renderFastFrame(
                                 this.state.megajson.symbols,
@@ -365,7 +370,7 @@ export const BundleViewerUI = {
         this.state.orbitalResolution = newResolution;
         const badge = document.querySelector('#badge-orbital-res');
         if (badge) badge.textContent = `Grid: ${newResolution}³ (High-Res)`;
-        if (this.state.viewer3D) this.state.viewer3D.cubeCache = {};
+        if (this.state.viewer3D) this.state.viewer3D.clearCache();
         this.refreshViewer();
     },
 

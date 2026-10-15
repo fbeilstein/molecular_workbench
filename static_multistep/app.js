@@ -2,7 +2,7 @@ import { ChooseJSONsUI } from './ui_plugins/choose_jsons_ui.js';
 import { StitchAlignUI } from './ui_plugins/stitch_align_ui.js';
 import { EnergyStitchUI } from './ui_plugins/energy_stitch_ui.js';
 import { OrbitalsUI } from './ui_plugins/orbitals_ui.js';
-import { BundleViewerUI } from './ui_plugins/bundle_viewer_ui.js?v=2.0.4';
+import { BundleViewerUI } from './ui_plugins/bundle_viewer_ui.js?v=2.0.5';
 
 const UIRegistry = {
     'choose_jsons_ui': ChooseJSONsUI,

@@ -13,6 +13,7 @@ from .packager import (
     build_bundle_manifest,
     create_maxcomp_bundle_zip,
     unpack_molecule_bundle,
+    purge_cube_files,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "build_bundle_manifest",
     "create_maxcomp_bundle_zip",
     "unpack_molecule_bundle",
+    "purge_cube_files",
 ]

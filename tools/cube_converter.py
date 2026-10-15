@@ -11,8 +11,11 @@ class CubeConverter:
     
     @staticmethod
     def read_cube(filepath):
-        with open(filepath, 'r') as f:
-            lines = f.readlines()
+        if isinstance(filepath, str) and '\n' in filepath:
+            lines = filepath.splitlines(keepends=True)
+        else:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
             
         natoms_line = lines[2].split()
         natoms = int(natoms_line[0])

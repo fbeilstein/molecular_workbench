@@ -115,7 +115,7 @@ function showRepackSuccessModal(filename, sizeMb, origMb, ratioPct) {
                     📦 Includes:
                     <ul style="margin-left: 1.2rem; margin-top: 0.3rem;">
                         <li>Standalone zero-dependency HTML viewer (<code>index.html</code>)</li>
-                        <li>High-resolution volumetric wavefunction cubes (<code>orbitals/</code>)</li>
+                        <li>Lightweight 3D orbital surface meshes (<code>orbitals/*_pos.json</code>, <code>*_neg.json</code>)</li>
                         <li>Reaction mechanism SVG & dynamic wiring (<code>mechanism.svg</code>, <code>svg_wiring.json</code>)</li>
                         <li>Trajectory JSON & Multi-model XYZ</li>
                     </ul>
@@ -128,3 +128,31 @@ function showRepackSuccessModal(filename, sizeMb, origMb, ratioPct) {
     `;
     document.body.appendChild(modal);
 }
+
+export async function purgeTemporaryCubes(stepId = 'step_5_bundle_viewer') {
+    const btn = document.getElementById('btn-purge-cubes');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch(`/api/step/${stepId}/custom`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action_type: 'purge_cubes' })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (btn) {
+                btn.textContent = `✓ Purged (${data.purged})`;
+                btn.style.color = '#10b981';
+                btn.style.borderColor = 'rgba(16,185,129,0.4)';
+            }
+            alert(`Successfully purged ${data.purged} temporary cube files. Disk space freed!`);
+        } else {
+            alert('Purge error: ' + (data.error || 'Unknown error'));
+            if (btn) btn.disabled = false;
+        }
+    } catch (e) {
+        alert('Purge failed: ' + e.message);
+        if (btn) btn.disabled = false;
+    }
+}
+

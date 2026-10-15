@@ -13,6 +13,30 @@ STANDALONE_JS = """
         const viewerEl = document.getElementById('viewer3d');
         const viewer = $3Dmol.createViewer(viewerEl, { backgroundColor: '#090d16' });
         let hasCamInit = false;
+        const meshCache = {};
+        let activeOrbitalKey = null;
+        if (MEGDATA.orbital_timeline && MEGDATA.orbital_timeline.tracks && MEGDATA.orbital_timeline.tracks.length > 0) {
+            activeOrbitalKey = MEGDATA.orbital_timeline.tracks[0].orbital_key;
+        } else if (MEGDATA.orbital_surfaces && MEGDATA.orbital_surfaces.length > 0) {
+            const firstKey = MEGDATA.orbital_surfaces[0];
+            const parts = firstKey.split('_');
+            if (parts.length > 1) activeOrbitalKey = parts.slice(1).join('_');
+        }
+
+        async function loadOrbitalMesh(orbKey, frameIdx) {
+            const key = `${frameIdx}_${orbKey}`;
+            if (meshCache[key]) return meshCache[key];
+            try {
+                const [posRes, negRes] = await Promise.all([
+                    fetch(`orbitals/${key}_pos.json`).then(r => r.ok ? r.json() : null),
+                    fetch(`orbitals/${key}_neg.json`).then(r => r.ok ? r.json() : null)
+                ]);
+                meshCache[key] = { pos: posRes, neg: negRes };
+                return meshCache[key];
+            } catch (e) {
+                return null;
+            }
+        }
 
         function renderFrame(f) {
             curFrame = f;
@@ -36,18 +60,34 @@ STANDALONE_JS = """
                     sphere: { scale: 0.28, colorscheme: 'Jmol' }
                 });
 
-                // Display selected active highres orbital if present
-                if (frame.orbitals && frame.orbitals.active_cube) {
-                    viewer.addVolumetricData(frame.orbitals.active_cube, "cube", {
-                        isoval: 0.035,
-                        color: "#38bdf8",
-                        opacity: 0.8
-                    });
-                    viewer.addVolumetricData(frame.orbitals.active_cube, "cube", {
-                        isoval: -0.035,
-                        color: "#ef4444",
-                        opacity: 0.8
-                    });
+                // Display active orbital surface mesh if selected
+                if (activeOrbitalKey) {
+                    const mKey = `${f}_${activeOrbitalKey}`;
+                    const m = meshCache[mKey];
+                    if (m) {
+                        if (m.pos && m.pos.vertices) {
+                            viewer.addCustom({
+                                vertexArr: m.pos.vertices,
+                                faceArr: m.pos.faces,
+                                normalArr: m.pos.normals || undefined,
+                                color: $3Dmol.CC.color('#38bdf8'),
+                                opacity: 0.75
+                            });
+                        }
+                        if (m.neg && m.neg.vertices) {
+                            viewer.addCustom({
+                                vertexArr: m.neg.vertices,
+                                faceArr: m.neg.faces,
+                                normalArr: m.neg.normals || undefined,
+                                color: $3Dmol.CC.color('#ef4444'),
+                                opacity: 0.75
+                            });
+                        }
+                    } else {
+                        loadOrbitalMesh(activeOrbitalKey, f).then(res => {
+                            if (res && curFrame === f) renderFrame(f);
+                        });
+                    }
                 }
 
                 if (!hasCamInit) {

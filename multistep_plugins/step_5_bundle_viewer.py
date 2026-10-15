@@ -1,6 +1,8 @@
 import json
 import os
-from typing import Any, Dict
+import sys
+import zipfile
+from typing import Any, Dict, Optional, Tuple
 from .base import PipelineStep, StepResult
 from .step_4_orbitals import Step4Orbitals
 from .bundle_utils import (
@@ -9,7 +11,56 @@ from .bundle_utils import (
     generate_xyz,
     create_maxcomp_bundle_zip,
     unpack_molecule_bundle,
+    purge_cube_files,
 )
+
+_SURFACE_CACHE: Dict[str, Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]] = {}
+
+
+def _get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: Dict[str, Any]):
+    cache_key = f"{frame_idx}_{ok}_{iso}"
+    if cache_key in _SURFACE_CACHE:
+        return _SURFACE_CACHE[cache_key]
+
+    # 1. Try reading precomputed surface from maxcomp bundle zip
+    bundle_zip = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static_multistep", "bundles", "multistep_reaction_bundle_maxcomp.zip")
+    if os.path.exists(bundle_zip):
+        try:
+            with zipfile.ZipFile(bundle_zip, "r") as zf:
+                p_fn = f"orbitals/{frame_idx}_{ok}_pos.json"
+                n_fn = f"orbitals/{frame_idx}_{ok}_neg.json"
+                pos = json.loads(zf.read(p_fn).decode("utf-8")) if p_fn in zf.namelist() else None
+                neg = json.loads(zf.read(n_fn).decode("utf-8")) if n_fn in zf.namelist() else None
+                if pos or neg:
+                    _SURFACE_CACHE[cache_key] = (pos, neg)
+                    return pos, neg
+        except Exception:
+            pass
+
+    # 2. Try extracting from available cube
+    cube_text = get_cached_highres_cube(frame_idx, ok, megajson)
+    if not cube_text:
+        try:
+            from .step_4_orbitals import _CUBE_CACHE
+            cube_text = _CUBE_CACHE.get(f"{frame_idx}_{ok}")
+        except Exception:
+            pass
+
+    if cube_text:
+        try:
+            TOOLS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "tools"))
+            if TOOLS_DIR not in sys.path:
+                sys.path.insert(0, TOOLS_DIR)
+            from cube_converter import CubeConverter
+            vol, origin, step = CubeConverter.read_cube(cube_text)
+            pos = CubeConverter.extract_mesh(vol, origin, step, iso)
+            neg = CubeConverter.extract_mesh(vol, origin, step, -iso)
+            _SURFACE_CACHE[cache_key] = (pos, neg)
+            return pos, neg
+        except Exception as e:
+            print(f"[Step5] Warning: mesh extraction failed for {frame_idx}_{ok}: {e}")
+
+    return None, None
 
 
 def _save_state_to_file(global_state: Dict[str, Any]):
@@ -117,11 +168,24 @@ class Step5BundleViewer(PipelineStep):
             _save_state_to_file(global_state)
             return res
 
-        # 2. Orbital Cube Retrieval (Checks high-res first, then Step 4 standard)
+        # 2. Orbital Surface Mesh / Cube Retrieval (Prefers precomputed lightweight meshes)
         if action in ["get_cube", "get_orbital_mesh"]:
             frame_idx = int(user_input.get("frame_index", 0))
             ok = str(user_input.get("orbital", "HOMO"))
             iso = float(user_input.get("isovalue", 0.03))
+
+            pos, neg = _get_or_extract_surface_mesh(frame_idx, ok, iso, megajson)
+            if pos or neg:
+                return {
+                    "success": True,
+                    "frame_index": frame_idx,
+                    "orbital": ok,
+                    "isovalue": iso,
+                    "is_mesh": True,
+                    "pos": pos,
+                    "neg": neg,
+                    "coords": megajson["frames"][frame_idx]["coords"]
+                }
 
             highres_cube = get_cached_highres_cube(frame_idx, ok, megajson)
             if highres_cube:
@@ -139,13 +203,27 @@ class Step5BundleViewer(PipelineStep):
             s4 = Step4Orbitals()
             return s4.custom_action(user_input, global_state)
 
-        if action == "get_cached_cubes":
+        if action in ["get_cached_cubes", "get_cached_meshes"]:
+            frames = [int(x) for x in user_input.get("frames", [])]
+            tracks = user_input.get("tracks", [])
+            iso = float(user_input.get("isovalue", 0.03))
+            meshes = {}
+            for fi in frames:
+                for trk in tracks:
+                    ok = trk.get("orbital_key") if isinstance(trk, dict) else str(trk)
+                    if ok == "track_esp_charge":
+                        continue
+                    pos, neg = _get_or_extract_surface_mesh(fi, ok, iso, megajson)
+                    if pos or neg:
+                        meshes[f"{fi}_{ok}"] = {"pos": pos, "neg": neg}
+
+            if meshes:
+                return {"success": True, "meshes": meshes, "is_mesh": True}
+
             s4 = Step4Orbitals()
             res = s4.custom_action(user_input, global_state)
             if isinstance(res, dict) and res.get("success"):
                 cubes = res.setdefault("cubes", {})
-                frames = [int(x) for x in user_input.get("frames", [])]
-                tracks = user_input.get("tracks", [])
                 for fi in frames:
                     for trk in tracks:
                         ok = trk.get("orbital_key") if isinstance(trk, dict) else str(trk)
@@ -237,6 +315,12 @@ class Step5BundleViewer(PipelineStep):
                 "uncompressed_bytes": uncompressed_bytes,
                 "compression_ratio_pct": round(ratio, 1)
             }
+
+        if action == "purge_cubes":
+            purged = purge_cube_files()
+            megajson.pop("highres_cubes", None)
+            _save_state_to_file(global_state)
+            return {"success": True, "purged": purged}
 
         if action == "get_xyz":
             return {"success": True, "xyz": generate_xyz(megajson), "filename": "multistep_pathway.xyz"}

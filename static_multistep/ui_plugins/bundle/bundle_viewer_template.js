@@ -33,6 +33,9 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                         Export Bundle (.zip)
                     </button>
                     <button id="btn-export-xyz" class="btn btn-secondary btn-sm">Multi-Model XYZ</button>
+                    <button id="btn-purge-cubes" class="btn btn-secondary btn-sm" style="color: #f87171; border-color: rgba(248,113,113,0.4);" title="Delete temporary .cube files to free up disk space">
+                        <span>🗑 Purge Cubes</span>
+                    </button>
                 </div>
             </div>
 
