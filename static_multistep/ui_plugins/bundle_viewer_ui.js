@@ -2,9 +2,9 @@
  * Step 5: Master Multistep Reaction Studio & Viewer facade.
  */
 
-import { Bundle3DViewer } from './bundle/bundle_3d.js?v=2.0.1';
-import { BundlePesChart } from './bundle/bundle_pes.js?v=2.0.1';
-import { SvgMechanismManager } from './bundle/bundle_svg.js?v=2.0.1';
+import { Bundle3DViewer } from './bundle/bundle_3d.js?v=2.0.2';
+import { BundlePesChart } from './bundle/bundle_pes.js?v=2.0.2';
+import { SvgMechanismManager } from './bundle/bundle_svg.js?v=2.0.2';
 import { BundleHighresManager } from './bundle/bundle_highres.js';
 import { BundleMoleculeModal } from './bundle/bundle_molecule_modal.js';
 import { exportMultiModelXyz, exportMaxCompBundleZip } from './bundle/bundle_export.js';

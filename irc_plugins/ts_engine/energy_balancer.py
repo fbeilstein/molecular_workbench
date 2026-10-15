@@ -202,13 +202,8 @@ def balance_pathway_energies(
             for idx in range(start, end + 1):
                 pos = np.array(master_frames[idx]["positions"])
                 d_val = float(np.linalg.norm(pos[bi] - pos[bj]))
-                if d_val >= 2.6:
-                    w_coul = _smoothstep((d_val - 2.6) / (3.5 - 2.6))
-                    g_val = active_e[idx] + delta_g_assoc * _smoothstep((3.5 - d_val) / (3.5 - 2.0))
-                    val = (1.0 - w_coul) * g_val + w_coul * active_e[start]
-                    balanced_ev[idx] = max(active_e[start], val) + s_offset
-                else:
-                    balanced_ev[idx] = active_e[idx] + delta_g_assoc + s_offset
+                assoc_w = _smoothstep((3.5 - d_val) / (3.5 - 2.0))
+                balanced_ev[idx] = active_e[idx] + delta_g_assoc * assoc_w + s_offset
 
         # Case B: Dissociative Step (leaving group departs)
         elif leaving_frags and breaking_bonds:

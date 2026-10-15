@@ -5,9 +5,9 @@
 import { getEspColor, getPhaseColors } from '../orbitals/orbitals_types.js';
 
 export class Bundle3DViewer {
-    constructor(containerEl, statusEl) {
+    constructor(containerEl, options = {}) {
         this.containerEl = containerEl;
-        this.statusEl = statusEl;
+        this.statusEl = (options && options.nodeType) ? options : (options && options.statusEl) || null;
         this.viewer = null;
         this.renderSeq = 0;
         this.cubeCache = {};
@@ -25,7 +25,7 @@ export class Bundle3DViewer {
         }
         this.viewer = $3Dmol.createViewer(this.containerEl, {
             backgroundColor: '#090d16',
-            id: 'bundle-3dmol-canvas'
+            defaultcolors: $3Dmol.rasmolElementColors
         });
 
         this.containerEl.addEventListener('wheel', (e) => {
@@ -59,15 +59,15 @@ export class Bundle3DViewer {
         this.moleculeScale = Math.max(0.4, Math.min(3.0, scale));
         if (this.viewer) {
             this.viewer.setStyle({}, {
-                stick: { radius: 0.14 * this.moleculeScale, colorscheme: 'Jmol' },
-                sphere: { scale: 0.28 * this.moleculeScale, colorscheme: 'Jmol' }
+                stick: { radius: 0.14 * this.moleculeScale },
+                sphere: { scale: 0.28 * this.moleculeScale }
             });
             this.viewer.render();
         }
     }
 
     setStatus(text, isError = false) {
-        if (!this.statusEl) return;
+        if (!this.statusEl || !this.statusEl.style) return;
         this.statusEl.textContent = text;
         this.statusEl.style.color = isError ? '#f87171' : '#94a3b8';
     }
@@ -86,20 +86,14 @@ export class Bundle3DViewer {
 
         this.viewer.addModel(mdl, 'xyz');
         this.viewer.setStyle({}, {
-            stick: { radius: 0.14 * this.moleculeScale, colorscheme: 'Jmol' },
-            sphere: { scale: 0.28 * this.moleculeScale, colorscheme: 'Jmol' }
+            stick: { radius: 0.14 * this.moleculeScale },
+            sphere: { scale: 0.28 * this.moleculeScale }
         });
 
         if (showCharges && charges && charges.length >= n) {
             for (let i = 0; i < n; i++) {
                 const q = charges[i];
                 const [x, y, z] = coords[i];
-                this.viewer.addSphere({
-                    center: { x, y, z },
-                    radius: 0.55 * this.moleculeScale,
-                    color: getEspColor(q),
-                    opacity: 0.55
-                });
                 this.viewer.addLabel(`${symbols[i]}: ${q > 0 ? '+' : ''}${q.toFixed(2)}`, {
                     position: { x, y: y + 0.35, z },
                     fontSize: 10,
@@ -108,6 +102,7 @@ export class Bundle3DViewer {
                 });
             }
         }
+        this.viewer.render();
     }
 
     async renderScene(options) {
@@ -126,6 +121,7 @@ export class Bundle3DViewer {
         // 2. Only zoomTo on first render or explicit reset
         if (!this.hasInitializedCamera || resetCamera) {
             this.viewer.zoomTo();
+            this.viewer.render();
             this.hasInitializedCamera = true;
         }
 

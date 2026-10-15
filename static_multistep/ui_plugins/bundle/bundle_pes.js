@@ -113,7 +113,8 @@ export class BundlePesChart {
 
         // Draw current frame cursor line
         const curX = getX(this.currentFrame);
-        const curY = getY(this.energies[this.currentFrame] || minE);
+        const curEnergy = this.energies[this.currentFrame] !== undefined ? this.energies[this.currentFrame] : minE;
+        const curY = getY(curEnergy);
         ctx.beginPath();
         ctx.moveTo(curX, padY / 2);
         ctx.lineTo(curX, h - padY / 2);
@@ -133,7 +134,7 @@ export class BundlePesChart {
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 11px Inter, sans-serif';
         ctx.textAlign = curX > w - 80 ? 'right' : 'left';
-        const eVal = (this.energies[this.currentFrame] || 0).toFixed(1);
+        const eVal = (this.energies[this.currentFrame] !== undefined ? this.energies[this.currentFrame] : 0.0).toFixed(1);
         ctx.fillText(`${eVal} kcal/mol`, curX > w - 80 ? curX - 8 : curX + 8, curY);
     }
 }
