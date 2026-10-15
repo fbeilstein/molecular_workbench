@@ -16,8 +16,12 @@ def generate_xyz(megajson: Dict[str, Any]) -> str:
     lines = []
     for f_idx, frame in enumerate(frames):
         coords = frame.get("coords", frame.get("positions", []))
-        energy = frame.get("rel_energy_kcal", frame.get("energy_kcal", 0.0))
         step_idx = frame.get("step_index", 0)
+        energy = frame.get("rel_energy_kcal")
+        if energy is None:
+            energy = frame.get("energy_kcal")
+        if energy is None:
+            energy = 0.0
         lines.append(f"{n_atoms}")
         lines.append(f"Frame {f_idx} | Step {step_idx} | Relative Free Energy: {energy:.2f} kcal/mol")
         for sym, pos in zip(symbols, coords):
@@ -87,7 +91,7 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
         len(standalone_html.encode("utf-8"))
     )
 
-    with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+    with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
         zf.writestr("bundle.json", json.dumps(manifest, indent=2))
         zf.writestr("multistep_pathway.xyz", xyz_content)
         zf.writestr("multistep_pathway.json", json_content)
@@ -109,23 +113,19 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
         # Store all high-resolution cubes
         highres_cubes = megajson.get("highres_cubes", {})
         for key, val in highres_cubes.items():
-            cube_text = None
+            fn = f"orbitals/{key}.cube"
             if key in _HIGHRES_CUBE_CACHE:
                 cube_text = _HIGHRES_CUBE_CACHE[key]
+                zf.writestr(fn, cube_text)
+                uncompressed_bytes += len(cube_text.encode("utf-8"))
             elif isinstance(val, str) and "\n" in val:
-                cube_text = val
+                zf.writestr(fn, val)
+                uncompressed_bytes += len(val.encode("utf-8"))
             else:
                 cube_file = os.path.join(CUBE_DIR, f"{key}.cube")
                 if os.path.exists(cube_file):
-                    try:
-                        with open(cube_file, "r", encoding="utf-8") as f:
-                            cube_text = f.read()
-                    except Exception:
-                        pass
-            if cube_text:
-                fn = f"orbitals/{key}.cube"
-                zf.writestr(fn, cube_text)
-                uncompressed_bytes += len(cube_text.encode("utf-8"))
+                    zf.write(cube_file, arcname=fn)
+                    uncompressed_bytes += os.path.getsize(cube_file)
 
         # Also store any cached cubes from _HIGHRES_CUBE_CACHE
         for k, cube_text in _HIGHRES_CUBE_CACHE.items():

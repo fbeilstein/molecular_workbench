@@ -63,22 +63,28 @@ export class BundleTransportController {
         this.pause();
         this.setDirection(direction);
 
-        const sf = Math.max(0, startFrame);
-        const ef = Math.min(this.state.megajson.frames.length - 1, endFrame);
+        const total = (this.state.megajson && this.state.megajson.frames) ? this.state.megajson.frames.length : 147;
+        const f1 = Math.max(0, Math.min(total - 1, parseInt(startFrame, 10) || 0));
+        const f2 = Math.max(0, Math.min(total - 1, parseInt(endFrame, 10) || 0));
+        const minF = Math.min(f1, f2);
+        const maxF = Math.max(f1, f2);
 
-        this.seekFrame(direction === 'forward' ? sf : ef);
+        const fromF = (direction === 'reverse') ? maxF : minF;
+        const toF = (direction === 'reverse') ? minF : maxF;
+
+        this.seekFrame(fromF);
         this.state.isPlaying = true;
 
         const interval = Math.max(25, Math.round(95 / this.state.playbackSpeed));
         this.state.playTimer = setInterval(() => {
             if (direction === 'forward') {
-                if (this.state.currentFrame >= ef) {
+                if (this.state.currentFrame >= toF) {
                     this.pause();
                 } else {
                     this.seekFrame(this.state.currentFrame + 1);
                 }
             } else {
-                if (this.state.currentFrame <= sf) {
+                if (this.state.currentFrame <= toF) {
                     this.pause();
                 } else {
                     this.seekFrame(this.state.currentFrame - 1);

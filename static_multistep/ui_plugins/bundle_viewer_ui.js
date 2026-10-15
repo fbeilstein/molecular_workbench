@@ -2,41 +2,25 @@
  * Step 5: Master Multistep Reaction Studio & Viewer facade.
  */
 
-import { Bundle3DViewer } from './bundle/bundle_3d.js?v=2.0.2';
-import { BundlePesChart } from './bundle/bundle_pes.js?v=2.0.2';
-import { SvgMechanismManager } from './bundle/bundle_svg.js?v=2.0.2';
-import { BundleHighresManager } from './bundle/bundle_highres.js';
+import { Bundle3DViewer } from './bundle/bundle_3d.js?v=2.0.3';
+import { BundlePesChart } from './bundle/bundle_pes.js?v=2.0.3';
+import { SvgMechanismManager } from './bundle/bundle_svg.js?v=2.0.4';
+import { BundleHighresManager } from './bundle/bundle_highres.js?v=2.0.3';
 import { BundleMoleculeModal } from './bundle/bundle_molecule_modal.js';
 import { exportMultiModelXyz, exportMaxCompBundleZip } from './bundle/bundle_export.js';
-import { BundleTransportController } from './bundle/bundle_transport.js';
+import { BundleTransportController } from './bundle/bundle_transport.js?v=2.0.4';
 import { BundleWiringManager } from './bundle/bundle_wiring_ui.js';
 import { renderOrbitalTracksSidebar } from './bundle/bundle_orbital_panel.js';
 import { getBundleViewerTemplate } from './bundle/bundle_viewer_template.js';
 
 export const BundleViewerUI = {
     state: {
-        stepId: 'step_5_bundle_viewer',
-        megajson: null,
-        currentFrame: 0,
-        isPlaying: false,
-        playDirection: 'forward',
-        playbackSpeed: 1.0,
-        playTimer: null,
-        viewer3D: null,
-        pesChart: null,
-        svgManager: null,
-        highresManager: null,
-        moleculeModal: null,
-        transport: null,
-        wiringMgr: null,
-        activeOrbitals: new Set(),
-        showCharges: false,
-        hideAllOrbitals: false,
-        isovalue: 0.03,
-        orbitalResolution: 32,
-        tracks: [],
-        frameDataCache: {},
-        activeTab: 'interactive'
+        stepId: 'step_5_bundle_viewer', megajson: null, currentFrame: 0,
+        isPlaying: false, playDirection: 'forward', playbackSpeed: 1.0, playTimer: null,
+        viewer3D: null, pesChart: null, svgManager: null, highresManager: null,
+        moleculeModal: null, transport: null, wiringMgr: null, activeOrbitals: new Set(),
+        showCharges: false, hideAllOrbitals: false, isovalue: 0.03, orbitalResolution: 32,
+        tracks: [], frameDataCache: {}, activeTab: 'interactive'
     },
 
     async render(container, uiSchema, globalState, stepId) {
@@ -86,6 +70,7 @@ export const BundleViewerUI = {
         } catch (seekErr) {
             console.error('[BundleViewer] Failed to render initial frame 0:', seekErr);
         }
+        this.preloadAllCachedCubes();
     },
 
     initControllers(container, ep) {
@@ -123,6 +108,8 @@ export const BundleViewerUI = {
 
         this.state.highresManager = new BundleHighresManager({
             stepId: this.state.stepId,
+            tracks: this.state.tracks,
+            totalFrames: this.state.megajson.frames.length,
             currentResolution: this.state.orbitalResolution,
             onCompleted: (newRes) => this.onHighresCompleted(newRes)
         });
@@ -192,16 +179,19 @@ export const BundleViewerUI = {
 
         const tabInteractive = container.querySelector('#tab-mode-interactive');
         const tabWiring = container.querySelector('#tab-mode-wiring');
-        const drawer = container.querySelector('#wiring-inspector-drawer');
         const hint = container.querySelector('#label-wiring-hint');
+        const wiringStatus = container.querySelector('#label-wiring-status');
 
         tabInteractive.addEventListener('click', () => {
             tabInteractive.classList.add('active', 'btn-primary');
             tabInteractive.classList.remove('btn-secondary');
             tabWiring.classList.remove('active', 'btn-primary');
             tabWiring.classList.add('btn-secondary');
-            drawer.style.display = 'none';
             hint.textContent = 'Click arrows to play • Right-click molecules';
+            if (wiringStatus) {
+                wiringStatus.textContent = 'Hierarchy';
+                wiringStatus.className = 'chip blue';
+            }
             this.state.svgManager.setMode('interactive');
         });
 
@@ -210,8 +200,11 @@ export const BundleViewerUI = {
             tabWiring.classList.remove('btn-secondary');
             tabInteractive.classList.remove('active', 'btn-primary');
             tabInteractive.classList.add('btn-secondary');
-            drawer.style.display = 'flex';
-            hint.textContent = 'Click group in tree/canvas to wire actions';
+            hint.textContent = 'Click element in tree/canvas to wire actions';
+            if (wiringStatus) {
+                wiringStatus.textContent = 'Wiring Mode';
+                wiringStatus.className = 'chip amber';
+            }
             this.state.svgManager.setMode('edit');
             this.renderGroupsTree();
         });
@@ -248,7 +241,7 @@ export const BundleViewerUI = {
         });
 
         container.querySelector('#btn-recompute-highres').addEventListener('click', () => {
-            this.state.highresManager.renderModal(container);
+            this.state.highresManager.renderModal(container, this.state.tracks);
         });
 
         container.querySelector('#btn-export-bundle-zip').addEventListener('click', () => exportMaxCompBundleZip(this.state.stepId));
@@ -268,6 +261,39 @@ export const BundleViewerUI = {
         });
     },
 
+    async preloadAllCachedCubes() {
+        if (!this.state.megajson || !this.state.viewer3D) return;
+        const total = this.state.megajson.frames.length;
+        const targets = this.state.tracks.filter(t => t.orbital_key && t.orbital_key !== 'track_esp_charge');
+        if (!targets.length) return;
+
+        const batchSize = 35;
+        for (let start = 0; start < total; start += batchSize) {
+            const end = Math.min(total, start + batchSize);
+            const frames = [];
+            for (let i = start; i < end; i++) {
+                const need = targets.some(t => !this.state.viewer3D.cubeCache[`${i}_${t.orbital_key}`]);
+                if (need) frames.push(i);
+            }
+            if (frames.length > 0) {
+                try {
+                    const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action_type: 'get_cached_cubes', frames, tracks: targets })
+                    });
+                    const d = await res.json();
+                    if (d && d.success && d.cubes) {
+                        Object.assign(this.state.viewer3D.cubeCache, d.cubes);
+                        if (frames.includes(this.state.currentFrame)) {
+                            this.refreshViewer();
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
+    },
+
     async fetchCube(frameIdx, orbKey, chemKey, isovalue) {
         const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
             method: 'POST',
@@ -283,37 +309,50 @@ export const BundleViewerUI = {
         return await res.json();
     },
 
-    async refreshViewer() {
+    refreshViewer() {
         const f = this.state.currentFrame;
         const frame = this.state.megajson.frames[f];
         if (!frame) return;
 
-        if (!this.state.frameDataCache[f]) {
-            try {
-                const res = await fetch(`/api/step/step_4_orbitals/custom`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action_type: 'get_frame_orbitals', frame_index: f })
-                });
-                const d = await res.json();
-                if (d.success) this.state.frameDataCache[f] = d;
-            } catch (err) {}
-        }
-
-        const fd = this.state.frameDataCache[f];
+        const espActive = this.state.activeOrbitals.has('track_esp_charge');
+        const showCharges = this.state.showCharges || espActive;
+        const charges = (this.state.frameDataCache[f] && this.state.frameDataCache[f].charges) ||
+                        (this.state.megajson.trajectory_charges && this.state.megajson.trajectory_charges[f]) || null;
         const activeTracks = this.state.tracks.filter(t => this.state.activeOrbitals.has(t.orbital_key));
+        const moTracks = this.state.hideAllOrbitals ? [] : activeTracks.filter(t => t.orbital_key !== 'track_esp_charge');
 
-        await this.state.viewer3D.renderScene({
-            symbols: this.state.megajson.symbols,
-            coords: frame.coords,
-            charges: fd ? fd.charges : null,
-            showCharges: this.state.showCharges,
-            activeOrbitals: activeTracks,
-            isovalue: this.state.isovalue,
-            frameIdx: f,
-            hideAllOrbitals: this.state.hideAllOrbitals,
-            fetchCubeFn: (fi, ok, ck, iso) => this.fetchCube(fi, ok, ck, iso)
-        });
+        this.state.viewer3D.renderFastFrame(
+            this.state.megajson.symbols,
+            frame.coords,
+            moTracks,
+            this.state.isovalue,
+            f,
+            charges,
+            showCharges
+        );
+
+        for (const orb of moTracks) {
+            const ok = orb.orbital_key || orb.key || orb;
+            const ck = orb.chem_key || ok;
+            if (!this.state.viewer3D.cubeCache[`${f}_${ok}`]) {
+                this.fetchCube(f, ok, ck, this.state.isovalue).then(res => {
+                    if (res && res.success && res.cube) {
+                        this.state.viewer3D.cubeCache[`${f}_${ok}`] = res.cube;
+                        if (this.state.currentFrame === f) {
+                            this.state.viewer3D.renderFastFrame(
+                                this.state.megajson.symbols,
+                                frame.coords,
+                                moTracks,
+                                this.state.isovalue,
+                                f,
+                                charges,
+                                showCharges
+                            );
+                        }
+                    }
+                }).catch(() => {});
+            }
+        }
     },
 
     openMoleculeOrbitals(molId, cfg) {
@@ -339,21 +378,13 @@ export const BundleViewerUI = {
 
     async saveSvgToBackend(svgText) {
         try {
-            await fetch(`/api/step/${this.state.stepId}/custom`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action_type: 'save_mechanism_svg', svg_text: svgText })
-            });
+            await fetch(`/api/step/${this.state.stepId}/custom`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action_type: 'save_mechanism_svg', svg_text: svgText }) });
         } catch (err) {}
     },
 
     async saveWiringToBackend(wiring) {
         try {
-            await fetch(`/api/step/${this.state.stepId}/custom`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action_type: 'save_svg_wiring', wiring: wiring })
-            });
+            await fetch(`/api/step/${this.state.stepId}/custom`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action_type: 'save_svg_wiring', wiring }) });
         } catch (err) {}
     }
 };

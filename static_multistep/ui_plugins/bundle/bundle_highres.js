@@ -15,11 +15,20 @@ export class BundleHighresManager {
         this.abortRequested = false;
     }
 
-    renderModal(container) {
+    renderModal(container, tracks = null) {
+        if (tracks && tracks.length > 0) {
+            this.tracks = tracks;
+        }
         let existingModal = document.getElementById('modal-highres-recompute');
         if (existingModal) existingModal.remove();
 
-        const quantumTracks = this.tracks.filter(t => t.orbital_key && t.orbital_key !== 'track_esp_charge');
+        let quantumTracks = this.tracks.filter(t => t.orbital_key && t.orbital_key !== 'track_esp_charge');
+        if (quantumTracks.length === 0) {
+            quantumTracks = [
+                { orbital_key: 'HOMO', chem_key: 'HOMO', title: 'HOMO', color: '#06b6d4' },
+                { orbital_key: 'LUMO', chem_key: 'LUMO', title: 'LUMO', color: '#a855f7' }
+            ];
+        }
 
         const modal = document.createElement('div');
         modal.id = 'modal-highres-recompute';
@@ -119,6 +128,16 @@ export class BundleHighresManager {
                 card.classList.add('active');
             });
         });
+
+        const selectAllBtn = modal.querySelector('#btn-select-all-tracks');
+        if (selectAllBtn) {
+            selectAllBtn.onclick = () => {
+                const checkboxes = modal.querySelectorAll('.chk-highres-track');
+                const anyUnchecked = Array.from(checkboxes).some(c => !c.checked);
+                checkboxes.forEach(c => c.checked = anyUnchecked);
+                selectAllBtn.textContent = anyUnchecked ? 'Deselect All' : 'Select All';
+            };
+        }
 
         modal.querySelector('#btn-close-highres-modal').onclick = () => this.closeModal();
         modal.querySelector('#btn-cancel-highres').onclick = () => {

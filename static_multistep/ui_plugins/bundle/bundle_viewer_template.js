@@ -1,5 +1,7 @@
 /**
  * HTML Template Builder for Step 5 Bundle Viewer.
+ * SVG Reaction Mechanism is positioned on top spanning full horizontal width.
+ * 3D Coordinates, Orbital Tracks, and SVG Hierarchy/Wiring are arranged side-by-side underneath.
  */
 
 export function getBundleViewerTemplate(megajson, totalFrames, state) {
@@ -55,10 +57,27 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                 </div>
             </div>
 
-            <!-- Main Layout Workspace: 3D Viewport + Orbitals Sidebar + SVG Mechanism -->
-            <div style="display: flex; gap: 0.75rem; min-height: 480px;">
+            <!-- Top Card: Interactive SVG Reaction Mechanism (Full-Width Panorama) -->
+            <div style="display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
+                <div style="padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.25);">
+                    <div style="display: flex; gap: 0.6rem; align-items: center;">
+                        <span style="font-size: 0.82rem; font-weight: 700; color: #f8fafc;">Interactive Reaction Mechanism</span>
+                        <span id="label-wiring-hint" style="font-size: 0.72rem; color: #94a3b8;">Click arrows to play • Right-click molecules</span>
+                    </div>
+                    <div style="display: flex; gap: 0.4rem; align-items: center;">
+                        <button id="tab-mode-interactive" class="btn btn-xxs btn-primary active">Interactive</button>
+                        <button id="tab-mode-wiring" class="btn btn-xxs btn-secondary">Element Wiring</button>
+                    </div>
+                </div>
+                <div style="height: 270px; width: 100%; position: relative; overflow: hidden; background: #090d16;">
+                    <div id="bundle-svg-view" style="width: 100%; height: 100%;"></div>
+                </div>
+            </div>
+
+            <!-- Middle Row: 3D Viewport + Orbitals Sidebar + SVG Hierarchy & Wiring -->
+            <div style="display: flex; gap: 0.75rem; min-height: 420px;">
                 <!-- Left: 3D Molecular Coordinates & Volumetric Isosurfaces Viewport -->
-                <div style="flex: 1.1; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; position: relative;">
+                <div style="flex: 1.2; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; position: relative;">
                     <div style="padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
                         <span style="font-weight: 600;">Synchronized 3D Coordinate Space</span>
                         <div style="display: flex; gap: 0.4rem;">
@@ -67,7 +86,7 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                             <button id="btn-bundle-zoom-fit" class="btn btn-xxs btn-secondary">⟲</button>
                         </div>
                     </div>
-                    <div id="bundle-viewport-3d" style="flex: 1; min-height: 420px; position: relative;"></div>
+                    <div id="bundle-viewport-3d" style="flex: 1; min-height: 380px; position: relative;"></div>
                 </div>
 
                 <!-- Middle: Tracks Sidebar -->
@@ -91,23 +110,14 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                     <div id="bundle-tracks-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem;"></div>
                 </div>
 
-                <!-- Right: Interactive SVG Reaction Mechanism -->
-                <div style="flex: 1.2; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
-                    <div style="padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; gap: 0.4rem; align-items: center;">
-                            <button id="tab-mode-interactive" class="btn btn-xxs btn-primary active">Interactive</button>
-                            <button id="tab-mode-wiring" class="btn btn-xxs btn-secondary">Element Wiring</button>
-                        </div>
-                        <span id="label-wiring-hint" style="font-size: 0.72rem; color: #94a3b8;">Click arrows to play • Right-click molecules</span>
+                <!-- Right: SVG Hierarchy & Wiring Panel -->
+                <div id="wiring-inspector-drawer" style="width: 280px; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
+                    <div style="padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border-color); font-size: 0.75rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                        <span>SVG Hierarchy & Wiring</span>
+                        <span id="label-wiring-status" class="chip blue" style="font-size: 0.65rem;">Hierarchy</span>
                     </div>
-                    <div style="flex: 1; display: flex; overflow: hidden; position: relative;">
-                        <div id="bundle-svg-view" style="flex: 1; width: 100%; height: 100%;"></div>
-                        <div id="wiring-inspector-drawer" style="width: 250px; background: rgba(15,23,42,0.96); border-left: 1px solid var(--border-color); display: none; flex-direction: column; z-index: 10;">
-                            <div style="padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border-color); font-size: 0.75rem; font-weight: 600;">SVG Hierarchy</div>
-                            <div id="group-tree-container" style="flex: 1; overflow-y: auto; padding: 0.3rem;"></div>
-                            <div id="group-wiring-form" style="border-top: 1px solid var(--border-color); padding: 0.5rem; background: rgba(0,0,0,0.2);"></div>
-                        </div>
-                    </div>
+                    <div id="group-tree-container" style="flex: 1; overflow-y: auto; padding: 0.35rem; min-height: 160px;"></div>
+                    <div id="group-wiring-form" style="border-top: 1px solid var(--border-color); padding: 0.5rem; background: rgba(0,0,0,0.2);"></div>
                 </div>
             </div>
 

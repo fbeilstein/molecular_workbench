@@ -2,8 +2,8 @@
  * Interactive SVG Reaction Mechanism & Hierarchical Group Wiring Manager.
  */
 
-import { parseLabeledElements, resolveEventTarget } from './bundle_svg_parser.js?v=2.0.1';
-import { renderSvgPaperCard } from './bundle_svg_view.js?v=2.0.1';
+import { parseLabeledElements, resolveEventTarget } from './bundle_svg_parser.js?v=2.0.3';
+import { renderSvgPaperCard } from './bundle_svg_view.js?v=2.0.3';
 
 export class SvgMechanismManager {
     constructor(containerEl, options = {}) {
@@ -202,7 +202,20 @@ export class SvgMechanismManager {
         Object.entries(this.wiring).forEach(([key, cfg]) => {
             if (cfg.role !== 'push_arrow') return;
 
-            const el = svg.getElementById(key) || svg.querySelector(`[inkscape\\:label="${key}"]`);
+            let el = svg.getElementById(key);
+            if (!el) {
+                try {
+                    el = svg.querySelector(`[inkscape\\:label="${key}"], [label="${key}"]`);
+                } catch (e) {}
+            }
+            if (!el) {
+                for (const elem of svg.querySelectorAll('*')) {
+                    if (elem.getAttribute('inkscape:label') === key || elem.getAttribute('label') === key) {
+                        el = elem;
+                        break;
+                    }
+                }
+            }
             if (!el) return;
 
             const sf = cfg.startFrame !== undefined ? parseInt(cfg.startFrame, 10) : 0;
@@ -210,7 +223,9 @@ export class SvgMechanismManager {
             const arrowDir = cfg.direction || 'both';
 
             const dirMatches = (arrowDir === 'both') || (arrowDir === this.playDirection);
-            const frameMatches = (frameIdx >= sf && frameIdx <= ef);
+            const minF = Math.min(sf, ef);
+            const maxF = Math.max(sf, ef);
+            const frameMatches = (frameIdx >= minF && frameIdx <= maxF);
 
             if (dirMatches && frameMatches) {
                 el.classList.add('svg-push-active');

@@ -139,6 +139,22 @@ class Step5BundleViewer(PipelineStep):
             s4 = Step4Orbitals()
             return s4.custom_action(user_input, global_state)
 
+        if action == "get_cached_cubes":
+            s4 = Step4Orbitals()
+            res = s4.custom_action(user_input, global_state)
+            if isinstance(res, dict) and res.get("success"):
+                cubes = res.setdefault("cubes", {})
+                frames = [int(x) for x in user_input.get("frames", [])]
+                tracks = user_input.get("tracks", [])
+                for fi in frames:
+                    for trk in tracks:
+                        ok = trk.get("orbital_key") if isinstance(trk, dict) else str(trk)
+                        if f"{fi}_{ok}" not in cubes:
+                            hrc = get_cached_highres_cube(fi, ok, megajson)
+                            if hrc:
+                                cubes[f"{fi}_{ok}"] = hrc
+            return res
+
         # 3. Mechanism SVG & Wiring persistence
         if action == "save_mechanism_svg":
             svg_text = user_input.get("svg_text", "")
