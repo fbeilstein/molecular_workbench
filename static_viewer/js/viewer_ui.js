@@ -29,7 +29,8 @@ export class ViewerUI {
     this.orbitalsPanel = new ViewerOrbitalsPanel(
       this.elOrbitalsContainer,
       (orbKey, isChecked) => this.app.viewer3d?.toggleOrbital(orbKey, isChecked),
-      (isEsp) => this.app.viewer3d?.setEspActive(isEsp)
+      (isEsp) => this.app.viewer3d?.setEspActive(isEsp),
+      (isCharges) => this.app.viewer3d?.setChargesActive(isCharges)
     );
 
     this.svgMechanism = new ViewerSvgMechanism(this.elMechanism, {

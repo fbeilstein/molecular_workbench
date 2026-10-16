@@ -93,7 +93,7 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 
 |Reaction|Bundle|
 |---|---|
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/reactions/tetrahedral_intermediate_CO.svg)|[View Reaction](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/reactions/tetrahedral_intermediate_CO.zip)
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/reactions/tetrahedral_intermediate_CO.svg)|[View Reaction](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/reactions/tetrahedral_intermediate_CO.zip&download)
 
 </details>
 
@@ -102,7 +102,7 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 
 |Molecule|Name|Bundle|Notes|
 |--|--|--|--|
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/%5B18%5Dannulene.svg)|**Cyclooctadecanonaene** or **[18]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/%5B18%5Dannulene.zip)|Aromatic: $4n+2$ electrons + planar. SMILES (NOT WORKING IN Ketcher!): C1([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C=1[H] |c:7,11,19,23,31,34,t:3,15,27||
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/all-cis-%5B10%5Dannulene.svg)|**Cyclodecapentaene** or **[10]annulene**, or **all-cis-[10]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/all-cis-%5B10%5Dannulene.zip)|NOT Aromatic: $4n+2$ electrons BUT non-planar. SMILES: C1C=CC=CC=CC=CC=1 |c:1,3,5,7,9||
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/%5B18%5Dannulene.svg)|**Cyclooctadecanonaene** or **[18]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/%5B18%5Dannulene.zip&download)|Aromatic: $4n+2$ electrons + planar. SMILES (NOT WORKING IN Ketcher!): C1([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C=1[H] |c:7,11,19,23,31,34,t:3,15,27||
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/all-cis-%5B10%5Dannulene.svg)|**Cyclodecapentaene** or **[10]annulene**, or **all-cis-[10]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/all-cis-%5B10%5Dannulene.zip&download)|NOT Aromatic: $4n+2$ electrons BUT non-planar. SMILES: C1C=CC=CC=CC=CC=1 |c:1,3,5,7,9||
 
 </details>

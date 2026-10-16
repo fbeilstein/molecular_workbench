@@ -16,6 +16,7 @@
         <div class="header-title-row">
           <select id="sel-bundle-switcher" class="bundle-select" style="display:none;"></select>
           <h1 class="reaction-title" id="reaction-title">Loading Reaction...</h1>
+          <button class="btn btn-primary" id="btn-header-download" style="display:none; margin-left:12px; padding:3px 10px; font-size:11px; height:24px; align-items:center; gap:4px; font-weight:600; border-radius:4px;" title="Repack and download bundle">📥 Download</button>
         </div>
         <div class="reaction-stats">
           <span>Barrier: <strong id="stat-barrier">—</strong></span>
@@ -30,6 +31,17 @@
       <div id="gl-canvas-container"></div>
       <div id="pes-canvas-container">
         <canvas id="pes-canvas"></canvas>
+      </div>
+
+      <!-- ESP Colorbar Overlay (Hidden by default) -->
+      <div id="esp-colorbar" class="esp-colorbar" style="display: none;">
+        <div class="colorbar-header">Electrostatic Potential (kcal/mol)</div>
+        <div id="esp-colorbar-gradient" class="colorbar-gradient"></div>
+        <div class="colorbar-labels">
+          <span id="esp-colorbar-min">-30.0</span>
+          <span id="esp-colorbar-mid">0</span>
+          <span id="esp-colorbar-max">+30.0</span>
+        </div>
       </div>
 
       <!-- Top-right Orbitals Drawer Toggle Button -->
@@ -85,6 +97,21 @@
         <button class="btn btn-primary" id="btn-browse">Browse File...</button>
         <div class="progress-bar-container" id="progress-bar-container">
           <div class="progress-bar" id="progress-bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Download Modal -->
+    <div id="download-modal" class="modal-backdrop" style="display:none;">
+      <div class="download-modal-dialog">
+        <div class="download-modal-header">
+          <h3 id="download-modal-title">📦 Download Bundle</h3>
+          <button class="btn-modal-close" id="btn-close-download">&times;</button>
+        </div>
+        <div class="download-modal-body" id="download-modal-body"></div>
+        <div class="download-modal-footer">
+          <button class="btn" id="btn-cancel-download">Cancel</button>
+          <button class="btn btn-primary" id="btn-confirm-download">📦 Download</button>
         </div>
       </div>
     </div>

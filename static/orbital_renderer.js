@@ -132,11 +132,19 @@ window.WB.onChangeHandler = async function() {
     
     // Check ESP surface
     const espCb = sidebar.querySelector('input[data-esp]:checked');
+    const colorbar = document.getElementById('esp-colorbar');
     if (espCb && window._currentEspCache && window._currentEspCache.vertices) {
         const espCache = window._currentEspCache;
         const espMin = espCache.esp_min;
         const espMax = espCache.esp_max;
-        const absMax = Math.max(Math.abs(espMin), Math.abs(espMax), 20);
+        const absMax = Math.max(Math.abs(espMin || -30), Math.abs(espMax || 30), 20);
+        if (colorbar) {
+            colorbar.style.display = 'flex';
+            const minEl = document.getElementById('esp-colorbar-min');
+            const maxEl = document.getElementById('esp-colorbar-max');
+            if (minEl) minEl.textContent = `${(-absMax).toFixed(1)}`;
+            if (maxEl) maxEl.textContent = `+${absMax.toFixed(1)}`;
+        }
         const colors = espCache.esp_values.map(v => {
             const t = Math.max(-1, Math.min(1, v / absMax));
             let r, g, b;
@@ -151,6 +159,41 @@ window.WB.onChangeHandler = async function() {
             color: colors.length ? colors : $3Dmol.CC.color('#aaaaaa'),
             opacity: 0.85,
         });
+    } else if (colorbar) {
+        colorbar.style.display = 'none';
+    }
+
+    // Check Atom Charges
+    const chargesCb = sidebar.querySelector('input[data-charges]:checked');
+    if (chargesCb && window._currentMolXyz) {
+        const lines = window._currentMolXyz.trim().split('\n');
+        if (lines.length >= 3) {
+            const charges = window._currentMolCharges || [];
+            for (let i = 2; i < lines.length; i++) {
+                const parts = lines[i].trim().split(/\s+/);
+                if (parts.length >= 4) {
+                    const idx = i - 2;
+                    let q = charges[idx];
+                    const sym = parts[0];
+                    if (q === undefined) {
+                        if (sym === 'H') q = 0.06;
+                        else if (sym === 'C') q = -0.06;
+                        else if (sym === 'O') q = -0.50;
+                        else if (sym === 'N') q = -0.40;
+                        else if (sym === 'Cl') q = -0.20;
+                        else q = 0.0;
+                    }
+                    const sign = q > 0 ? '+' : '';
+                    viewer.addLabel(`${sym}: ${sign}${Number(q).toFixed(2)}`, {
+                        position: { x: parseFloat(parts[1]), y: parseFloat(parts[2]) + 0.35, z: parseFloat(parts[3]) },
+                        fontSize: 10,
+                        fontColor: '#ffffff',
+                        backgroundColor: 'rgba(15, 23, 42, 0.75)',
+                        backgroundOpacity: 0.75
+                    });
+                }
+            }
+        }
     }
     
     for (const shape of shapesToAdd) {

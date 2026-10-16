@@ -97,8 +97,14 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
 
         if path in ('/', '/index.html'):
             return self._serve_file(os.path.join(PACKAGE_DIR, 'templates', 'index.html'))
+        if path == '/viewer.html':
+            return self._serve_file(os.path.join(PACKAGE_DIR, 'viewer.html'))
         if path.startswith('/static/'):
             return self._serve_file(os.path.join(PACKAGE_DIR, path.lstrip('/')))
+        if path.startswith('/static_viewer/'):
+            return self._serve_file(os.path.join(PACKAGE_DIR, path.lstrip('/')))
+        if path.startswith('/bundles/'):
+            return self._serve_file(os.path.join(PACKAGE_DIR, urllib.parse.unquote(path.lstrip('/'))))
         if path.startswith('/ketcher/'):
             return self._serve_file(os.path.join(KETCHER_DIR, path[len('/ketcher/'):]))
         if path.startswith('/api/bundle/'):

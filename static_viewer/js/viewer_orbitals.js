@@ -5,12 +5,14 @@
  */
 
 export class ViewerOrbitalsPanel {
-  constructor(containerElement, onOrbitalToggle, onEspToggle) {
+  constructor(containerElement, onOrbitalToggle, onEspToggle, onChargesToggle) {
     this.container = containerElement;
     this.onOrbitalToggle = onOrbitalToggle || (() => {});
     this.onEspToggle = onEspToggle || (() => {});
+    this.onChargesToggle = onChargesToggle || (() => {});
     this.activeOrbitals = new Set();
     this.isEspActive = false;
+    this.isChargesActive = false;
     this.collapsedGroups = new Set();
   }
 
@@ -18,6 +20,7 @@ export class ViewerOrbitalsPanel {
     this.container.innerHTML = '';
     this.activeOrbitals.clear();
     this.isEspActive = false;
+    this.isChargesActive = false;
   }
 
   /**
@@ -93,23 +96,24 @@ export class ViewerOrbitalsPanel {
       this.container.appendChild(groupEl);
     });
 
-    // 2. Render ESP alongside orbitals as a distinct section
-    if (hasEsp) {
+    // 2. Render ESP & Charges section
+    const showSurfacesSection = hasEsp || true;
+    if (showSurfacesSection) {
       const espGroup = document.createElement('div');
       espGroup.className = 'orbital-group esp-group';
-      const isEspCollapsed = this.collapsedGroups.has('Electrostatic Potential');
+      const isEspCollapsed = this.collapsedGroups.has('Surfaces & Charges');
 
       const espHeader = document.createElement('div');
       espHeader.className = 'orbital-group-header';
       espHeader.innerHTML = `
-        <span class="group-title">Electrostatic Potential</span>
+        <span class="group-title">Surfaces & Charges</span>
         <span class="group-chevron">${isEspCollapsed ? '▸' : '▾'}</span>
       `;
       espHeader.addEventListener('click', () => {
-        if (this.collapsedGroups.has('Electrostatic Potential')) {
-          this.collapsedGroups.delete('Electrostatic Potential');
+        if (this.collapsedGroups.has('Surfaces & Charges')) {
+          this.collapsedGroups.delete('Surfaces & Charges');
         } else {
-          this.collapsedGroups.add('Electrostatic Potential');
+          this.collapsedGroups.add('Surfaces & Charges');
         }
         this.renderGroups(categories, hasEsp);
       });
@@ -119,30 +123,58 @@ export class ViewerOrbitalsPanel {
       espBody.className = 'orbital-group-body';
       if (isEspCollapsed) espBody.style.display = 'none';
 
-      const espRow = document.createElement('label');
-      espRow.className = 'orbital-item-row';
+      if (hasEsp) {
+        const espRow = document.createElement('label');
+        espRow.className = 'orbital-item-row';
 
-      const espChk = document.createElement('input');
-      espChk.type = 'checkbox';
-      espChk.className = 'orb-chk';
-      espChk.checked = this.isEspActive;
-      espChk.addEventListener('change', (e) => {
-        this.isEspActive = e.target.checked;
-        this.onEspToggle(this.isEspActive);
+        const espChk = document.createElement('input');
+        espChk.type = 'checkbox';
+        espChk.className = 'orb-chk';
+        espChk.checked = this.isEspActive;
+        espChk.addEventListener('change', (e) => {
+          this.isEspActive = e.target.checked;
+          this.onEspToggle(this.isEspActive);
+        });
+
+        const espDot = document.createElement('span');
+        espDot.className = 'orb-dot';
+        espDot.style.backgroundColor = '#06b6d4';
+
+        const espText = document.createElement('span');
+        espText.className = 'orb-label-text';
+        espText.textContent = '⚡ ESP Surface';
+
+        espRow.appendChild(espChk);
+        espRow.appendChild(espDot);
+        espRow.appendChild(espText);
+        espBody.appendChild(espRow);
+      }
+
+      // Atom Charges checkbox
+      const chargesRow = document.createElement('label');
+      chargesRow.className = 'orbital-item-row';
+
+      const chargesChk = document.createElement('input');
+      chargesChk.type = 'checkbox';
+      chargesChk.className = 'orb-chk';
+      chargesChk.checked = this.isChargesActive;
+      chargesChk.addEventListener('change', (e) => {
+        this.isChargesActive = e.target.checked;
+        this.onChargesToggle(this.isChargesActive);
       });
 
-      const espDot = document.createElement('span');
-      espDot.className = 'orb-dot';
-      espDot.style.backgroundColor = '#06b6d4';
+      const chargesDot = document.createElement('span');
+      chargesDot.className = 'orb-dot';
+      chargesDot.style.backgroundColor = '#a855f7';
 
-      const espText = document.createElement('span');
-      espText.className = 'orb-label-text';
-      espText.textContent = '⚡ ESP Surface';
+      const chargesText = document.createElement('span');
+      chargesText.className = 'orb-label-text';
+      chargesText.textContent = '🏷 Atom Charges';
 
-      espRow.appendChild(espChk);
-      espRow.appendChild(espDot);
-      espRow.appendChild(espText);
-      espBody.appendChild(espRow);
+      chargesRow.appendChild(chargesChk);
+      chargesRow.appendChild(chargesDot);
+      chargesRow.appendChild(chargesText);
+      espBody.appendChild(chargesRow);
 
       espGroup.appendChild(espBody);
       this.container.appendChild(espGroup);

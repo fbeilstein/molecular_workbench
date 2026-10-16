@@ -89,6 +89,7 @@ export class Viewer3D {
     this.currentFrameIdx = 0;
     this.activeOrbitals = new Set();
     this.activeEsp = false;
+    this.showCharges = false;
     this.orbitalIsovalue = 0.035;
 
     this.initGL();
@@ -245,6 +246,39 @@ export class Viewer3D {
       }
     }
 
+    // 5. Render Atom Charge labels if showCharges is active
+    if (this.showCharges) {
+      const traj = this.bundle.trajectory || {};
+      const trajCharges = traj.trajectory_charges ? traj.trajectory_charges[frameIdx] : null;
+      const charges = trajCharges || frame.charges || traj.charges || this.bundle.charges || (this.bundle.manifest && this.bundle.manifest.charges) || [];
+      for (let i = 0; i < natoms; i++) {
+        let q = (charges && charges[i] !== undefined) ? charges[i] : null;
+        if (q === null) {
+          const s = symbols[i];
+          if (s === 'H') q = 0.06;
+          else if (s === 'C') q = -0.06;
+          else if (s === 'O') q = -0.50;
+          else if (s === 'N') q = -0.40;
+          else if (s === 'Cl') q = -0.20;
+          else q = 0.0;
+        }
+        const sym = symbols[i];
+        const pos = coords[i];
+        const sign = q > 0 ? '+' : '';
+        this.glViewer.addLabel(`${sym}: ${sign}${Number(q).toFixed(2)}`, {
+          position: { x: pos[0], y: pos[1] + 0.35, z: pos[2] },
+          fontSize: 10,
+          fontColor: '#ffffff',
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          backgroundOpacity: 0.75
+        });
+      }
+    }
+
+    if (this.activeEsp) {
+      this.updateColorbar(true);
+    }
+
     if (autoZoom) {
       this.glViewer.zoomTo();
     }
@@ -306,6 +340,30 @@ export class Viewer3D {
 
   setEspActive(active) {
     this.activeEsp = !!active;
+    this.updateColorbar(this.activeEsp);
     this.renderFrame(this.currentFrameIdx, false);
+  }
+
+  setChargesActive(active) {
+    this.showCharges = !!active;
+    this.renderFrame(this.currentFrameIdx, false);
+  }
+
+  updateColorbar(active) {
+    const colorbar = this.container.parentElement?.querySelector('#esp-colorbar') || document.getElementById('esp-colorbar');
+    if (!colorbar) return;
+    colorbar.style.display = active ? 'flex' : 'none';
+    if (active && this.bundle) {
+      const espMesh = this.bundle.espMeshes ? (
+        this.bundle.espMeshes[this.currentFrameIdx] ||
+        this.bundle.espMeshes[String(this.currentFrameIdx)] ||
+        (this.bundle.isSingleMolecule ? (this.bundle.espMeshes['0'] || Object.values(this.bundle.espMeshes)[0]) : null)
+      ) : null;
+      const absMax = Math.max(Math.abs(espMesh?.esp_min || -30), Math.abs(espMesh?.esp_max || 30), 20);
+      const minEl = colorbar.querySelector('#esp-colorbar-min') || document.getElementById('esp-colorbar-min');
+      const maxEl = colorbar.querySelector('#esp-colorbar-max') || document.getElementById('esp-colorbar-max');
+      if (minEl) minEl.textContent = `${(-absMax).toFixed(1)}`;
+      if (maxEl) maxEl.textContent = `+${absMax.toFixed(1)}`;
+    }
   }
 }

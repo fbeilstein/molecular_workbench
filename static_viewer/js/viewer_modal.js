@@ -121,7 +121,8 @@ export class ViewerMoleculeModal {
     this.orbitalsPanel = new ViewerOrbitalsPanel(
       orbContainer,
       (orbKey, isChecked) => this.viewer3d?.toggleOrbital(orbKey, isChecked),
-      (isEsp) => this.viewer3d?.setEspActive(isEsp)
+      (isEsp) => this.viewer3d?.setEspActive(isEsp),
+      (isCharges) => this.viewer3d?.setChargesActive(isCharges)
     );
     this.orbitalsPanel.renderGroups(molBundle.categories, molBundle.hasEsp);
   }

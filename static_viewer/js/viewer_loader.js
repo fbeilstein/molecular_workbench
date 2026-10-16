@@ -38,7 +38,8 @@ export async function loadReactionBundle(source, onProgress) {
     svgWiring: null,
     orbitalMeshes: {},
     espMeshes: {},
-    molecules: {}
+    molecules: {},
+    rawZip: zip
   };
   const flatMoleculeFiles = {};
 
@@ -146,6 +147,8 @@ export async function loadReactionBundle(source, onProgress) {
       bundle.categories = molBundle.categories;
       bundle.hasEsp = molBundle.hasEsp;
       bundle.isSingleMolecule = true;
+      bundle.charges = molBundle.charges;
+      bundle.molKey = molBundle.molKey;
     }
   }
 
@@ -263,18 +266,24 @@ export function buildMoleculeBundle(molIdentifier, parentBundle) {
   }));
 
   const title = wiredName || molInfo.name || molInfo.key || molKey.replace(/_/g, ' ');
+  const charges = molInfo.charges || manifest.charges || molDict[`${molKey}.json`]?.charges || null;
 
   return {
     manifest: {
       title,
       molKey,
       smiles: molInfo.smiles || '',
-      isSingleMolecule: true
+      isSingleMolecule: true,
+      charges
     },
     trajectory: {
       symbols,
-      frames: [{ coords, energy_kcal: 0 }]
+      frames: [{ coords, energy_kcal: 0, charges }],
+      trajectory_charges: charges ? [charges] : null
     },
+    charges,
+    rawZip: parentBundle.rawZip,
+    molKey,
     orbitalMeshes,
     espMeshes,
     categories,

@@ -88,6 +88,26 @@ function renderOrbitalSidebar(mol, base) {
             }
         };
     }
+
+    const chargesRow = document.createElement('label');
+    chargesRow.className = 'orbital-toggle';
+    chargesRow.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;cursor:pointer;';
+    const chargesCb = document.createElement('input');
+    chargesCb.type = 'checkbox';
+    chargesCb.setAttribute('data-charges', 'true');
+    const chargesDot = document.createElement('span');
+    chargesDot.style.cssText = 'display:inline-block;width:10px;height:10px;border-radius:50%;background:#a855f7;';
+    const chargesLbl = document.createElement('span');
+    chargesLbl.style.cssText = 'font-size:12px;color:#ccc;';
+    chargesLbl.textContent = '🏷 Atom Charges';
+    chargesRow.appendChild(chargesCb);
+    chargesRow.appendChild(chargesDot);
+    chargesRow.appendChild(chargesLbl);
+    sidebar.appendChild(chargesRow);
+
+    chargesCb.onchange = () => {
+        if (window.WB.onChangeHandler) window.WB.onChangeHandler();
+    };
 }
 
 window.WB.loadBundleItem = async function(value) {
@@ -106,6 +126,8 @@ window.WB.loadBundleItem = async function(value) {
     window.WB.viewer.removeAllModels();
     window.WB.viewer.removeAllShapes();
     window.WB.viewer.removeAllSurfaces();
+
+    window._currentMolCharges = mol.charges || (window._currentBundleManifest && window._currentBundleManifest.charges) || null;
 
     if (mol.xyz) {
         window._currentMolXyz = mol.xyz;

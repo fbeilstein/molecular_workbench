@@ -71,7 +71,16 @@
                 </div>
                 <div style="flex:1; position:relative;">
                     <div id="viewer-3d" style="width:100%;height:100%;position:absolute;"></div>
-                    <div id="viewer-info" class="viewer-info">Draw a molecule in Ketcher, then click 🚀 Compute
+                    <div id="viewer-info" class="viewer-info">Draw a molecule in Ketcher, then click 🚀 Compute</div>
+                    <!-- ESP Colorbar Overlay -->
+                    <div id="esp-colorbar" class="esp-colorbar" style="display:none; position:absolute; top:12px; left:50%; transform:translateX(-50%); width:260px; background:rgba(15,20,28,0.85); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:6px 12px; flex-direction:column; gap:3px; z-index:10; pointer-events:none; box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+                        <div style="font-size:9px; font-weight:600; color:#94a3b8; text-align:center; text-transform:uppercase; letter-spacing:0.5px;">Electrostatic Potential (kcal/mol)</div>
+                        <div style="height:9px; width:100%; border-radius:3px; border:1px solid rgba(255,255,255,0.2); background:linear-gradient(90deg, #ff3333 0%, #ffffff 50%, #3333ff 100%);"></div>
+                        <div style="display:flex; justify-content:space-between; font-size:10px; font-weight:700; color:#e2e8f0;">
+                            <span id="esp-colorbar-min">-30.0</span>
+                            <span>0</span>
+                            <span id="esp-colorbar-max">+30.0</span>
+                        </div>
                     </div>
                 </div>
             </div>

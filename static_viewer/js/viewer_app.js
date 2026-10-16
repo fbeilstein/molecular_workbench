@@ -9,6 +9,7 @@ import { Viewer3D } from './viewer_3d.js';
 import { ViewerPES } from './viewer_pes.js';
 import { ViewerUI } from './viewer_ui.js';
 import { ViewerMoleculeModal } from './viewer_modal.js';
+import { ViewerDownloadModal } from './viewer_download.js';
 
 class ReactionViewerApp {
   constructor() {
@@ -36,6 +37,7 @@ class ReactionViewerApp {
     this.viewerPes = new ViewerPES(document.getElementById('pes-canvas'));
     this.ui = new ViewerUI(this);
     this.moleculeModal = new ViewerMoleculeModal(this);
+    this.downloadModal = new ViewerDownloadModal(this);
 
     this.bindDropEvents();
     this.bindKeyboard();
@@ -370,21 +372,16 @@ class ReactionViewerApp {
   bindKeyboard() {
     window.addEventListener('keydown', (e) => {
       if (['input', 'textarea', 'select'].includes(document.activeElement?.tagName?.toLowerCase())) return;
-      if (e.code === 'Space') {
+      const keyMap = {
+        'Space': () => this.togglePlay(),
+        'ArrowRight': () => this.stepFrame(1),
+        'ArrowLeft': () => this.stepFrame(-1),
+        'Home': () => this.goToFrame(0),
+        'End': () => this.goToFrame(this.totalFrames - 1)
+      };
+      if (keyMap[e.code]) {
         e.preventDefault();
-        this.togglePlay();
-      } else if (e.code === 'ArrowRight') {
-        e.preventDefault();
-        this.stepFrame(1);
-      } else if (e.code === 'ArrowLeft') {
-        e.preventDefault();
-        this.stepFrame(-1);
-      } else if (e.code === 'Home') {
-        e.preventDefault();
-        this.goToFrame(0);
-      } else if (e.code === 'End') {
-        e.preventDefault();
-        this.goToFrame(this.totalFrames - 1);
+        keyMap[e.code]();
       }
     });
   }
