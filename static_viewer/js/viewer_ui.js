@@ -154,8 +154,7 @@ export class ViewerUI {
       categories = ViewerOrbitalsPanel.parseRawOrbitalKeys(Object.keys(bundle.orbitalMeshes));
     }
 
-    const hasEsp = (bundle.espMeshes && Object.keys(bundle.espMeshes).length > 0) ||
-                   (tracks && tracks.some(t => t.role === 'esp' || t.orbital_key === 'track_esp_charge'));
+    const hasEsp = true;
 
     this.orbitalsPanel.renderGroups(categories, hasEsp);
   }

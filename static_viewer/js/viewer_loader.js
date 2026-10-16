@@ -266,7 +266,7 @@ export function buildMoleculeBundle(molIdentifier, parentBundle) {
     orbitalMeshes,
     espMeshes,
     categories,
-    hasEsp: Boolean(espMeshes['0']),
+    hasEsp: true,
     isSingleMolecule: true
   };
 }

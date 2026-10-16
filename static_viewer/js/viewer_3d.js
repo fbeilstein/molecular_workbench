@@ -192,20 +192,46 @@ export class Viewer3D {
     }
 
     // 4. Render ESP Surface if active
-    if (this.activeEsp && this.bundle.espMeshes) {
-      const CC = window.$3Dmol ? window.$3Dmol.CC : null;
-      const espMesh = this.bundle.espMeshes[frameIdx] || this.bundle.espMeshes[String(frameIdx)] || Object.values(this.bundle.espMeshes)[0];
+    if (this.activeEsp) {
+      const espMesh = this.bundle.espMeshes ? (
+        this.bundle.espMeshes[frameIdx] ||
+        this.bundle.espMeshes[String(frameIdx)] ||
+        (this.bundle.isSingleMolecule ? (this.bundle.espMeshes['0'] || Object.values(this.bundle.espMeshes)[0]) : null)
+      ) : null;
+
       const eV = espMesh?.vertices || espMesh?.vertexArr;
       const eF = espMesh?.faces || espMesh?.faceArr;
-      const eN = espMesh?.normals || espMesh?.normalArr || eV;
+      const eN = espMesh?.normals || espMesh?.normalArr;
+
       if (eV && eF) {
-        this.glViewer.addCustom({
+        let colorParam = 0x10b981;
+        if (espMesh.esp_values && espMesh.esp_values.length === eV.length) {
+          const absMax = Math.max(Math.abs(espMesh.esp_min || -30), Math.abs(espMesh.esp_max || 30), 20);
+          colorParam = espMesh.esp_values.map(v => {
+            const t = Math.max(-1, Math.min(1, v / absMax));
+            return t < 0 ? { r: 1.0, g: 1.0 + t, b: 1.0 + t } : { r: 1.0 - t, g: 1.0 - t, b: 1.0 };
+          });
+        }
+        const customObj = {
           vertexArr: eV,
-          normalArr: eN,
           faceArr: eF,
-          color: espMesh.color || (CC ? CC.color('#10b981') : 0x10b981),
-          opacity: 0.78
-        });
+          color: colorParam,
+          opacity: 0.82
+        };
+        if (eN && eN.length === eV.length) {
+          customObj.normalArr = eN;
+        }
+        this.glViewer.addCustom(customObj);
+      } else if (window.$3Dmol) {
+        // Fallback for reaction frames without precomputed mesh: dynamic molecular surface
+        try {
+          this.glViewer.addSurface(window.$3Dmol.SurfaceType.VDW, {
+            opacity: 0.70,
+            colorscheme: 'Jmol'
+          });
+        } catch (e) {
+          console.warn('Dynamic surface rendering failed:', e);
+        }
       }
     }
 
@@ -223,35 +249,35 @@ export class Viewer3D {
     const k1 = `${frameIdx}_${orbKey}`;
     if (meshes[k1]) return meshes[k1];
 
-    // 2. Direct key without frame prefix
-    if (meshes[orbKey]) return meshes[orbKey];
-
-    // 3. Fallback search for current frame
-    for (const k in meshes) {
-      if (k.startsWith(`${frameIdx}_`) && (k.includes(orbKey) || orbKey.includes(k.replace(`${frameIdx}_`, '')))) {
-        return meshes[k];
-      }
+    // 2. Direct key without frame prefix (only for single molecule mode)
+    if (this.bundle.isSingleMolecule && meshes[orbKey]) {
+      return meshes[orbKey];
     }
 
-    // 4. Closest available keyframe containing orbKey
-    let bestMatch = null;
-    let minDiff = Infinity;
+    // 3. Search within current frame
     for (const k in meshes) {
-      if (k.includes(orbKey) || orbKey.includes(k.replace(/^\d+_/, ''))) {
-        const parts = k.split('_');
-        const f = parseInt(parts[0], 10);
-        if (!isNaN(f)) {
-          const diff = Math.abs(f - frameIdx);
-          if (diff < minDiff) {
-            minDiff = diff;
-            bestMatch = meshes[k];
-          }
-        } else if (!bestMatch) {
-          bestMatch = meshes[k];
+      if (k.startsWith(`${frameIdx}_`)) {
+        const baseKey = k.replace(`${frameIdx}_`, '');
+        if (baseKey === orbKey || k.includes(orbKey) || orbKey.includes(baseKey)) {
+          return meshes[k];
         }
       }
     }
-    return bestMatch;
+
+    // 4. In single-molecule mode only: allow matching regardless of prefix
+    if (this.bundle.isSingleMolecule) {
+      for (const k in meshes) {
+        const stripped = k.replace(/^\d+_/, '');
+        if (stripped === orbKey || k.includes(orbKey) || orbKey.includes(stripped)) {
+          return meshes[k];
+        }
+      }
+    }
+
+    // In reaction/trajectory mode: if no orbital mesh was computed for this exact frameIdx,
+    // return null. Orbitals are tied to atomic coordinates; showing another frame's mesh
+    // leaves a frozen ghost orbital floating in space while the molecule moves away.
+    return null;
   }
 
   toggleOrbital(orbKey, isChecked) {
