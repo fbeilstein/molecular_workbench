@@ -9,11 +9,26 @@ export async function loadReactionBundle(source, onProgress) {
 
   if (typeof source === 'string') {
     if (onProgress) onProgress(10, 'Fetching bundle from ' + source + '...');
-    const resp = await fetch(source, { mode: 'cors' });
-    if (!resp.ok) {
-      throw new Error(`Failed to download bundle (${resp.status} ${resp.statusText})`);
+    try {
+      const resp = await fetch(source, { mode: 'cors' });
+      if (!resp.ok) {
+        throw new Error(`Failed to download bundle (${resp.status} ${resp.statusText})`);
+      }
+      arrayBuffer = await resp.arrayBuffer();
+    } catch (directErr) {
+      if (source.startsWith('http://') || source.startsWith('https://')) {
+        if (onProgress) onProgress(15, 'Direct fetch failed (CORS). Retrying via CORS proxy...');
+        try {
+          const proxyResp = await fetch(`https://cors.eu.org/${source}`);
+          if (!proxyResp.ok) throw new Error(`Proxy returned HTTP ${proxyResp.status}`);
+          arrayBuffer = await proxyResp.arrayBuffer();
+        } catch (proxyErr) {
+          throw new Error(`Direct fetch & CORS proxy failed: ${directErr.message}`);
+        }
+      } else {
+        throw directErr;
+      }
     }
-    arrayBuffer = await resp.arrayBuffer();
   } else if (source instanceof Blob || source instanceof File) {
     if (onProgress) onProgress(10, 'Reading local bundle archive...');
     arrayBuffer = await source.arrayBuffer();

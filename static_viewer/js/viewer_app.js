@@ -82,7 +82,10 @@ class ReactionViewerApp {
       console.error(err);
       this.showDropzone();
       if (this.overlayStatus) {
-        this.overlayStatus.innerHTML = `<span style="color:var(--danger-color);font-weight:600;">Error: ${err.message}</span><br><br>Drag & drop the .zip file manually:`;
+        const dlBtn = (url.startsWith('http://') || url.startsWith('https://'))
+          ? `<br><a href="${url}" target="_blank" rel="noopener" class="btn btn-primary" style="display:inline-block;margin:12px 0 6px 0;text-decoration:none;">⬇ Download Bundle Archive</a><br><span style="font-size:12px;color:var(--text-secondary);">After downloading, drop it here</span>`
+          : '<br><br>Drag & drop the .zip file manually:';
+        this.overlayStatus.innerHTML = `<span style="color:var(--danger-color);font-weight:600;">Error: ${err.message}</span>${dlBtn}`;
       }
     }
   }
