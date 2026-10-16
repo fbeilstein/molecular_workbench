@@ -4,7 +4,7 @@
  * Supports multi-bundle dropdown switching, molecule inspection modal, and self-invoking popups.
  */
 
-import { loadReactionBundle } from './viewer_loader.js';
+import { loadReactionBundle, buildMoleculeBundle } from './viewer_loader.js';
 import { Viewer3D } from './viewer_3d.js';
 import { ViewerPES } from './viewer_pes.js';
 import { ViewerUI } from './viewer_ui.js';
@@ -20,7 +20,6 @@ class ReactionViewerApp {
     this.isPlaying = false;
     this.playDirection = 'forward';
     this.playSpeed = 1.0;
-    this.loop = true;
     this.playTimer = null;
     this.baseFps = 15;
 
@@ -79,12 +78,7 @@ class ReactionViewerApp {
     if (!this.bundleSelector) return;
     this.bundleSelector.addEventListener('change', (e) => {
       const val = e.target.value;
-      if (!val) return;
-
-      if (val.startsWith('mol:')) {
-        const molId = val.replace('mol:', '');
-        this.openMoleculeModal(molId, { moleculeName: molId });
-      } else {
+      if (val && val !== this.currentBundleUrl) {
         this.loadUrl(val, 0, false);
       }
     });
@@ -92,7 +86,7 @@ class ReactionViewerApp {
 
   populateBundleSelector(bundleUrls) {
     if (!this.bundleSelector) return;
-    if (bundleUrls.length <= 1 && (!this.bundle || !this.bundle.molecules)) {
+    if (!bundleUrls || bundleUrls.length <= 1) {
       this.bundleSelector.style.display = 'none';
       return;
     }
@@ -100,7 +94,7 @@ class ReactionViewerApp {
     this.bundleSelector.style.display = 'inline-block';
     this.bundleSelector.innerHTML = '';
 
-    bundleUrls.forEach((url, idx) => {
+    bundleUrls.forEach((url) => {
       const opt = document.createElement('option');
       opt.value = url;
       const fname = url.split('/').pop().replace(/\.zip$/i, '').replace(/_/g, ' ');
@@ -108,25 +102,6 @@ class ReactionViewerApp {
       if (url === this.currentBundleUrl) opt.selected = true;
       this.bundleSelector.appendChild(opt);
     });
-
-    // Also populate embedded single molecules if available
-    if (this.bundle) {
-      const mb = (this.bundle.trajectory && this.bundle.trajectory.molecule_bundles) || {};
-      const mols = this.bundle.molecules || {};
-      const molKeys = Array.from(new Set([...Object.keys(mb), ...Object.keys(mols)]));
-      if (molKeys.length > 0) {
-        const group = document.createElement('optgroup');
-        group.label = 'Molecules in Bundle';
-        molKeys.forEach(k => {
-          if (k.startsWith('mol_')) return;
-          const opt = document.createElement('option');
-          opt.value = `mol:${k}`;
-          opt.textContent = `⚛️ ${k.replace(/_/g, ' ')}`;
-          group.appendChild(opt);
-        });
-        this.bundleSelector.appendChild(group);
-      }
-    }
   }
 
   showDropzone() {
@@ -188,6 +163,14 @@ class ReactionViewerApp {
   }
 
   onBundleLoaded(bundle, initialFrame = 0, autoplay = false, targetMolecule = null) {
+    if (targetMolecule) {
+      const molBundle = buildMoleculeBundle(targetMolecule, bundle);
+      if (molBundle) {
+        this.loadMoleculeAsMain(molBundle);
+        return;
+      }
+    }
+
     this.bundle = bundle;
     const frames = (bundle.trajectory && bundle.trajectory.frames) || [];
     this.totalFrames = frames.length;
@@ -201,13 +184,18 @@ class ReactionViewerApp {
     this.goToFrame(initialFrame >= 0 && initialFrame < this.totalFrames ? initialFrame : 0);
     this.hideOverlay();
 
-    if (targetMolecule) {
-      this.openMoleculeModal(targetMolecule, { moleculeName: targetMolecule });
-    }
-
     if (autoplay) {
-      this.play();
+      this.playForward();
     }
+  }
+
+  loadMoleculeAsMain(molBundle) {
+    this.bundle = molBundle;
+    this.totalFrames = 1;
+    this.currentFrame = 0;
+    this.viewer3d.setBundle(molBundle);
+    this.ui.setMoleculeMode(molBundle);
+    this.hideOverlay();
   }
 
   openMoleculeModal(molId, cfg) {
@@ -226,40 +214,72 @@ class ReactionViewerApp {
     this.ui.updateFrameDisplay(this.currentFrame, this.totalFrames, e);
   }
 
+  setDirection(dir) {
+    this.playDirection = dir;
+  }
+
   stepFrame(delta) {
-    this.playDirection = delta >= 0 ? 'forward' : 'reverse';
-    let next = this.currentFrame + delta;
-    if (next >= this.totalFrames) {
-      next = this.loop ? 0 : this.totalFrames - 1;
-    } else if (next < 0) {
-      next = this.loop ? this.totalFrames - 1 : 0;
-    }
+    this.pause();
+    this.setDirection(delta >= 0 ? 'forward' : 'reverse');
+    const next = Math.max(0, Math.min(this.totalFrames - 1, this.currentFrame + delta));
     this.goToFrame(next);
   }
 
   togglePlay() {
-    if (this.isPlaying) this.pause();
-    else this.play();
+    this.togglePlayForward();
   }
 
-  play() {
-    if (this.isPlaying || this.totalFrames <= 1) return;
+  togglePlayForward() {
+    if (this.isPlaying) {
+      this.pause();
+    } else {
+      this.playForward();
+    }
+  }
+
+  togglePlayReverse() {
+    if (this.isPlaying) {
+      this.pause();
+    } else {
+      this.playReverse();
+    }
+  }
+
+  playForward() {
+    this.pause();
+    this.setDirection('forward');
+    if (this.totalFrames <= 1) return;
+    if (this.currentFrame >= this.totalFrames - 1) this.goToFrame(0);
+
     this.isPlaying = true;
-    this.playDirection = 'forward';
-    this.ui.updatePlayState(true);
+    this.ui.updatePlayState(true, 'forward');
 
     const intervalMs = Math.max(25, Math.floor(1000 / (this.baseFps * this.playSpeed)));
     this.playTimer = setInterval(() => {
-      let next = this.currentFrame + 1;
-      if (next >= this.totalFrames) {
-        if (this.loop) {
-          next = 0;
-        } else {
-          this.pause();
-          return;
-        }
+      if (this.currentFrame >= this.totalFrames - 1) {
+        this.pause();
+      } else {
+        this.goToFrame(this.currentFrame + 1);
       }
-      this.goToFrame(next);
+    }, intervalMs);
+  }
+
+  playReverse() {
+    this.pause();
+    this.setDirection('reverse');
+    if (this.totalFrames <= 1) return;
+    if (this.currentFrame <= 0) this.goToFrame(this.totalFrames - 1);
+
+    this.isPlaying = true;
+    this.ui.updatePlayState(true, 'reverse');
+
+    const intervalMs = Math.max(25, Math.floor(1000 / (this.baseFps * this.playSpeed)));
+    this.playTimer = setInterval(() => {
+      if (this.currentFrame <= 0) {
+        this.pause();
+      } else {
+        this.goToFrame(this.currentFrame - 1);
+      }
     }, intervalMs);
   }
 
@@ -267,25 +287,35 @@ class ReactionViewerApp {
     this.pause();
     if (this.totalFrames <= 1) return;
 
-    this.playDirection = direction || (startFrame > endFrame ? 'reverse' : 'forward');
-    const isRev = this.playDirection === 'reverse';
-    const start = Math.max(0, Math.min(startFrame, this.totalFrames - 1));
-    const target = Math.max(0, Math.min(endFrame, this.totalFrames - 1));
-    this.goToFrame(start);
+    this.setDirection(direction);
 
+    const f1 = Math.max(0, Math.min(this.totalFrames - 1, parseInt(startFrame, 10) || 0));
+    const f2 = Math.max(0, Math.min(this.totalFrames - 1, parseInt(endFrame, 10) || 0));
+    const minF = Math.min(f1, f2);
+    const maxF = Math.max(f1, f2);
+
+    const fromF = (direction === 'reverse') ? maxF : minF;
+    const toF = (direction === 'reverse') ? minF : maxF;
+
+    this.goToFrame(fromF);
     this.isPlaying = true;
-    this.ui.updatePlayState(true);
+    this.ui.updatePlayState(true, direction);
 
-    const step = isRev ? -1 : 1;
     const intervalMs = Math.max(25, Math.floor(1000 / (this.baseFps * this.playSpeed)));
-
     this.playTimer = setInterval(() => {
-      const next = this.currentFrame + step;
-      if ((!isRev && next > target) || (isRev && next < target)) {
-        this.pause();
-        return;
+      if (direction === 'forward') {
+        if (this.currentFrame >= toF) {
+          this.pause();
+        } else {
+          this.goToFrame(this.currentFrame + 1);
+        }
+      } else {
+        if (this.currentFrame <= toF) {
+          this.pause();
+        } else {
+          this.goToFrame(this.currentFrame - 1);
+        }
       }
-      this.goToFrame(next);
     }, intervalMs);
   }
 
@@ -295,14 +325,16 @@ class ReactionViewerApp {
       clearInterval(this.playTimer);
       this.playTimer = null;
     }
-    this.ui.updatePlayState(false);
+    this.ui.updatePlayState(false, this.playDirection);
   }
 
   setSpeed(speed) {
     this.playSpeed = speed;
     if (this.isPlaying) {
+      const dir = this.playDirection;
       this.pause();
-      this.play();
+      if (dir === 'reverse') this.playReverse();
+      else this.playForward();
     }
   }
 

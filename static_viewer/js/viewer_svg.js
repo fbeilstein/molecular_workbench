@@ -51,13 +51,13 @@ export class ViewerSvgMechanism {
         el.classList.add('svg-clickable-state');
         if (cfg.role === 'state_molecule' || cfg.moleculeName) {
           el.classList.add('svg-clickable-molecule');
-          el.setAttribute('title', `${cfg.moleculeName || 'Intermediate'} (Frame ${cfg.targetFrame || 0}): Click to jump, click/right-click for orbitals`);
+          el.setAttribute('title', `${cfg.moleculeName || 'Intermediate'} (Frame ${cfg.targetFrame || 0}): Click to jump, Double-click for molecule`);
         } else {
           el.setAttribute('title', `State: Jump to frame ${cfg.targetFrame || 0}`);
         }
       } else if (cfg.role === 'molecule') {
         el.classList.add('svg-clickable-molecule');
-        el.setAttribute('title', `${cfg.moleculeName || 'Molecule'}: Click to inspect orbitals`);
+        el.setAttribute('title', `${cfg.moleculeName || 'Molecule'}: Double-click to inspect`);
       }
     }
   }
@@ -66,24 +66,36 @@ export class ViewerSvgMechanism {
     const svg = this.container.querySelector('svg');
     if (!svg) return;
 
-    // Click handler
+    // Single click handler: Arrows (play segment) & States (jump frame)
     svg.addEventListener('click', (e) => {
       const target = this.resolveTarget(e.target, svg);
       if (!target) return;
 
-      const { id, cfg } = target;
+      const { cfg } = target;
       if (!cfg) return;
 
-      e.stopPropagation();
       if (cfg.role === 'arrow') {
+        e.stopPropagation();
         const sf = cfg.startFrame !== undefined ? parseInt(cfg.startFrame, 10) : 0;
         const ef = cfg.endFrame !== undefined ? parseInt(cfg.endFrame, 10) : 100;
-        const dir = cfg.direction || (sf > ef ? 'reverse' : 'forward');
+        const dir = cfg.direction || 'forward';
         this.onPlaySegment(sf, ef, dir);
       } else if (cfg.role === 'state' || cfg.role === 'state_molecule') {
+        e.stopPropagation();
         const tf = cfg.targetFrame !== undefined ? parseInt(cfg.targetFrame, 10) : 0;
         this.onJumpFrame(tf);
-      } else if (cfg.role === 'molecule') {
+      }
+    });
+
+    // Double-click handler: Open molecule inspection modal
+    svg.addEventListener('dblclick', (e) => {
+      const target = this.resolveTarget(e.target, svg);
+      if (!target) return;
+
+      const { id, cfg } = target;
+      if (cfg && (cfg.role === 'molecule' || cfg.role === 'state_molecule' || cfg.moleculeName)) {
+        e.stopPropagation();
+        e.preventDefault();
         this.onOpenMolecule(id, cfg);
       }
     });
@@ -104,16 +116,16 @@ export class ViewerSvgMechanism {
 
   updatePushArrows(frameIdx, direction = 'forward') {
     this.currentFrame = frameIdx;
-    this.playDirection = direction;
+    this.playDirection = direction || 'forward';
 
-    const svg = this.container.querySelector('svg');
+    const svg = this.container ? (this.container.querySelector('#active-mechanism-svg') || this.container.querySelector('svg')) : null;
     if (!svg) return;
 
-    for (const [key, cfg] of Object.entries(this.wiring)) {
-      if (cfg.role !== 'push_arrow') continue;
+    Object.entries(this.wiring).forEach(([key, cfg]) => {
+      if (cfg.role !== 'push_arrow') return;
 
       const el = this.findElement(svg, key);
-      if (!el) continue;
+      if (!el) return;
 
       const sf = cfg.startFrame !== undefined ? parseInt(cfg.startFrame, 10) : 0;
       const ef = cfg.endFrame !== undefined ? parseInt(cfg.endFrame, 10) : 9999;
@@ -131,7 +143,7 @@ export class ViewerSvgMechanism {
         el.classList.add('svg-push-inactive');
         el.classList.remove('svg-push-active');
       }
-    }
+    });
   }
 
   highlightCurrentState(frameIdx) {
@@ -158,10 +170,20 @@ export class ViewerSvgMechanism {
   }
 
   findElement(svg, key) {
-    return svg.getElementById(key) ||
-      svg.querySelector(`[inkscape\\:label="${key}"]`) ||
-      svg.querySelector(`[label="${key}"]`) ||
-      svg.querySelector(`[data-id="${key}"]`);
+    let el = svg.getElementById(key);
+    if (!el) {
+      try {
+        el = svg.querySelector(`[inkscape\\:label="${key}"], [label="${key}"], [data-id="${key}"]`);
+      } catch (e) {}
+    }
+    if (!el) {
+      for (const elem of svg.querySelectorAll('*')) {
+        if (elem.getAttribute('inkscape:label') === key || elem.getAttribute('label') === key) {
+          return elem;
+        }
+      }
+    }
+    return el;
   }
 
   resolveTarget(el, rootSvg) {

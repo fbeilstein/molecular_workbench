@@ -159,25 +159,32 @@ export class Viewer3D {
 
     // 3. Render all Active Orbitals concurrently
     if (this.activeOrbitals.size > 0 && this.bundle.orbitalMeshes) {
+      const CC = window.$3Dmol ? window.$3Dmol.CC : null;
       for (const orbKey of this.activeOrbitals) {
         const meshPair = this.findOrbitalMesh(frameIdx, orbKey);
         if (meshPair) {
-          if (meshPair.pos && meshPair.pos.vertexArr) {
+          const pV = meshPair.pos?.vertices || meshPair.pos?.vertexArr;
+          const pF = meshPair.pos?.faces || meshPair.pos?.faceArr;
+          const pN = meshPair.pos?.normals || meshPair.pos?.normalArr;
+          if (pV && pF) {
             this.glViewer.addCustom({
-              vertexArr: meshPair.pos.vertexArr,
-              normalArr: meshPair.pos.normalArr,
-              faceArr: meshPair.pos.faceArr,
-              color: 0x38bdf8,
-              alpha: 0.78
+              vertexArr: pV,
+              faceArr: pF,
+              normalArr: pN,
+              color: CC ? CC.color('#38bdf8') : 0x38bdf8,
+              opacity: 0.75
             });
           }
-          if (meshPair.neg && meshPair.neg.vertexArr) {
+          const nV = meshPair.neg?.vertices || meshPair.neg?.vertexArr;
+          const nF = meshPair.neg?.faces || meshPair.neg?.faceArr;
+          const nN = meshPair.neg?.normals || meshPair.neg?.normalArr;
+          if (nV && nF) {
             this.glViewer.addCustom({
-              vertexArr: meshPair.neg.vertexArr,
-              normalArr: meshPair.neg.normalArr,
-              faceArr: meshPair.neg.faceArr,
-              color: 0xf97316,
-              alpha: 0.78
+              vertexArr: nV,
+              faceArr: nF,
+              normalArr: nN,
+              color: CC ? CC.color('#f97316') : 0xf97316,
+              opacity: 0.75
             });
           }
         }
@@ -186,14 +193,18 @@ export class Viewer3D {
 
     // 4. Render ESP Surface if active
     if (this.activeEsp && this.bundle.espMeshes) {
-      const espMesh = this.bundle.espMeshes[frameIdx] || this.bundle.espMeshes[String(frameIdx)];
-      if (espMesh && espMesh.vertexArr && espMesh.faceArr) {
+      const CC = window.$3Dmol ? window.$3Dmol.CC : null;
+      const espMesh = this.bundle.espMeshes[frameIdx] || this.bundle.espMeshes[String(frameIdx)] || Object.values(this.bundle.espMeshes)[0];
+      const eV = espMesh?.vertices || espMesh?.vertexArr;
+      const eF = espMesh?.faces || espMesh?.faceArr;
+      const eN = espMesh?.normals || espMesh?.normalArr || eV;
+      if (eV && eF) {
         this.glViewer.addCustom({
-          vertexArr: espMesh.vertexArr,
-          normalArr: espMesh.normalArr || espMesh.vertexArr,
-          faceArr: espMesh.faceArr,
-          color: espMesh.color || 0x10b981,
-          alpha: 0.8
+          vertexArr: eV,
+          normalArr: eN,
+          faceArr: eF,
+          color: espMesh.color || (CC ? CC.color('#10b981') : 0x10b981),
+          opacity: 0.78
         });
       }
     }
@@ -208,20 +219,39 @@ export class Viewer3D {
     if (!this.bundle || !this.bundle.orbitalMeshes) return null;
     const meshes = this.bundle.orbitalMeshes;
 
-    // Exact key: e.g. "0_IBO_21" or "28_HOMO"
+    // 1. Exact frame match: e.g. "0_IBO_21"
     const k1 = `${frameIdx}_${orbKey}`;
     if (meshes[k1]) return meshes[k1];
 
-    // Fallback search
+    // 2. Direct key without frame prefix
+    if (meshes[orbKey]) return meshes[orbKey];
+
+    // 3. Fallback search for current frame
     for (const k in meshes) {
       if (k.startsWith(`${frameIdx}_`) && (k.includes(orbKey) || orbKey.includes(k.replace(`${frameIdx}_`, '')))) {
         return meshes[k];
       }
     }
 
-    // Direct key without frame prefix (for single molecule bundles)
-    if (meshes[orbKey]) return meshes[orbKey];
-    return null;
+    // 4. Closest available keyframe containing orbKey
+    let bestMatch = null;
+    let minDiff = Infinity;
+    for (const k in meshes) {
+      if (k.includes(orbKey) || orbKey.includes(k.replace(/^\d+_/, ''))) {
+        const parts = k.split('_');
+        const f = parseInt(parts[0], 10);
+        if (!isNaN(f)) {
+          const diff = Math.abs(f - frameIdx);
+          if (diff < minDiff) {
+            minDiff = diff;
+            bestMatch = meshes[k];
+          }
+        } else if (!bestMatch) {
+          bestMatch = meshes[k];
+        }
+      }
+    }
+    return bestMatch;
   }
 
   toggleOrbital(orbKey, isChecked) {

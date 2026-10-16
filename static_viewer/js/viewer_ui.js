@@ -19,7 +19,8 @@ export class ViewerUI {
     this.elMechanism = document.getElementById('mechanism-strip');
     this.elSlider = document.getElementById('frame-slider');
     this.elFrameInfo = document.getElementById('frame-info');
-    this.elBtnPlay = document.getElementById('btn-play');
+    this.elBtnPlayFwd = document.getElementById('btn-play-fwd');
+    this.elBtnPlayRev = document.getElementById('btn-play-rev');
     this.elSidePanel = document.getElementById('side-panel');
     this.elBtnToggleOrbitals = document.getElementById('btn-toggle-orbitals');
     this.elOrbitalsContainer = document.getElementById('orbitals-list');
@@ -42,9 +43,12 @@ export class ViewerUI {
   }
 
   bindEvents() {
-    // Play / Pause
-    if (this.elBtnPlay) {
-      this.elBtnPlay.addEventListener('click', () => this.app.togglePlay());
+    // Play Forward / Reverse ("let them both act as pause during any play")
+    if (this.elBtnPlayFwd) {
+      this.elBtnPlayFwd.addEventListener('click', () => this.app.togglePlayForward());
+    }
+    if (this.elBtnPlayRev) {
+      this.elBtnPlayRev.addEventListener('click', () => this.app.togglePlayReverse());
     }
 
     // Step Buttons
@@ -53,10 +57,14 @@ export class ViewerUI {
     document.getElementById('btn-prev')?.addEventListener('click', () => this.app.stepFrame(-1));
     document.getElementById('btn-next')?.addEventListener('click', () => this.app.stepFrame(1));
 
-    // Slider
+    // Slider (Step 5 Algorithm: pause, detect scrubbing direction, seek frame)
     if (this.elSlider) {
       this.elSlider.addEventListener('input', (e) => {
-        this.app.goToFrame(parseInt(e.target.value, 10));
+        this.app.pause();
+        const newF = parseInt(e.target.value, 10);
+        if (newF > this.app.currentFrame) this.app.setDirection('forward');
+        else if (newF < this.app.currentFrame) this.app.setDirection('reverse');
+        this.app.goToFrame(newF);
       });
     }
 
@@ -67,22 +75,6 @@ export class ViewerUI {
         this.app.setSpeed(parseFloat(e.target.value));
       });
     }
-
-    // Loop
-    const chkLoop = document.getElementById('chk-loop');
-    if (chkLoop) {
-      chkLoop.addEventListener('change', (e) => {
-        this.app.loop = e.target.checked;
-      });
-    }
-
-    // Reset Camera
-    document.getElementById('btn-reset-cam')?.addEventListener('click', () => {
-      if (this.app.viewer3d && this.app.viewer3d.glViewer) {
-        this.app.viewer3d.glViewer.zoomTo();
-        this.app.viewer3d.glViewer.render();
-      }
-    });
 
     // Collapsible side drawer toggle [ Orbitals ▾ ]
     if (this.elBtnToggleOrbitals) {
@@ -134,6 +126,22 @@ export class ViewerUI {
     this.populateOrbitals(bundle);
   }
 
+  setMoleculeMode(molBundle) {
+    const rawTitle = molBundle.manifest?.title || 'Molecule View';
+    const cleanTitle = rawTitle.replace(/_/g, ' ');
+    const title = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
+    if (this.elTitle) this.elTitle.textContent = `⚛️ ${title}`;
+    const stats = document.querySelector('.reaction-stats');
+    if (stats) stats.style.display = 'none';
+    if (this.elMechanism) this.elMechanism.style.display = 'none';
+    const pes = document.getElementById('pes-canvas-container');
+    if (pes) pes.style.display = 'none';
+    const dock = document.getElementById('bottom-dock');
+    if (dock) dock.style.display = 'none';
+
+    this.orbitalsPanel.renderGroups(molBundle.categories, molBundle.hasEsp);
+  }
+
   populateOrbitals(bundle) {
     const timeline = (bundle.manifest && bundle.manifest.orbital_timeline) ||
                      (bundle.trajectory && bundle.trajectory.orbital_timeline);
@@ -168,9 +176,16 @@ export class ViewerUI {
     }
   }
 
-  updatePlayState(isPlaying) {
-    if (this.elBtnPlay) {
-      this.elBtnPlay.textContent = isPlaying ? '❚❚ Pause' : '▶ Play';
+  updatePlayState(isPlaying, direction = 'forward') {
+    if (this.elBtnPlayFwd) {
+      const isFwd = isPlaying && direction === 'forward';
+      this.elBtnPlayFwd.textContent = isFwd ? '❚❚ Pause' : '▶ Play Fwd';
+      this.elBtnPlayFwd.classList.toggle('active', isFwd);
+    }
+    if (this.elBtnPlayRev) {
+      const isRev = isPlaying && direction === 'reverse';
+      this.elBtnPlayRev.textContent = isRev ? '❚❚ Pause' : '◀ Play Rev';
+      this.elBtnPlayRev.classList.toggle('active', isRev);
     }
   }
 }

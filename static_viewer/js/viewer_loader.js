@@ -164,3 +164,109 @@ export async function loadReactionBundle(source, onProgress) {
   if (onProgress) onProgress(100, 'Unpack complete. Initializing 3D viewer...');
   return bundle;
 }
+
+/**
+ * Adapt a molecule sub-directory inside a reaction bundle into a standalone 1-state bundle.
+ */
+export function buildMoleculeBundle(molIdentifier, parentBundle) {
+  if (!parentBundle || !parentBundle.molecules) return null;
+  const mols = parentBundle.molecules;
+
+  let molKey = null;
+  let molDict = null;
+  if (mols[molIdentifier]) {
+    molKey = molIdentifier;
+    molDict = mols[molIdentifier];
+  } else {
+    for (const k in mols) {
+      if (k.toLowerCase() === String(molIdentifier).toLowerCase() ||
+          k.toLowerCase().includes(String(molIdentifier).toLowerCase()) ||
+          String(molIdentifier).toLowerCase().includes(k.toLowerCase())) {
+        molKey = k;
+        molDict = mols[k];
+        break;
+      }
+    }
+  }
+
+  if (!molDict && parentBundle.trajectory && parentBundle.trajectory.molecule_bundles) {
+    const mb = parentBundle.trajectory.molecule_bundles;
+    const entry = mb[molIdentifier] || Object.values(mb).find(v => v.key === molIdentifier || v.directory?.includes(molIdentifier));
+    if (entry && entry.directory) {
+      const dirClean = entry.directory.replace(/^molecules\//, '').replace(/\/$/, '');
+      if (mols[dirClean]) {
+        molKey = dirClean;
+        molDict = mols[dirClean];
+      }
+    }
+  }
+
+  if (!molDict) return null;
+
+  const manifest = molDict['manifest.json'] || {};
+  const molInfo = (manifest.molecules && manifest.molecules[0]) || molDict[`${molKey}.json`] || {};
+
+  const xyzText = molInfo.xyz || '';
+  const lines = xyzText.trim().split('\n');
+  const symbols = [];
+  const coords = [];
+  if (lines.length >= 3) {
+    for (let i = 2; i < lines.length; i++) {
+      const parts = lines[i].trim().split(/\s+/);
+      if (parts.length >= 4) {
+        symbols.push(parts[0]);
+        coords.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
+      }
+    }
+  }
+
+  const orbitalMeshes = {};
+  const espMeshes = {};
+  for (const [fname, content] of Object.entries(molDict)) {
+    if (fname.endsWith('_pos.json')) {
+      const base = fname.replace(/_pos\.json$/, '');
+      orbitalMeshes[base] = orbitalMeshes[base] || {};
+      orbitalMeshes[base].pos = content;
+    } else if (fname.endsWith('_neg.json')) {
+      const base = fname.replace(/_neg\.json$/, '');
+      orbitalMeshes[base] = orbitalMeshes[base] || {};
+      orbitalMeshes[base].neg = content;
+    } else if (fname.endsWith('_esp.json')) {
+      espMeshes['0'] = content;
+    }
+  }
+
+  const rawCategories = molInfo.orbitals || manifest.orbitals || [];
+  const categories = rawCategories.map(cat => ({
+    name: cat.name,
+    items: (cat.items || []).map(it => {
+      const rawKey = it.file ? it.file.replace(/^molecules\//, '').replace(/\.json$/, '') : (it.key || it.label);
+      return {
+        key: rawKey,
+        label: it.label || rawKey,
+        color: it.color || '#38bdf8',
+        energy_ev: it.energy_ev
+      };
+    })
+  }));
+
+  const title = molInfo.name || molInfo.key || molKey.replace(/_/g, ' ');
+
+  return {
+    manifest: {
+      title,
+      molKey,
+      smiles: molInfo.smiles || '',
+      isSingleMolecule: true
+    },
+    trajectory: {
+      symbols,
+      frames: [{ coords, energy_kcal: 0 }]
+    },
+    orbitalMeshes,
+    espMeshes,
+    categories,
+    hasEsp: Boolean(espMeshes['0']),
+    isSingleMolecule: true
+  };
+}

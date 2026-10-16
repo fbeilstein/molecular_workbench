@@ -105,14 +105,14 @@ html, body {
 .btn-panel-toggle:hover { border-color: var(--accent-color); }
 
 /* Side Panel (Molecular Explorer Grouped Orbitals Checklist) */
-#side-panel {
+#side-panel, .side-panel {
   position: absolute; top: 44px; right: 12px; width: 260px; max-height: calc(100% - 190px);
   background-color: var(--bg-secondary); border: 1px solid var(--border-color);
   border-radius: 6px; z-index: 24; display: flex; flex-direction: column;
   transition: transform 0.2s ease, opacity 0.2s ease;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); overflow: hidden;
 }
-#side-panel.panel-hidden { transform: translateX(290px); opacity: 0; pointer-events: none; }
+#side-panel.panel-hidden, .side-panel.panel-hidden { transform: translateX(290px); opacity: 0; pointer-events: none; }
 
 .panel-header {
   padding: 8px 12px; font-weight: 600; font-size: 12px;
@@ -154,9 +154,6 @@ html, body {
 .esp-group {
   margin-top: 4px; border-top: 1px dashed rgba(255, 255, 255, 0.1); padding-top: 4px;
 }
-.panel-actions {
-  border-top: 1px solid var(--border-color); padding-top: 6px; display: flex; justify-content: flex-end;
-}
 
 /* Bottom Playback Dock */
 #bottom-dock {
@@ -180,6 +177,31 @@ html, body {
   border-color: var(--accent-color); font-weight: 600;
 }
 .btn-primary:hover { background-color: var(--accent-hover); border-color: var(--accent-hover); }
+
+/* Forward & Reverse Play Buttons */
+.btn-play-fwd {
+  background-color: #3b82f6; color: #ffffff;
+  border: 1px solid #3b82f6; border-radius: 9999px;
+  padding: 6px 14px; font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+.btn-play-fwd:hover { background-color: #2563eb; border-color: #2563eb; }
+.btn-play-fwd.active {
+  background-color: #1d4ed8; border-color: #60a5fa;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+}
+
+.btn-play-rev {
+  background-color: #e2e8f0; color: #0f172a;
+  border: 1px solid #cbd5e1; border-radius: 9999px;
+  padding: 6px 14px; font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+.btn-play-rev:hover { background-color: #cbd5e1; border-color: #94a3b8; }
+.btn-play-rev.active {
+  background-color: #94a3b8; border-color: #64748b;
+  box-shadow: 0 0 10px rgba(226, 232, 240, 0.6);
+}
 
 .slider-container { flex: 1; display: flex; align-items: center; gap: 12px; }
 #frame-slider { flex: 1; accent-color: var(--accent-color); cursor: pointer; height: 6px; }
@@ -214,19 +236,12 @@ html, body {
   background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer;
 }
 .btn-modal-close:hover { color: #fff; }
-.modal-body { flex: 1; display: flex; overflow: hidden; }
-.modal-viewport { flex: 1; position: relative; background: #090d16; }
-#modal-3d-canvas { width: 100%; height: 100%; }
-.modal-view-tools { position: absolute; top: 8px; right: 8px; z-index: 10; }
-.modal-sidebar {
-  width: 280px; border-left: 1px solid var(--border-color);
-  background: var(--bg-secondary); display: flex; flex-direction: column;
+.modal-viewport-container {
+  flex: 1; position: relative; overflow: hidden;
+  background: radial-gradient(circle at center, #161e2b 0%, #0c1017 100%);
 }
-.modal-sidebar-header {
-  padding: 8px 12px; font-size: 12px; font-weight: 600;
-  border-bottom: 1px solid var(--border-color); color: var(--text-secondary);
-}
-.modal-orbitals-list { padding: 8px 10px; overflow-y: auto; flex: 1; }
+.modal-gl-canvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+.custom-modal-dialog .side-panel { max-height: calc(100% - 60px); }
 
 /* Dropzone / Progress Overlay */
 #overlay {
