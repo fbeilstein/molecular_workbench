@@ -13,6 +13,7 @@ from .packager import (
     unpack_molecule_bundle,
     purge_cube_files,
 )
+from .orbital_packager import convert_and_pack_trajectory_orbitals
 
 __all__ = [
     "recompute_highres_batch",
@@ -24,4 +25,6 @@ __all__ = [
     "create_maxcomp_bundle_zip",
     "unpack_molecule_bundle",
     "purge_cube_files",
+    "convert_and_pack_trajectory_orbitals",
 ]
+

@@ -124,7 +124,11 @@ export class BundleMoleculeModal {
             const res = await fetch(`/api/step/${this.stepId}/custom`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action_type: 'get_molecule_bundle', molecule_id: this.moleculeId })
+                body: JSON.stringify({
+                    action_type: 'get_molecule_bundle',
+                    molecule_id: this.moleculeId,
+                    molecule_name: this.moleculeName
+                })
             });
             const data = await res.json();
             if (data.success) {
@@ -149,6 +153,7 @@ export class BundleMoleculeModal {
                     body: JSON.stringify({
                         action_type: 'upload_molecule_bundle',
                         molecule_id: this.moleculeId,
+                        molecule_name: this.moleculeName,
                         filename: file.name,
                         data_b64: base64Str
                     })
@@ -157,7 +162,7 @@ export class BundleMoleculeModal {
                 if (data.success) {
                     this.bundleData = data;
                     this.populateOrbitals(data);
-                    this.onBundleUploaded(this.moleculeId, data);
+                    this.onBundleUploaded(this.moleculeId, data, this.moleculeName);
                     if (statusBadge) statusBadge.textContent = `Loaded ${data.count || 0} orbitals from ${file.name}`;
                 } else {
                     alert('Error: ' + (data.error || 'Failed to parse bundle.'));

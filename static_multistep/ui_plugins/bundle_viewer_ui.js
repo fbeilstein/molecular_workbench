@@ -77,29 +77,16 @@ export const BundleViewerUI = {
     },
 
     initControllers(container, ep) {
-        this.state.transport = new BundleTransportController(this.state, {
-            onFrameSeek: async () => this.refreshViewer()
-        });
-
+        this.state.transport = new BundleTransportController(this.state, { onFrameSeek: async () => this.refreshViewer() });
         this.state.wiringMgr = new BundleWiringManager(this.state, {
             onSelectGroup: (grpId) => this.selectGroup(grpId),
-            onSaveWiring: (grpId, cfg) => {
-                this.state.svgManager.setGroupWiring(grpId, cfg);
-                this.renderGroupsTree();
-            },
+            onSaveWiring: (grpId, cfg) => { this.state.svgManager.setGroupWiring(grpId, cfg); this.renderGroupsTree(); },
             onOpenMolecule: (grpId, cfg) => this.openMoleculeOrbitals(grpId, cfg)
         });
-
-        this.state.viewer3D = new Bundle3DViewer(container.querySelector('#bundle-viewport-3d'), {
-            isovalue: this.state.isovalue
-        });
-
+        this.state.viewer3D = new Bundle3DViewer(container.querySelector('#bundle-viewport-3d'), { isovalue: this.state.isovalue });
         this.state.pesChart = new BundlePesChart(container.querySelector('#bundle-pes-canvas'), {
-            energies: ep,
-            boundaries: this.state.megajson.step_boundaries || [],
-            onSeekFrame: (f) => this.state.transport.seekFrame(f)
+            energies: ep, boundaries: this.state.megajson.step_boundaries || [], onSeekFrame: (f) => this.state.transport.seekFrame(f)
         });
-
         this.state.svgManager = new SvgMechanismManager(container.querySelector('#bundle-svg-view'), {
             initialWiring: this.state.megajson.svg_wiring || {},
             onPlaySegment: (sf, ef, dir) => this.state.transport.playSegment(sf, ef, dir),
@@ -108,17 +95,12 @@ export const BundleViewerUI = {
             onGroupSelected: (grpId, cfg) => this.renderWiringPanel(grpId, cfg),
             onSaveWiring: (wiring) => this.saveWiringToBackend(wiring)
         });
-
         this.state.highresManager = new BundleHighresManager({
-            stepId: this.state.stepId,
-            tracks: this.state.tracks,
-            totalFrames: this.state.megajson.frames.length,
-            currentResolution: this.state.orbitalResolution,
-            onCompleted: (newRes) => this.onHighresCompleted(newRes)
+            stepId: this.state.stepId, tracks: this.state.tracks, totalFrames: this.state.megajson.frames.length,
+            currentResolution: this.state.orbitalResolution, onCompleted: (newRes) => this.onHighresCompleted(newRes)
         });
-
         this.state.moleculeModal = new BundleMoleculeModal({
-            onBundleUploaded: (molId, bundle) => this.onMoleculeBundleUploaded(molId, bundle)
+            onBundleUploaded: (molId, bundle, molName) => this.onMoleculeBundleUploaded(molId, bundle, molName)
         });
     },
 
@@ -361,9 +343,15 @@ export const BundleViewerUI = {
     },
 
     openMoleculeOrbitals(molId, cfg) {
-        const molName = (cfg && cfg.moleculeName) || molId;
+        const molName = (cfg && (cfg.moleculeName || cfg.molName)) || molId;
         const b = this.state.megajson.molecule_bundles || {};
-        const existingBundle = b[molId] || b[molName] || Object.values(b).find(v => v.molecule_key === molId || v.molecule_id === molId) || null;
+        const norm = s => String(s || '').toLowerCase().replace(/[\s\-_]+/g, '');
+        const target = norm(molName), idTarget = norm(molId);
+        const existingBundle = b[molId] || b[molName] || Object.values(b).find(v => {
+            const vk = norm(v.molecule_key || v.molecule_id || '');
+            const vm = norm(v.molecule_name || v.name || v.title || '');
+            return vk === target || vm === target || vk === idTarget || vm === idTarget || (v.directory && norm(v.directory).includes(target));
+        }) || null;
         this.state.moleculeModal.show(document.body, molId, molName, existingBundle);
     },
 
@@ -375,11 +363,12 @@ export const BundleViewerUI = {
         this.refreshViewer();
     },
 
-    onMoleculeBundleUploaded(molId, bundleData) {
-        if (!this.state.megajson.molecule_bundles) {
-            this.state.megajson.molecule_bundles = {};
-        }
-        this.state.megajson.molecule_bundles[molId] = bundleData;
+    onMoleculeBundleUploaded(molId, bundleData, molName) {
+        if (!this.state.megajson.molecule_bundles) this.state.megajson.molecule_bundles = {};
+        const b = this.state.megajson.molecule_bundles;
+        b[molId] = bundleData;
+        if (molName) b[molName] = bundleData;
+        if (bundleData.molecule_key) b[bundleData.molecule_key] = bundleData;
     },
 
     async saveSvgToBackend(svgText) {

@@ -202,12 +202,53 @@ class ReactionViewerApp {
     this.moleculeModal.show(molId, cfg);
   }
 
+  async fetchOrbitalMesh(frameIdx, orbKey) {
+    if (!this.bundle || !this.bundle.trajectory || !this.bundle.orbitalMeshes) return;
+    const cacheKey = `${frameIdx}_${orbKey}`;
+    if (this.bundle.orbitalMeshes[cacheKey]) return;
+
+    try {
+      const res = await fetch('/api/step/step_5_bundle_viewer/custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action_type: 'get_orbital_mesh',
+          frame_index: frameIdx,
+          orbital: orbKey,
+          isovalue: 0.035
+        })
+      });
+      if (res.ok) {
+        const d = await res.json();
+        if (d && d.success) {
+          if (d.pos || d.neg) {
+            this.bundle.orbitalMeshes[cacheKey] = { pos: d.pos, neg: d.neg };
+          } else if (d.cube) {
+            this.bundle.cubeCache = this.bundle.cubeCache || {};
+            this.bundle.cubeCache[cacheKey] = d.cube;
+          }
+          if (this.currentFrame === frameIdx) {
+            this.viewer3d.renderFrame(this.currentFrame, false);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   goToFrame(frameIdx) {
     if (!this.bundle || this.totalFrames === 0) return;
     this.currentFrame = Math.max(0, Math.min(frameIdx, this.totalFrames - 1));
 
     this.viewer3d.renderFrame(this.currentFrame, false);
     this.viewerPes.setCurrentFrame(this.currentFrame);
+
+    if (this.viewer3d && this.viewer3d.activeOrbitals.size > 0 && this.bundle.orbitalMeshes) {
+      for (const orbKey of this.viewer3d.activeOrbitals) {
+        if (!this.viewer3d.findOrbitalMesh(this.currentFrame, orbKey)) {
+          this.fetchOrbitalMesh(this.currentFrame, orbKey);
+        }
+      }
+    }
 
     const frame = this.bundle.trajectory.frames[this.currentFrame] || {};
     const e = frame.rel_energy_kcal !== undefined ? frame.rel_energy_kcal : (frame.energy_kcal || 0.0);
@@ -225,43 +266,16 @@ class ReactionViewerApp {
     this.goToFrame(next);
   }
 
-  togglePlay() {
-    this.togglePlayForward();
-  }
-
-  togglePlayForward() {
-    if (this.isPlaying) {
-      this.pause();
-    } else {
-      this.playForward();
-    }
-  }
-
-  togglePlayReverse() {
-    if (this.isPlaying) {
-      this.pause();
-    } else {
-      this.playReverse();
-    }
-  }
+  togglePlay() { this.togglePlayForward(); }
+  togglePlayForward() { this.isPlaying ? this.pause() : this.playForward(); }
+  togglePlayReverse() { this.isPlaying ? this.pause() : this.playReverse(); }
 
   playForward() {
     this.pause();
     this.setDirection('forward');
     if (this.totalFrames <= 1) return;
     if (this.currentFrame >= this.totalFrames - 1) this.goToFrame(0);
-
-    this.isPlaying = true;
-    this.ui.updatePlayState(true, 'forward');
-
-    const intervalMs = Math.max(25, Math.floor(1000 / (this.baseFps * this.playSpeed)));
-    this.playTimer = setInterval(() => {
-      if (this.currentFrame >= this.totalFrames - 1) {
-        this.pause();
-      } else {
-        this.goToFrame(this.currentFrame + 1);
-      }
-    }, intervalMs);
+    this._startLoop(1, () => this.currentFrame >= this.totalFrames - 1);
   }
 
   playReverse() {
@@ -269,52 +283,31 @@ class ReactionViewerApp {
     this.setDirection('reverse');
     if (this.totalFrames <= 1) return;
     if (this.currentFrame <= 0) this.goToFrame(this.totalFrames - 1);
-
-    this.isPlaying = true;
-    this.ui.updatePlayState(true, 'reverse');
-
-    const intervalMs = Math.max(25, Math.floor(1000 / (this.baseFps * this.playSpeed)));
-    this.playTimer = setInterval(() => {
-      if (this.currentFrame <= 0) {
-        this.pause();
-      } else {
-        this.goToFrame(this.currentFrame - 1);
-      }
-    }, intervalMs);
+    this._startLoop(-1, () => this.currentFrame <= 0);
   }
 
   playSegment(startFrame, endFrame, direction = 'forward') {
     this.pause();
     if (this.totalFrames <= 1) return;
-
     this.setDirection(direction);
-
     const f1 = Math.max(0, Math.min(this.totalFrames - 1, parseInt(startFrame, 10) || 0));
     const f2 = Math.max(0, Math.min(this.totalFrames - 1, parseInt(endFrame, 10) || 0));
-    const minF = Math.min(f1, f2);
-    const maxF = Math.max(f1, f2);
-
-    const fromF = (direction === 'reverse') ? maxF : minF;
-    const toF = (direction === 'reverse') ? minF : maxF;
-
+    const fromF = direction === 'reverse' ? Math.max(f1, f2) : Math.min(f1, f2);
+    const toF = direction === 'reverse' ? Math.min(f1, f2) : Math.max(f1, f2);
     this.goToFrame(fromF);
-    this.isPlaying = true;
-    this.ui.updatePlayState(true, direction);
+    const delta = direction === 'reverse' ? -1 : 1;
+    this._startLoop(delta, () => direction === 'reverse' ? this.currentFrame <= toF : this.currentFrame >= toF);
+  }
 
+  _startLoop(delta, shouldStop) {
+    this.isPlaying = true;
+    this.ui.updatePlayState(true, this.playDirection);
     const intervalMs = Math.max(25, Math.floor(1000 / (this.baseFps * this.playSpeed)));
     this.playTimer = setInterval(() => {
-      if (direction === 'forward') {
-        if (this.currentFrame >= toF) {
-          this.pause();
-        } else {
-          this.goToFrame(this.currentFrame + 1);
-        }
+      if (shouldStop()) {
+        this.pause();
       } else {
-        if (this.currentFrame <= toF) {
-          this.pause();
-        } else {
-          this.goToFrame(this.currentFrame - 1);
-        }
+        this.goToFrame(this.currentFrame + delta);
       }
     }, intervalMs);
   }

@@ -8,57 +8,14 @@ export async function loadReactionBundle(source, onProgress) {
   let arrayBuffer;
 
   if (typeof source === 'string') {
-    let url = source.trim();
+    const url = source.trim();
+    if (onProgress) onProgress(15, `Fetching bundle from ${url}...`);
 
-    // 1. If pointing to a release zip from this repo, check if it's hosted locally in ./bundles/
-    if (url.includes('/releases/download/') && url.endsWith('.zip')) {
-      const fname = url.split('/').pop().split('?')[0];
-      const localCandidate = `./bundles/${fname}`;
-      try {
-        if (onProgress) onProgress(10, `Checking local repository bundles for ${fname}...`);
-        const check = await fetch(localCandidate, { method: 'HEAD' });
-        if (check.ok) {
-          url = localCandidate;
-        }
-      } catch (_) {}
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      throw new Error(`Failed to download bundle from ${url} (${resp.status} ${resp.statusText})`);
     }
-
-    if (onProgress) onProgress(15, 'Fetching bundle from ' + url + '...');
-
-    // 2. Direct fetch
-    try {
-      const resp = await fetch(url, { mode: 'cors' });
-      if (!resp.ok) {
-        throw new Error(`Failed to download bundle (${resp.status} ${resp.statusText})`);
-      }
-      arrayBuffer = await resp.arrayBuffer();
-    } catch (directErr) {
-      // 3. Fallback proxy cascade for cross-origin URLs blocked by CORS
-      if (url.startsWith('http://') || url.startsWith('https://')) {
-        const proxies = [
-          (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-          (u) => `https://corsproxy.org/?${encodeURIComponent(u)}`,
-          (u) => `https://cors.eu.org/${u}`
-        ];
-        let fetched = false;
-        for (let i = 0; i < proxies.length; i++) {
-          try {
-            if (onProgress) onProgress(20 + i * 5, `Direct fetch blocked (CORS). Retrying with proxy ${i + 1}/${proxies.length}...`);
-            const pResp = await fetch(proxies[i](url));
-            if (pResp.ok) {
-              arrayBuffer = await pResp.arrayBuffer();
-              fetched = true;
-              break;
-            }
-          } catch (_) {}
-        }
-        if (!fetched) {
-          throw new Error(`Remote server blocked direct download due to CORS policy.`);
-        }
-      } else {
-        throw directErr;
-      }
-    }
+    arrayBuffer = await resp.arrayBuffer();
   } else if (source instanceof Blob || source instanceof File) {
     if (onProgress) onProgress(10, 'Reading local bundle archive...');
     arrayBuffer = await source.arrayBuffer();
@@ -172,31 +129,51 @@ export function buildMoleculeBundle(molIdentifier, parentBundle) {
   if (!parentBundle || !parentBundle.molecules) return null;
   const mols = parentBundle.molecules;
 
+  const norm = s => String(s || '').toLowerCase().replace(/[\s\-_]+/g, '');
+  const targetNorm = norm(molIdentifier);
+
+  const wiring = parentBundle.svgWiring || (parentBundle.trajectory && parentBundle.trajectory.svg_wiring) || (parentBundle.manifest && parentBundle.manifest.svg_wiring) || {};
+  const wiredCfg = wiring[molIdentifier];
+  const wiredName = wiredCfg?.moleculeName || wiredCfg?.molName || '';
+  const wiredNorm = norm(wiredName);
+
   let molKey = null;
   let molDict = null;
-  if (mols[molIdentifier]) {
-    molKey = molIdentifier;
-    molDict = mols[molIdentifier];
-  } else {
-    for (const k in mols) {
-      if (k.toLowerCase() === String(molIdentifier).toLowerCase() ||
-          k.toLowerCase().includes(String(molIdentifier).toLowerCase()) ||
-          String(molIdentifier).toLowerCase().includes(k.toLowerCase())) {
-        molKey = k;
-        molDict = mols[k];
-        break;
-      }
+
+  for (const k in mols) {
+    const kn = norm(k);
+    if (k === molIdentifier || kn === targetNorm || (wiredNorm && kn === wiredNorm)) {
+      molKey = k;
+      molDict = mols[k];
+      break;
     }
   }
 
   if (!molDict && parentBundle.trajectory && parentBundle.trajectory.molecule_bundles) {
     const mb = parentBundle.trajectory.molecule_bundles;
-    const entry = mb[molIdentifier] || Object.values(mb).find(v => v.key === molIdentifier || v.directory?.includes(molIdentifier));
+    const entry = mb[molIdentifier] || (wiredName && mb[wiredName]) || Object.values(mb).find(v => {
+      const vk = norm(v.molecule_key || v.key || '');
+      const vm = norm(v.molecule_name || v.name || '');
+      const vi = norm(v.molecule_id || '');
+      return vk === targetNorm || vm === targetNorm || vi === targetNorm ||
+             (wiredNorm && (vk === wiredNorm || vm === wiredNorm));
+    });
     if (entry && entry.directory) {
       const dirClean = entry.directory.replace(/^molecules\//, '').replace(/\/$/, '');
       if (mols[dirClean]) {
         molKey = dirClean;
         molDict = mols[dirClean];
+      }
+    }
+  }
+
+  if (!molDict) {
+    for (const k in mols) {
+      const kn = norm(k);
+      if (targetNorm && (kn.includes(targetNorm) || targetNorm.includes(kn))) {
+        molKey = k;
+        molDict = mols[k];
+        break;
       }
     }
   }
@@ -250,7 +227,7 @@ export function buildMoleculeBundle(molIdentifier, parentBundle) {
     })
   }));
 
-  const title = molInfo.name || molInfo.key || molKey.replace(/_/g, ' ');
+  const title = wiredName || molInfo.name || molInfo.key || molKey.replace(/_/g, ' ');
 
   return {
     manifest: {

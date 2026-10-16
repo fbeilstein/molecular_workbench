@@ -187,6 +187,16 @@ export class Viewer3D {
               opacity: 0.75
             });
           }
+        } else if (this.bundle.cubeCache) {
+          const cubeData = this.bundle.cubeCache[`${frameIdx}_${orbKey}`] || this.bundle.cubeCache[orbKey];
+          if (cubeData && window.$3Dmol) {
+            try {
+              const vdo = new window.$3Dmol.VolumeData(cubeData, 'cube');
+              const iso = this.orbitalIsovalue || 0.035;
+              this.glViewer.addIsosurface(vdo, { isoval: iso, color: '#38bdf8', opacity: 0.72 });
+              this.glViewer.addIsosurface(vdo, { isoval: -iso, color: '#f97316', opacity: 0.72 });
+            } catch (_) {}
+          }
         }
       }
     }

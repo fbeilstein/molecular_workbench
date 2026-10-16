@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 import zipfile
 from typing import Any, Dict, Optional, Tuple
@@ -178,32 +179,13 @@ class Step5BundleViewer(PipelineStep):
 
             pos, neg = _get_or_extract_surface_mesh(frame_idx, ok, iso, megajson)
             if pos or neg:
-                return {
-                    "success": True,
-                    "frame_index": frame_idx,
-                    "orbital": ok,
-                    "isovalue": iso,
-                    "is_mesh": True,
-                    "pos": pos,
-                    "neg": neg,
-                    "coords": megajson["frames"][frame_idx]["coords"]
-                }
+                return {"success": True, "frame_index": frame_idx, "orbital": ok, "isovalue": iso, "is_mesh": True, "pos": pos, "neg": neg, "coords": megajson["frames"][frame_idx]["coords"]}
 
             highres_cube = get_cached_highres_cube(frame_idx, ok, megajson)
             if highres_cube:
-                return {
-                    "success": True,
-                    "frame_index": frame_idx,
-                    "orbital": ok,
-                    "isovalue": iso,
-                    "is_highres": True,
-                    "cube": highres_cube,
-                    "filename": f"{ok}_f{frame_idx}_highres.cube",
-                    "coords": megajson["frames"][frame_idx]["coords"]
-                }
+                return {"success": True, "frame_index": frame_idx, "orbital": ok, "isovalue": iso, "is_highres": True, "cube": highres_cube, "filename": f"{ok}_f{frame_idx}_highres.cube", "coords": megajson["frames"][frame_idx]["coords"]}
 
-            s4 = Step4Orbitals()
-            return s4.custom_action(user_input, global_state)
+            return Step4Orbitals().custom_action(user_input, global_state)
 
         if action in ["get_cached_cubes", "get_cached_meshes"]:
             frames = [int(x) for x in user_input.get("frames", [])]
@@ -222,8 +204,7 @@ class Step5BundleViewer(PipelineStep):
             if meshes:
                 return {"success": True, "meshes": meshes, "is_mesh": True}
 
-            s4 = Step4Orbitals()
-            res = s4.custom_action(user_input, global_state)
+            res = Step4Orbitals().custom_action(user_input, global_state)
             if isinstance(res, dict) and res.get("success"):
                 cubes = res.setdefault("cubes", {})
                 for fi in frames:
@@ -250,6 +231,18 @@ class Step5BundleViewer(PipelineStep):
         if action == "save_svg_wiring":
             wiring = user_input.get("wiring", {})
             megajson["svg_wiring"] = wiring
+            mb = megajson.get("molecule_bundles", {})
+            for grp_id, cfg in wiring.items():
+                if isinstance(cfg, dict) and cfg.get("moleculeName"):
+                    m_name = cfg["moleculeName"]
+                    norm_name = re.sub(r'[\s\-_]+', '', m_name).lower()
+                    for k, v in list(mb.items()):
+                        k_norm = re.sub(r'[\s\-_]+', '', str(k)).lower()
+                        vk_norm = re.sub(r'[\s\-_]+', '', str(v.get("molecule_key", ""))).lower()
+                        if k == grp_id or k_norm == norm_name or vk_norm == norm_name:
+                            v["molecule_name"] = m_name
+                            mb[m_name] = mb[grp_id] = v
+                            break
             for s_key in ("step_5_bundle_viewer", "step_4_orbitals", "step_3_energy_stitch"):
                 if s_key in global_state and isinstance(global_state[s_key], dict):
                     s_mj = global_state[s_key].get("megajson")
@@ -261,6 +254,10 @@ class Step5BundleViewer(PipelineStep):
         # 4. Molecular Workbench ZIP bundle upload & orbital catalog
         if action == "upload_molecule_bundle":
             m_id = str(user_input.get("molecule_id", "molecule"))
+            m_name = str(user_input.get("molecule_name", ""))
+            wiring = megajson.get("svg_wiring", {})
+            if not m_name and m_id in wiring:
+                m_name = wiring[m_id].get("moleculeName") or wiring[m_id].get("molName", "")
             filename = str(user_input.get("filename", "bundle.zip"))
             data_b64 = user_input.get("data_b64", "")
 
@@ -274,6 +271,7 @@ class Step5BundleViewer(PipelineStep):
                 "filename": filename,
                 "molecule_id": m_id,
                 "molecule_key": b_res.get("molecule_key", m_id),
+                "molecule_name": m_name or b_res.get("molecule_name", m_id),
                 "orbitals": b_res.get("orbitals", []),
                 "orbitals_tree": b_res.get("orbitals_tree", []),
                 "xyz": b_res.get("xyz", ""),
@@ -282,6 +280,8 @@ class Step5BundleViewer(PipelineStep):
                 "data_b64": data_b64
             }
             bundles[m_id] = entry
+            if m_name:
+                bundles[m_name] = entry
             if b_res.get("molecule_key") and b_res["molecule_key"] != m_id:
                 bundles[b_res["molecule_key"]] = entry
 
@@ -290,6 +290,7 @@ class Step5BundleViewer(PipelineStep):
                 "success": True,
                 "molecule_id": m_id,
                 "molecule_key": b_res.get("molecule_key", m_id),
+                "molecule_name": m_name or b_res.get("molecule_name", m_id),
                 "orbitals": b_res.get("orbitals", []),
                 "orbitals_tree": b_res.get("orbitals_tree", []),
                 "xyz": b_res.get("xyz", ""),
@@ -300,19 +301,32 @@ class Step5BundleViewer(PipelineStep):
 
         if action == "get_molecule_bundle":
             m_id = str(user_input.get("molecule_id", ""))
+            m_name = str(user_input.get("molecule_name", ""))
+            wiring = megajson.get("svg_wiring", {})
+            if not m_name and m_id in wiring:
+                m_name = wiring[m_id].get("moleculeName") or wiring[m_id].get("molName", "")
+
+            def norm_k(s):
+                return re.sub(r'[\s\-_]+', '', str(s or '')).lower()
+            target_keys = {norm_k(m_id), norm_k(m_name)} - {""}
+
             bundles = megajson.get("molecule_bundles", {})
-            b = bundles.get(m_id)
+            b = bundles.get(m_id) or bundles.get(m_name)
             if not b:
                 for k, v in bundles.items():
-                    if k.lower() == m_id.lower() or v.get("molecule_key", "").lower() == m_id.lower():
+                    k_n = norm_k(k)
+                    vk_n = norm_k(v.get("molecule_key", ""))
+                    vn_n = norm_k(v.get("molecule_name", ""))
+                    if (k_n in target_keys) or (vk_n in target_keys) or (vn_n in target_keys):
                         b = v
                         break
             if not b:
-                return {"success": False, "error": f"No bundle found for molecule '{m_id}'"}
+                return {"success": False, "error": f"No bundle found for molecule '{m_name or m_id}'"}
             return {
                 "success": True,
                 "molecule_id": m_id,
                 "molecule_key": b.get("molecule_key", m_id),
+                "molecule_name": m_name or b.get("molecule_name", m_id),
                 "filename": b.get("filename"),
                 "orbitals": b.get("orbitals", []),
                 "orbitals_tree": b.get("orbitals_tree", []),

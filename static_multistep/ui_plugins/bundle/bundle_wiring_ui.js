@@ -32,10 +32,13 @@ export class BundleWiringManager {
                 else if (cfg.role === 'push_arrow') roleBadge = '<span class="chip-mini purple">Push</span>';
             }
 
+            const molName = cfg && (cfg.moleculeName || cfg.molName);
+            const displayName = molName ? `${molName} <span style="color:#64748b;font-size:0.68rem;">(${node.label})</span>` : node.label;
+
             item.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 4px; overflow: hidden; flex: 1;">
                     <span style="font-size: 0.7rem; color: #64748b;">${node.tag === 'g' ? '📁' : '🔹'}</span>
-                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${node.label}</span>
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${molName ? `${molName} (${node.label})` : node.label}">${displayName}</span>
                 </div>
                 ${roleBadge}
             `;
@@ -63,7 +66,7 @@ export class BundleWiringManager {
         const endFrame = cfg.endFrame !== undefined ? cfg.endFrame : 100;
         const targetFrame = cfg.targetFrame !== undefined ? cfg.targetFrame : 0;
         const direction = cfg.direction || 'forward';
-        const molName = cfg.moleculeName || grpId;
+        const molName = cfg.moleculeName || cfg.molName || grpId;
 
         panel.innerHTML = `
             <div style="font-weight: 700; color: #38bdf8; font-size: 0.8rem; margin-bottom: 0.35rem; display: flex; justify-content: space-between;">
@@ -158,10 +161,10 @@ export class BundleWiringManager {
                         <button class="btn btn-xxs btn-secondary" id="btn-use-cur-target">Cur</button>
                     </div>
                     <div>
-                        <label>Molecule/Bundle:</label>
-                        <input type="text" id="inp-mol-name" value="${data.molName}" class="input-xs" style="width: 110px;">
+                        <label>Molecule Name:</label>
+                        <input type="text" id="inp-mol-name" value="${data.molName}" class="input-xs" style="width: 140px;">
                     </div>
-                    <button class="btn btn-xxs btn-secondary" id="btn-inspect-mol">Orbitals</button>
+                    <button class="btn btn-xxs btn-secondary" id="btn-inspect-mol">Open Orbitals</button>
                 </div>
             `;
         }
@@ -215,9 +218,9 @@ export class BundleWiringManager {
             if (inp) inp.value = this.state.currentFrame;
         });
         panel.querySelector('#btn-inspect-mol')?.addEventListener('click', () => {
-            const molName = panel.querySelector('#inp-mol-name')?.value || grpId;
+            const molName = panel.querySelector('#inp-mol-name')?.value?.trim() || grpId;
             if (this.callbacks.onOpenMolecule) {
-                this.callbacks.onOpenMolecule(grpId, { moleculeName: molName });
+                this.callbacks.onOpenMolecule(grpId, { moleculeName: molName, molName: molName });
             }
         });
     }
@@ -239,16 +242,20 @@ export class BundleWiringManager {
             };
         }
         if (role === 'state_molecule') {
+            const mVal = panel.querySelector('#inp-mol-name')?.value?.trim() || 'Molecule';
             return {
                 role: 'state_molecule',
                 targetFrame: parseInt(panel.querySelector('#inp-state-target')?.value || 0, 10),
-                moleculeName: panel.querySelector('#inp-mol-name')?.value || 'Molecule'
+                moleculeName: mVal,
+                molName: mVal
             };
         }
         if (role === 'molecule') {
+            const mVal = panel.querySelector('#inp-mol-name')?.value?.trim() || 'Molecule';
             return {
                 role: 'molecule',
-                moleculeName: panel.querySelector('#inp-mol-name')?.value || 'Molecule'
+                moleculeName: mVal,
+                molName: mVal
             };
         }
         if (role === 'push_arrow') {

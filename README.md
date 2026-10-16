@@ -6,7 +6,7 @@ A comprehensive computational chemistry suite for exploring molecular structures
 
 ## Gallery
 ### Reaction Mechanisms
-* [Tetrahedral Intermediate, C=O Group](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=https://github.com/fbeilstein/molecular_workbench/releases/download/irc_v0/tetrahedral_intermediate_CO.zip)
+* [Tetrahedral Intermediate, C=O Group](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/tetrahedral_intermediate_CO.zip)
 
 ---
 

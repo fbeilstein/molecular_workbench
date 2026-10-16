@@ -24,14 +24,14 @@ export class ViewerMoleculeModal {
 
     const parentBundle = this.app.bundle;
     const molBundle = buildMoleculeBundle(molId, parentBundle) ||
-                      buildMoleculeBundle(cfg.moleculeName, parentBundle);
+                      (cfg.moleculeName ? buildMoleculeBundle(cfg.moleculeName, parentBundle) : null);
 
     if (!molBundle) {
       console.warn(`Molecule '${molId}' could not be resolved in bundle.`);
       return;
     }
 
-    const title = molBundle.manifest.title || cfg.moleculeName || molId;
+    const title = cfg.moleculeName || cfg.molName || molBundle.manifest.title || molId;
 
     const modal = document.createElement('div');
     modal.id = 'molecule-modal-backdrop';

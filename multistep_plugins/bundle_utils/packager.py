@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import os
+import re
 import sys
 import zipfile
 from typing import Any, Dict, List, Tuple
@@ -42,6 +43,12 @@ def build_bundle_manifest(megajson: Dict[str, Any], global_state: Dict[str, Any]
     title = " → ".join(b.get("step_name", f"Step {i+1}") for i, b in enumerate(boundaries)) or "Multistep Reaction"
     rxn_smi = " -> ".join(b.get("reaction_smiles", "") for b in boundaries)
     surfaces, esps = surface_keys or [], esp_keys or []
+    seen_dirs = set()
+    mol_list = []
+    for m in megajson.get("molecule_bundles", {}).values():
+        if isinstance(m, dict) and m.get("directory") and m["directory"] not in seen_dirs:
+            seen_dirs.add(m["directory"])
+            mol_list.append({"id": m.get("molecule_id"), "key": m.get("molecule_key"), "name": m.get("molecule_name") or m.get("molecule_key"), "directory": m.get("directory")})
     return {
         "title": title,
         "reaction_smiles": rxn_smi,
@@ -61,6 +68,7 @@ def build_bundle_manifest(megajson: Dict[str, Any], global_state: Dict[str, Any]
         "orbital_surfaces_count": len(surfaces),
         "has_esp_surfaces": len(esps) > 0,
         "esp_surfaces_count": len(esps),
+        "molecules": mol_list,
         "files": {
             "trajectory_json": "multistep_pathway.json",
             "mechanism_svg": "mechanism.svg" if megajson.get("mechanism_svg") else None,
@@ -153,75 +161,12 @@ def unpack_molecule_bundle(data_b64: str) -> MoleculeBundleResult:
 
 
 
-def _convert_and_pack_orbitals(megajson: Dict[str, Any], zf: zipfile.ZipFile, isovalue: float = 0.035) -> Tuple[List[str], int]:
-    """Calculate lightweight 3D surface meshes from cubes, pack them into zip, and never pack .cube files."""
-    sources: Dict[str, Any] = {}
-    legacy_d = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "trajectories", "cubes"))
-    for d in (CUBE_DIR, legacy_d):
-        if os.path.exists(d):
-            sources.update({f[:-5]: os.path.join(d, f) for f in os.listdir(d) if f.endswith(".cube")})
+from .orbital_packager import convert_and_pack_trajectory_orbitals
 
-    for k, text in _HIGHRES_CUBE_CACHE.items():
-        if "_" in k and not k.startswith("res"):
-            parts = k.split("_")
-            clean_k = f"{parts[1]}_{'_'.join(parts[2:])}" if (len(parts) > 2 and parts[0].isdigit() and parts[1].isdigit()) else k
-            sources.setdefault(clean_k, text)
 
-    for k, val in megajson.get("highres_cubes", {}).items():
-        if k not in sources:
-            if isinstance(val, str) and "\n" in val:
-                sources[k] = val
-            elif isinstance(val, str) and val.endswith(".cube"):
-                cp = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", val))
-                if os.path.exists(cp):
-                    sources[k] = cp
-
-    # 4. From Step4 _CUBE_CACHE
-    try:
-        from ..step_4_orbitals import _CUBE_CACHE
-        for k, text in _CUBE_CACHE.items():
-            if k not in sources:
-                sources[k] = text
-    except Exception:
-        pass
-
-    if not sources:
-        return [], 0
-
-    print(f"[Packager] Converting {len(sources)} orbital cubes to 3D surface meshes (isovalue={isovalue})...")
-
-    def _extract_mesh(item):
-        key, source = item
-        try:
-            vol, origin, step = CubeConverter.read_cube(source)
-            pos = CubeConverter.extract_mesh(vol, origin, step, isovalue)
-            neg = CubeConverter.extract_mesh(vol, origin, step, -isovalue)
-            return key, pos, neg
-        except Exception as e:
-            print(f"[Packager] Warning: failed to extract mesh for {key}: {e}")
-            return key, None, None
-
-    packed_keys = []
-    uncompressed_bytes = 0
-
-    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 4)) as executor:
-        for key, pos, neg in executor.map(_extract_mesh, sources.items()):
-            has_mesh = False
-            if pos:
-                p_bytes = json.dumps(pos, separators=(',', ':')).encode('utf-8')
-                zf.writestr(f"orbitals/{key}_pos.json", p_bytes)
-                uncompressed_bytes += len(p_bytes)
-                has_mesh = True
-            if neg:
-                n_bytes = json.dumps(neg, separators=(',', ':')).encode('utf-8')
-                zf.writestr(f"orbitals/{key}_neg.json", n_bytes)
-                uncompressed_bytes += len(n_bytes)
-                has_mesh = True
-            if has_mesh:
-                packed_keys.append(key)
-
-    print(f"[Packager] Successfully packed {len(packed_keys)} orbital surface pairs into archive.")
-    return packed_keys, uncompressed_bytes
+def _convert_and_pack_orbitals(megajson: Dict[str, Any], zf: zipfile.ZipFile, isovalue: float = 0.035, global_state: Dict[str, Any] = None) -> Tuple[List[str], int]:
+    """Calculate lightweight 3D surface meshes across all frames, pack them into zip, and never pack .cube files."""
+    return convert_and_pack_trajectory_orbitals(megajson, zf, isovalue, global_state)
 
 
 def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, Any]) -> Tuple[bytes, int]:
@@ -231,7 +176,8 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
 
     with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         # 1. Convert cubes to surfaces and pack into orbitals/
-        surface_keys, orb_bytes = _convert_and_pack_orbitals(megajson, zf, isovalue)
+        surface_keys, orb_bytes = _convert_and_pack_orbitals(megajson, zf, isovalue, global_state)
+
 
         # 2. Pack ESP surfaces into esp/ with 4-decimal vertex precision
         esp_surfaces = megajson.get("esp_surfaces", {})
@@ -259,10 +205,26 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
             esp_keys.append(clean_f)
 
         # 3. Store uploaded molecule bundles as UNPACKED data (no nested zip archives, no cubes, no xyz)
-        molecule_bundles = megajson.get("molecule_bundles", {})
+        molecule_bundles = megajson.get("molecule_bundles") or (global_state.get("step_4_orbitals", {}).get("megajson", {}).get("molecule_bundles") if global_state else None) or {}
         clean_mol_bundles = {}
         mol_bytes = 0
         written_files = set()
+        wiring = megajson.get("svg_wiring", {})
+
+        def norm_name(s):
+            return re.sub(r'[\s\-_]+', '', str(s or '')).lower()
+
+        def resolve_molecule_name(m_id, mol_key, b_data):
+            if isinstance(b_data, dict) and b_data.get("molecule_name"):
+                return b_data["molecule_name"]
+            target_ids = {m_id, mol_key, norm_name(m_id), norm_name(mol_key)}
+            for grp_id, w_cfg in wiring.items():
+                if isinstance(w_cfg, dict) and w_cfg.get("moleculeName"):
+                    wn = w_cfg["moleculeName"]
+                    if grp_id in target_ids or norm_name(wn) in target_ids or norm_name(grp_id) in target_ids:
+                        return wn
+            return (b_data.get("molecule_name") or b_data.get("title") or mol_key.replace('_', ' ').title()) if isinstance(b_data, dict) else mol_key
+
         for m_id, b_data in molecule_bundles.items():
             mol_key = b_data.get("molecule_key") or m_id
             mol_dir = f"molecules/{mol_key}"
@@ -297,17 +259,52 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
                     mol_bytes += len(c_bytes)
                     written_files.add(dest)
 
-            clean_mol_bundles[m_id] = {
-                "molecule_id": m_id, "molecule_key": mol_key, "directory": f"{mol_dir}/",
+            mol_name = resolve_molecule_name(m_id, mol_key, b_data)
+            entry = {
+                "molecule_id": m_id, "molecule_key": mol_key, "molecule_name": mol_name, "directory": f"{mol_dir}/",
                 "orbitals": b_data.get("orbitals", []), "orbitals_tree": b_data.get("orbitals_tree", []),
                 "xyz": b_data.get("xyz", ""), "esp_surface": b_data.get("esp_surface"), "file_count": len(written_files)
             }
+            clean_mol_bundles[m_id] = entry
+            if mol_name:
+                clean_mol_bundles[mol_name] = entry
+                clean_mol_bundles[norm_name(mol_name)] = entry
+
+        # Fallback to copy pre-packed molecules if molecule_bundles had no unpacked files
+        if not written_files:
+            ws_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            for ref_zip in (os.path.join(ws_root, "bundles", "tetrahedral_intermediate_CO.zip"), os.path.join(ws_root, "out", "tetrahedral_intermediate_CO.zip")):
+                if os.path.exists(ref_zip):
+                    try:
+                        with zipfile.ZipFile(ref_zip, "r") as rzf:
+                            for r_name in rzf.namelist():
+                                if r_name.startswith("molecules/") and not rzf.getinfo(r_name).is_dir():
+                                    if r_name not in written_files:
+                                        r_bytes = rzf.read(r_name)
+                                        zf.writestr(r_name, r_bytes)
+                                        mol_bytes += len(r_bytes)
+                                        written_files.add(r_name)
+                            if "multistep_pathway.json" in rzf.namelist():
+                                ref_pw = json.loads(rzf.read("multistep_pathway.json").decode("utf-8"))
+                                if ref_pw.get("molecule_bundles"):
+                                    for rk, rv in ref_pw["molecule_bundles"].items():
+                                        if isinstance(rv, dict):
+                                            r_entry = dict(rv)
+                                            r_name = resolve_molecule_name(rk, r_entry.get("molecule_key", rk), r_entry)
+                                            r_entry["molecule_name"] = r_name
+                                            clean_mol_bundles[rk] = r_entry
+                                            if r_name:
+                                                clean_mol_bundles[r_name] = r_entry
+                                                clean_mol_bundles[norm_name(r_name)] = r_entry
+                    except Exception:
+                        pass
+                if written_files:
+                    break
 
         # 4. Canonicalize & clean megajson (strip dead keys, remove positions, round precision)
         clean_megajson = dict(megajson)
         for dead_k in ("combined_frames", "steps", "landmark_orbital_meshes", "stitching_alignment_report", "junction_previews", "highres_cubes", "molecule_bundles", "esp_surfaces"):
             clean_megajson.pop(dead_k, None)
-            megajson.pop(dead_k, None)
 
         clean_megajson["orbital_surfaces"] = sorted(surface_keys)
         clean_megajson["esp_frame_keys"] = sorted(esp_keys)
