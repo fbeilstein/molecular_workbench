@@ -1,12 +1,6 @@
 # Molecular Workbench
 
-A comprehensive computational chemistry suite for exploring molecular structures, orbitals, reaction paths (IRC), and generating embeddable 3D visualizations (`.rxnbundle`).
-
----
-
-## Gallery
-### Reaction Mechanisms
-* [Tetrahedral Intermediate, C=O Group](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/tetrahedral_intermediate_CO.zip)
+A comprehensive computational chemistry suite for exploring molecular structures, quantum orbitals, transition states, reaction paths (IRC), and generating lightweight, zero-backend 3D visualizations (`.rxnbundle.zip`).
 
 ---
 
@@ -23,7 +17,7 @@ This repository respects your preferred Python environment (e.g. `venv`, `conda`
 
 1. **Clone the repository**:
    ```bash
-   git clone <your-repo-url>
+   git clone git@github.com:fbeilstein/molecular_workbench.git
    cd molecular_workbench
    ```
 
@@ -33,7 +27,7 @@ This repository respects your preferred Python environment (e.g. `venv`, `conda`
    source .venv/bin/activate
    ```
 
-3. **Install Core Dependencies**:
+3. **Install Dependencies & Tooling**:
    ```bash
    pip install -r requirements.txt
    bash setup.sh --with-ml
@@ -42,53 +36,70 @@ This repository respects your preferred Python environment (e.g. `venv`, `conda`
 
 ---
 
-## Transition State Engines & Strategies
+## Running the Workbenches
 
-The Transition State Workbench (`server_irc.py`) supports three robust, transparent TS search strategies:
+The repository provides three dedicated workbenches and a zero-backend standalone viewer:
 
-1. **🧬 Genetic Swarm (Default Intermolecular)**:
-   - A multi-generation genetic algorithm exploring $SE(3) \times SO(3)$ (both 3D translation and 3D rigid-body quaternions for both reactants).
-   - Followed by Stage 2 Quantum Valley relaxation and Stage 3 Sella Delocalized Internal Coordinate (DLC) saddle polish.
-
-2. **🧱 Dual-Endpoint IDPP (Universal All Reaction Classes)**:
-   - Image-Dependent Pair Potential (IDPP) geometric interpolation between Reactant ($R$) and Product ($P$) endpoints.
-   - **Universal**: Operates on any number of forming and breaking bonds simultaneously (substitutions, Diels-Alder cycloadditions, additions, eliminations, and rearrangements) without reaction-specific heuristics.
-
-3. **⚡ Machine Learning Flow-Matching (RitS / TS-Diff)**:
-   - **Prerequisites Required**: Flow-matching neural network models require PyTorch, PyTorch Geometric, and external model weight checkpoints (~1.5 GB).
-   - **Zero Silent Failures**: If selected without installed packages or checkpoint files, the engine **never silently fakes or falls back to ground states**. It immediately raises an informative error pointing to setup instructions.
-   - For full setup and weights download instructions, see [docs/ML_MODELS.md](docs/ML_MODELS.md).
-
----
-
-## Usage
-
-### 1. IRC & Transition State Workbench
-To run the full 3-step Reaction & Transition State Workbench:
+### 1. Single-Molecule Quantum Workbench
+Compute 3D geometries, Intrinsic Bond Orbitals (IBO), and Electrostatic Potential (ESP) maps for individual molecules:
 ```bash
-source .venv/bin/activate
-python server_irc.py --port 8082
-```
-Open **http://localhost:8082** in your browser.
-- **Step 1**: Draw or input reactant and product SMILES.
-- **Step 2**: Interactive Ketcher atom mapping with automated validation.
-- **Step 3**: 3D Transition State Search (Genetic Swarm, IDPP, ORCA, or RitS) with real-time vibrational mode analysis and IRC path generation.
-
-### 2. Orbital & Surface Workbench
-To run the orbital and electrostatic potential (ESP) workbench:
-```bash
-source .venv/bin/activate
 python server.py --port 4321
 ```
-Open **http://localhost:4321** in your browser.
+Open [**http://localhost:4321**](http://localhost:4321) in your browser.
+
+### 2. Multistep Reaction Pathway Studio
+Build, align, and render complex multistep reaction mechanisms with synchronized 3D orbitals, Potential Energy Surfaces (PES), and interactive 2D SVG wiring:
+```bash
+python server_multistep.py --port 8083
+```
+Open [**http://localhost:8083**](http://localhost:8083) in your browser.
+- **Stage 1**: Ingest reaction step JSONs or IRC trajectories.
+- **Stage 2**: Automatic coordinate frame alignment across reaction steps.
+- **Stage 3**: Harmonized energy profiling and activation barrier calculation.
+- **Stage 4**: Synchronized orbital schedules and continuous Electrostatic Potential (ESP) surfaces.
+- **Stage 5**: Interactive SVG mechanism wiring and maximal-compression `.rxnbundle.zip` exporter.
+
+### 3. Transition State & IRC Workbench
+Find reaction transition states, analyze vibrational normal modes, and integrate full IRC reaction pathways:
+```bash
+python server_irc.py --port 8082
+```
+Open [**http://localhost:8082**](http://localhost:8082) in your browser.
+- **Step 1**: Draw or input reactant and product SMILES.
+- **Step 2**: Interactive Ketcher atom mapping with automated graph validation.
+- **Step 3**: 3D TS search (Genetic Swarm, Universal IDPP, ORCA, or RitS), imaginary frequency validation, and IRC integration.
+
+### 4. Standalone 3D Web Viewer (`viewer.html`)
+A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly in the browser's memory using `JSZip` and renders them with `3Dmol.js`:
+- Open `viewer.html` directly or serve via GitHub Pages.
+- Drag & drop any `.zip` bundle, or pass it via URL query parameter: `viewer.html?bundle=<path-or-url>`.
 
 ---
 
-## Project Structure
+## Documentation
 
-- `server_irc.py`: IRC & Transition State HTTP server.
-- `irc_plugins/`: Reaction model, mapping engine, TS optimization engine, and mode analysis.
-  - `irc_plugins/ts_engine/`: Genetic swarm, Universal IDPP interpolator, RitS wrapper, calculators.
-- `static_irc/`: Three.js 3D viewer, docking controls, real-time optimization log, and HUD.
-- `docs/ML_MODELS.md`: Step-by-step installation instructions for optional ML models and weight checkpoints.
-- `tools/`: Computational backend binaries and helper scripts.
+- [Transition State Engines & Search Strategies](docs/ts_engines.md): Details on Genetic Swarm, Dual-Endpoint IDPP, and Sella DLC optimization.
+- [Machine Learning TS Models (RitS & TS-Diff)](docs/ml_models.md): Setup instructions and weight checkpoint downloads for generative flow-matching TS models.
+- [Architecture Overview](docs/architecture.md): High-level system structure, components, and data pipelines.
+- [Scientific Choices & Quantum Methodology](docs/scientific_choices.md): Level of theory, Intrinsic Bond Orbitals (IBO), and exact virtual subspace antisymmetrization.
+- [Agent Knowledge & Technical Gotchas](docs/agent_knowledge.md): Developer notes, PySCF symmetry gotchas, and bundle structures.
+
+---
+
+## Gallery
+
+<details>
+<summary><strong>Reactions</strong></summary>
+
+* [Tetrahedral Intermediate, C=O Group](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/reactions/tetrahedral_intermediate_CO.zip)
+
+</details>
+
+<details>
+<summary><strong>Molecules</strong></summary>
+
+|Molecule|Name|bundle|
+|--|--|--|
+|![18-annulene](https://github.com/fbeilstein/molecular_workbench/blob/main/molecules/18annulene.svg)|**Cyclooctadecanonaene** or **[18]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/%5B18%5Dannulene.zip)|
+
+</details>

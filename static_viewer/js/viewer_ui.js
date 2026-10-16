@@ -93,6 +93,10 @@ export class ViewerUI {
   }
 
   setBundle(bundle) {
+    if (bundle.isSingleMolecule) {
+      this.setMoleculeMode(bundle);
+      return;
+    }
     const manifest = bundle.manifest || {};
     const traj = bundle.trajectory || {};
 

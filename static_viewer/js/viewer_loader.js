@@ -102,6 +102,14 @@ export async function loadReactionBundle(source, onProgress) {
           const text = await file.async('string');
           try { bundle.molecules[molKey][sub] = JSON.parse(text); } catch (_) { bundle.molecules[molKey][sub] = text; }
         }
+      } else if (parts.length === 2) {
+        const sub = parts[1];
+        const molKey = sub.replace(/(_esp|_pos|_neg)?\.json$/, '');
+        bundle.molecules[molKey] = bundle.molecules[molKey] || {};
+        if (sub.endsWith('.json')) {
+          const text = await file.async('string');
+          try { bundle.molecules[molKey][sub] = JSON.parse(text); } catch (_) { bundle.molecules[molKey][sub] = text; }
+        }
       }
     }
   }
@@ -114,8 +122,22 @@ export async function loadReactionBundle(source, onProgress) {
     }
   }
 
+  if (!bundle.trajectory && Object.keys(bundle.molecules).length > 0) {
+    const firstKey = Object.keys(bundle.molecules)[0];
+    const molBundle = buildMoleculeBundle(firstKey, bundle);
+    if (molBundle && molBundle.trajectory) {
+      bundle.trajectory = molBundle.trajectory;
+      bundle.manifest = bundle.manifest || molBundle.manifest;
+      bundle.orbitalMeshes = molBundle.orbitalMeshes;
+      bundle.espMeshes = molBundle.espMeshes;
+      bundle.categories = molBundle.categories;
+      bundle.hasEsp = molBundle.hasEsp;
+      bundle.isSingleMolecule = true;
+    }
+  }
+
   if (!bundle.trajectory) {
-    throw new Error('Archive does not contain a valid multistep_pathway.json');
+    throw new Error('Archive does not contain a valid multistep_pathway.json or molecule structure.');
   }
 
   if (onProgress) onProgress(100, 'Unpack complete. Initializing 3D viewer...');
