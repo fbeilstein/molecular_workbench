@@ -13,8 +13,16 @@ def load_cube_converter():
     try:
         from cube_converter import CubeConverter
         return CubeConverter
-    except ImportError:
-        return None
+    except (ImportError, ModuleNotFoundError):
+        import glob
+        v_sites = glob.glob(os.path.join(os.path.dirname(TOOLS_DIR), '.venv', 'lib', 'python*', 'site-packages'))
+        if v_sites and v_sites[0] not in sys.path:
+            sys.path.insert(0, v_sites[0])
+        try:
+            from cube_converter import CubeConverter
+            return CubeConverter
+        except Exception:
+            return None
 
 
 def is_bundle_metadata(filename):
@@ -38,6 +46,33 @@ def purge_cube_dir(dir_path):
     return count
 
 
+def locate_raw_cube(name, base_name):
+    import urllib.parse
+    for n in [name, urllib.parse.unquote(str(name))]:
+        for sub in ['orbitals_raw', 'mep_orbitals', '']:
+            d = os.path.join(OUTPUT_DIR, n, sub) if sub else os.path.join(OUTPUT_DIR, n)
+            if not os.path.isdir(d):
+                continue
+            direct = os.path.join(d, f'{base_name}.cube')
+            if os.path.exists(direct):
+                return direct
+            if '_' in base_name:
+                prefix, s_idx = base_name.rsplit('_', 1)
+                cands = sorted(
+                    [c for c in os.listdir(d) if c.startswith(prefix + '_') and c.endswith('.cube')],
+                    key=lambda x: int(x.rsplit('_', 1)[1].split('.')[0]) if x.rsplit('_', 1)[1].split('.')[0].isdigit() else 0
+                )
+                if len(cands) == 1:
+                    return os.path.join(d, cands[0])
+                elif len(cands) > 1 and s_idx.isdigit():
+                    num = int(s_idx)
+                    for c in cands:
+                        c_num = int(c.rsplit('_', 1)[1].split('.')[0])
+                        if c_num in (num, num + 1, num + 2, num - 1):
+                            return os.path.join(d, c)
+    return None
+
+
 def try_remesh(item, name, isovalue, converter, remeshed_meshes):
     if not (isovalue and converter):
         return None
@@ -47,10 +82,10 @@ def try_remesh(item, name, isovalue, converter, remeshed_meshes):
         return None
 
     base_name = os.path.basename(item.filename).replace('_pos.json', '').replace('_neg.json', '')
-    raw_cube = os.path.join(OUTPUT_DIR, name, 'orbitals_raw', f'{base_name}.cube')
-    if not os.path.exists(raw_cube):
-        raw_cube = os.path.join(OUTPUT_DIR, name, 'mep_orbitals', f'{base_name}.cube')
-    if not os.path.exists(raw_cube):
+    raw_cube = locate_raw_cube(name, base_name)
+
+    if not raw_cube:
+        print(f"[try_remesh] Raw cube not found for {base_name} in {name}")
         return None
 
     sign = 1 if item.filename.endswith('_pos.json') else -1
@@ -59,9 +94,10 @@ def try_remesh(item, name, isovalue, converter, remeshed_meshes):
     if cache_key not in remeshed_meshes:
         try:
             vol, origin, step = converter.read_cube(raw_cube)
-            remeshed_meshes[cache_key] = converter.extract_mesh(vol, origin, step, cache_key[1])
+            mesh = converter.extract_mesh(vol, origin, step, cache_key[1])
+            remeshed_meshes[cache_key] = mesh if mesh is not None else {'vertices': [], 'faces': [], 'normals': []}
         except Exception as e:
-            remeshed_meshes[cache_key] = None
+            remeshed_meshes[cache_key] = {'vertices': [], 'faces': [], 'normals': []}
             print(f"Error remeshing {raw_cube}: {e}")
 
     return remeshed_meshes.get(cache_key)
@@ -89,7 +125,7 @@ def package_custom_bundle(zip_path, custom_zip_path, keep_files, isovalue, name)
                 continue
 
             mesh = try_remesh(item, name, isovalue, converter, remeshed_meshes)
-            if mesh:
+            if mesh is not None:
                 zout.writestr(item, json.dumps(mesh))
             else:
                 zout.writestr(item, zin.read(item.filename))

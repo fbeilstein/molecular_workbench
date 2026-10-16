@@ -30,6 +30,8 @@ VENV_PYTHON = os.path.join(PROJECT_DIR, '.venv', 'bin', 'python')
 
 if not os.path.exists(VENV_PYTHON):
     VENV_PYTHON = sys.executable
+elif os.path.abspath(sys.executable) != os.path.abspath(VENV_PYTHON):
+    os.execv(VENV_PYTHON, [VENV_PYTHON] + sys.argv)
 
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
@@ -38,6 +40,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 from server_bundle import (
     load_cube_converter,
+    locate_raw_cube,
     package_custom_bundle,
     purge_cube_dir,
     read_bundle_entry
@@ -99,9 +102,9 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         if path.startswith('/ketcher/'):
             return self._serve_file(os.path.join(KETCHER_DIR, path[len('/ketcher/'):]))
         if path.startswith('/api/bundle/'):
-            return self._serve_bundle_file(path[len('/api/bundle/'):])
+            return self._serve_bundle_file(urllib.parse.unquote(path[len('/api/bundle/'):]))
         if path.startswith('/output/'):
-            return self._serve_file(os.path.join(OUTPUT_DIR, path[len('/output/'):]))
+            return self._serve_file(os.path.join(OUTPUT_DIR, urllib.parse.unquote(path[len('/output/'):])))
         if path == '/api/dirs':
             dirs = sorted(d for d in os.listdir(OUTPUT_DIR) if os.path.isdir(os.path.join(OUTPUT_DIR, d)))
             return self._json_response(dirs)
@@ -145,7 +148,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         self._json_response({'status': 'started', 'name': name})
 
     def _api_job_status(self, qs):
-        name = qs.get('name', [''])[0]
+        name = urllib.parse.unquote(qs.get('name', [''])[0])
         jobs = getattr(self.server, 'active_jobs', {})
         is_running = name in jobs
         job_dir = os.path.join(OUTPUT_DIR, name)
@@ -164,7 +167,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         })
 
     def _api_job_stop(self, body):
-        name = body.get('name', '')
+        name = urllib.parse.unquote(str(body.get('name', '')))
         jobs = getattr(self.server, 'active_jobs', {})
         if name not in jobs:
             return self._json_response({'status': 'not_running'})
@@ -174,6 +177,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         self._json_response({'status': 'stopped'})
 
     def _serve_bundle_file(self, path_in_bundle):
+        path_in_bundle = urllib.parse.unquote(path_in_bundle)
         parts = path_in_bundle.split('/', 1)
         if len(parts) < 2:
             return self.send_error(400)
@@ -197,7 +201,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _api_bundle_package(self, body):
-        name = body.get('name')
+        name = urllib.parse.unquote(str(body.get('name', '')))
         if not name:
             return self.send_error(400)
 
@@ -211,22 +215,20 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             raw_keep = body.get('files')
         keep_set = set(raw_keep) if raw_keep is not None else None
         package_custom_bundle(zip_path, custom_zip_path, keep_set, body.get('isovalue'), name)
-        self._json_response({'download_url': f'/output/{name}/{name}_custom.rxnbundle.zip'})
+        self._json_response({'download_url': f'/output/{urllib.parse.quote(name)}/{urllib.parse.quote(name)}_custom.rxnbundle.zip'})
 
     def _api_orbital_remesh(self, body):
-        name = body.get('name')
-        cube_file_path = body.get('cube_file')
-        isovalue = body.get('isovalue', 0.045)
+        name = urllib.parse.unquote(str(body.get('name', '')))
+        cube_file_path = urllib.parse.unquote(str(body.get('cube_file', '')))
+        isovalue = float(body.get('isovalue', 0.02))
 
         if not name or not cube_file_path:
             return self.send_error(400)
 
         base_name = os.path.basename(cube_file_path).replace('.json', '').replace('_pos', '').replace('_neg', '')
-        raw_cube = os.path.join(OUTPUT_DIR, name, 'orbitals_raw', f'{base_name}.cube')
-        if not os.path.exists(raw_cube):
-            raw_cube = os.path.join(OUTPUT_DIR, name, 'mep_orbitals', f'{base_name}.cube')
-            if not os.path.exists(raw_cube):
-                return self._json_response({'error': f'Cube file not found: {base_name}.cube'})
+        raw_cube = locate_raw_cube(name, base_name)
+        if not raw_cube:
+            return self._json_response({'error': f'Cube file not found: {base_name}.cube'})
 
         converter = load_cube_converter()
         if not converter:
@@ -241,7 +243,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             self._json_response({'error': str(e)})
 
     def _api_purge_cubes(self, body):
-        name = body.get('name')
+        name = urllib.parse.unquote(str(body.get('name', '')))
         if not name:
             return self.send_error(400)
 

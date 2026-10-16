@@ -7,7 +7,11 @@ window.WB.toggleExportSelectAll = function(checkbox) {
 };
 
 window.WB.downloadCustomBundle = async function() {
-    const name = document.getElementById('job-name').value;
+    let name = document.getElementById('job-name').value;
+    if (!name) {
+        const rc = document.getElementById('run-chooser');
+        if (rc && rc.value) name = rc.value;
+    }
     if (!name) {
         window.WB.status('No job loaded to download.');
         return;
@@ -73,13 +77,25 @@ window.WB.downloadCustomBundle = async function() {
     if (listDiv.children.length === 0) {
         listDiv.innerHTML = '<div style="color:#888; font-size:12px;">No orbitals found to export.</div>';
     }
+
+    const isoInp = document.getElementById('export-isovalue');
+    if (isoInp) {
+        const slider = document.getElementById('isovalue-slider');
+        const currIso = window._customIsovalue !== undefined ? window._customIsovalue : (slider ? parseFloat(slider.value) : 0.045);
+        isoInp.value = currIso;
+    }
     
     document.getElementById('export-modal').style.display = 'block';
 };
 
 window.WB.confirmDownloadBundle = async function() {
     document.getElementById('export-modal').style.display = 'none';
-    const name = document.getElementById('job-name').value;
+    let name = document.getElementById('job-name').value;
+    if (!name) {
+        const rc = document.getElementById('run-chooser');
+        if (rc && rc.value) name = rc.value;
+    }
+    if (!name) return;
     
     const keepFiles = [];
     const chks = document.getElementById('export-orbital-list').querySelectorAll('input[type="checkbox"]:checked');
@@ -97,9 +113,13 @@ window.WB.confirmDownloadBundle = async function() {
     });
     
     const payload = { name: name, keep_files: keepFiles, files: keepFiles };
-    if (window._customIsovalue) {
-        payload.isovalue = window._customIsovalue;
+    const isoInp = document.getElementById('export-isovalue');
+    const slider = document.getElementById('isovalue-slider');
+    let chosenIso = isoInp && !isNaN(parseFloat(isoInp.value)) ? parseFloat(isoInp.value) : undefined;
+    if (chosenIso === undefined) {
+        chosenIso = window._customIsovalue !== undefined ? window._customIsovalue : (slider ? parseFloat(slider.value) : 0.045);
     }
+    payload.isovalue = chosenIso;
 
     try {
         window.WB.status('Packaging bundle for download...');

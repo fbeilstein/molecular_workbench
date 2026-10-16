@@ -26,14 +26,24 @@ html, body {
 
 /* --- Top Header (Mechanism SVG & Title) --- */
 #top-header {
-  height: 112px; background-color: var(--bg-secondary);
+  height: auto;
+  min-height: auto;
+  background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  display: flex; flex-direction: column; padding: 6px 16px;
-  position: relative; z-index: 10; flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
 }
 
 .header-meta {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0;
 }
 
 .header-title-row { display: flex; align-items: center; gap: 10px; }
@@ -54,11 +64,22 @@ html, body {
 .reaction-stats span strong { color: var(--accent-color); }
 
 #mechanism-strip {
-  flex: 1; display: flex; align-items: center; justify-content: center;
-  overflow: hidden; background-color: #ffffff; border-radius: 4px;
-  padding: 2px 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  height: 74px;
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: #ffffff;
+  border-radius: 4px;
+  padding: 2px 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  margin-top: 6px;
 }
-#mechanism-strip svg { max-height: 72px; max-width: 100%; width: auto; height: auto; }
+#mechanism-strip:empty {
+  display: none !important;
+}
+#mechanism-strip svg { max-height: 70px; max-width: 100%; width: auto; height: auto; }
 
 /* Interactive SVG mechanism elements */
 .svg-clickable-arrow, .svg-clickable-state, .svg-clickable-molecule {

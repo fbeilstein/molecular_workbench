@@ -36,21 +36,28 @@ window.WB.fetchOrbitalMesh = async function(file, sign, base) {
                 if (chooser && chooser.value && chooser.value.startsWith('bundle:')) {
                     name = chooser.value.split(':')[1];
                 }
-                
-                const res = await fetch('/api/orbital/remesh', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ name: name, cube_file: file, isovalue: window._customIsovalue })
-                });
-                if (!res.ok) return null;
-                const data = await res.json();
-                if (!data.error) {
-                    window._currentOrbitalCache[file.replace('.json', '_pos.json')] = data.pos;
-                    window._currentOrbitalCache[file.replace('.json', '_neg.json')] = data.neg;
-                    mesh = window._currentOrbitalCache[actualFile];
+                if (name) name = decodeURIComponent(name);
+
+                try {
+                    const res = await fetch('/api/orbital/remesh', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ name: name, cube_file: file, isovalue: window._customIsovalue })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (!data.error && data.pos && data.neg) {
+                            window._currentOrbitalCache[file.replace('.json', '_pos.json')] = data.pos;
+                            window._currentOrbitalCache[file.replace('.json', '_neg.json')] = data.neg;
+                            mesh = window._currentOrbitalCache[actualFile];
+                        }
+                    }
+                } catch (err) {
+                    // remesh request failed, will fallback to bundle mesh below
                 }
-            } else {
-                // Fetch from bundle
+            }
+            if (!mesh) {
+                // Fetch from bundle (fallback or default)
                 const res = await fetch(`${base}/${actualFile}`);
                 if (!res.ok) return null;
                 mesh = await res.json();

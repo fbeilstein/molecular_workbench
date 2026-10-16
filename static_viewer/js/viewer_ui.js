@@ -116,7 +116,15 @@ export class ViewerUI {
     const wiring = bundle.svgWiring || manifest.svg_wiring || traj.svg_wiring || {};
     if (bundle.mechanismSvg) {
       this.svgMechanism.setMechanism(bundle.mechanismSvg, wiring);
+      if (this.elMechanism) this.elMechanism.style.display = 'flex';
+    } else {
+      if (this.elMechanism) this.elMechanism.style.display = 'none';
     }
+
+    const stats = document.querySelector('.reaction-stats');
+    if (stats) stats.style.display = 'flex';
+    const dock = document.getElementById('bottom-dock');
+    if (dock) dock.style.display = 'flex';
 
     // 3. Slider configuration
     const nFrames = (traj.frames || []).length;
@@ -142,8 +150,10 @@ export class ViewerUI {
     if (pes) pes.style.display = 'none';
     const dock = document.getElementById('bottom-dock');
     if (dock) dock.style.display = 'none';
-
     this.orbitalsPanel.renderGroups(molBundle.categories, molBundle.hasEsp);
+    if (this.app.viewer3d) {
+      setTimeout(() => this.app.viewer3d.resize(), 50);
+    }
   }
 
   populateOrbitals(bundle) {
