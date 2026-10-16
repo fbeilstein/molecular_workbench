@@ -8,22 +8,52 @@ export async function loadReactionBundle(source, onProgress) {
   let arrayBuffer;
 
   if (typeof source === 'string') {
-    if (onProgress) onProgress(10, 'Fetching bundle from ' + source + '...');
+    let url = source.trim();
+
+    // 1. If pointing to a release zip from this repo, check if it's hosted locally in ./bundles/
+    if (url.includes('/releases/download/') && url.endsWith('.zip')) {
+      const fname = url.split('/').pop().split('?')[0];
+      const localCandidate = `./bundles/${fname}`;
+      try {
+        if (onProgress) onProgress(10, `Checking local repository bundles for ${fname}...`);
+        const check = await fetch(localCandidate, { method: 'HEAD' });
+        if (check.ok) {
+          url = localCandidate;
+        }
+      } catch (_) {}
+    }
+
+    if (onProgress) onProgress(15, 'Fetching bundle from ' + url + '...');
+
+    // 2. Direct fetch
     try {
-      const resp = await fetch(source, { mode: 'cors' });
+      const resp = await fetch(url, { mode: 'cors' });
       if (!resp.ok) {
         throw new Error(`Failed to download bundle (${resp.status} ${resp.statusText})`);
       }
       arrayBuffer = await resp.arrayBuffer();
     } catch (directErr) {
-      if (source.startsWith('http://') || source.startsWith('https://')) {
-        if (onProgress) onProgress(15, 'Direct fetch failed (CORS). Retrying via CORS proxy...');
-        try {
-          const proxyResp = await fetch(`https://cors.eu.org/${source}`);
-          if (!proxyResp.ok) throw new Error(`Proxy returned HTTP ${proxyResp.status}`);
-          arrayBuffer = await proxyResp.arrayBuffer();
-        } catch (proxyErr) {
-          throw new Error(`Direct fetch & CORS proxy failed: ${directErr.message}`);
+      // 3. Fallback proxy cascade for cross-origin URLs blocked by CORS
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        const proxies = [
+          (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+          (u) => `https://corsproxy.org/?${encodeURIComponent(u)}`,
+          (u) => `https://cors.eu.org/${u}`
+        ];
+        let fetched = false;
+        for (let i = 0; i < proxies.length; i++) {
+          try {
+            if (onProgress) onProgress(20 + i * 5, `Direct fetch blocked (CORS). Retrying with proxy ${i + 1}/${proxies.length}...`);
+            const pResp = await fetch(proxies[i](url));
+            if (pResp.ok) {
+              arrayBuffer = await pResp.arrayBuffer();
+              fetched = true;
+              break;
+            }
+          } catch (_) {}
+        }
+        if (!fetched) {
+          throw new Error(`Remote server blocked direct download due to CORS policy.`);
         }
       } else {
         throw directErr;

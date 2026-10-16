@@ -64,7 +64,7 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/':
             self.path = '/templates_multistep/index.html'
             return super().do_HEAD()
-        if path.startswith(('/static_multistep/', '/static_viewer/', '/trajectories/', '/out/')) or path.endswith('.html'):
+        if path.startswith(('/static_multistep/', '/static_viewer/', '/trajectories/', '/out/', '/bundles/')) or path.endswith('.html'):
             return super().do_HEAD()
         if path in ('/api/plugins', '/api/state'):
             self.send_response(200)
@@ -112,7 +112,7 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
             self.path = '/templates_multistep/index.html'
             return super().do_GET()
 
-        if path.startswith(('/static_multistep/', '/static_viewer/', '/trajectories/', '/out/')) or path.endswith('.html'):
+        if path.startswith(('/static_multistep/', '/static_viewer/', '/trajectories/', '/out/', '/bundles/')) or path.endswith('.html'):
             return super().do_GET()
 
         if path == '/api/plugins':
