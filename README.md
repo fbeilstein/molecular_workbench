@@ -4,6 +4,12 @@ A comprehensive computational chemistry suite for exploring molecular structures
 
 ---
 
+## Gallery
+### Reaction Mechanisms
+* [Tetrahedral Intermediate, C=O Group](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=https://github.com/fbeilstein/molecular_workbench/releases/download/irc_v0/tetrahedral_intermediate_CO.zip)
+
+---
+
 ## Prerequisites
 
 - **Python**: Version **3.9 to 3.12** is required (to ensure compatibility with PySCF, tblite, and ASE).
