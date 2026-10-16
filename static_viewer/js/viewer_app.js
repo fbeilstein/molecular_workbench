@@ -168,6 +168,31 @@ class ReactionViewerApp {
     }, intervalMs);
   }
 
+  playSegment(startFrame, endFrame, direction = 'forward') {
+    this.pause();
+    if (this.totalFrames <= 1) return;
+
+    const isRev = direction === 'reverse' || startFrame > endFrame;
+    const start = Math.max(0, Math.min(startFrame, this.totalFrames - 1));
+    const target = Math.max(0, Math.min(endFrame, this.totalFrames - 1));
+    this.goToFrame(start);
+
+    this.isPlaying = true;
+    this.ui.updatePlayState(true);
+
+    const step = isRev ? -1 : 1;
+    const intervalMs = Math.max(25, Math.floor(1000 / (this.baseFps * this.playSpeed)));
+
+    this.playTimer = setInterval(() => {
+      const next = this.currentFrame + step;
+      if ((!isRev && next > target) || (isRev && next < target)) {
+        this.pause();
+        return;
+      }
+      this.goToFrame(next);
+    }, intervalMs);
+  }
+
   pause() {
     this.isPlaying = false;
     if (this.playTimer) {
@@ -247,5 +272,6 @@ class ReactionViewerApp {
 // Instantiate and start app on page load
 window.addEventListener('DOMContentLoaded', () => {
   const app = new ReactionViewerApp();
+  window.app = app;
   app.init();
 });

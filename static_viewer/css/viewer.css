@@ -95,6 +95,27 @@ html, body {
   height: auto;
 }
 
+/* Interactive SVG mechanism elements */
+.svg-clickable-arrow,
+.svg-clickable-state,
+.svg-clickable-molecule {
+  cursor: pointer;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.svg-clickable-arrow:hover {
+  filter: drop-shadow(0 0 4px #2563eb) brightness(1.25);
+}
+
+.svg-clickable-state:hover {
+  filter: drop-shadow(0 0 5px #0284c7);
+  opacity: 0.85;
+}
+
+.svg-active-element {
+  filter: drop-shadow(0 0 6px #0ea5e9) !important;
+}
+
 /* --- Main Viewport (3D + PES Background) --- */
 #viewport-container {
   flex: 1;

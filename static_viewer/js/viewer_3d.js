@@ -4,6 +4,83 @@
  * Operates entirely from pre-unpacked in-memory meshes with 0 ms extraction latency.
  */
 
+const COV_RADII = {
+  H: 0.31, C: 0.76, N: 0.71, O: 0.66, F: 0.57,
+  P: 1.07, S: 1.05, Cl: 1.02, Br: 1.20, I: 1.39
+};
+const MAX_VALENCE = { H: 1, F: 1, Cl: 1, Br: 1, I: 1, O: 2, N: 4, C: 4, S: 6, P: 5 };
+
+function computeBonds(symbols, coords) {
+  const bonds = [];
+  const n = Math.min(symbols.length, coords.length);
+  const valences = new Array(n).fill(0);
+  const candidates = [];
+
+  for (let i = 0; i < n; i++) {
+    const s1 = symbols[i];
+    const r1 = COV_RADII[s1] || 0.75;
+    for (let j = i + 1; j < n; j++) {
+      const s2 = symbols[j];
+      const r2 = COV_RADII[s2] || 0.75;
+      if (s1 === 'H' && s2 === 'H' && n > 2) continue;
+
+      const dx = coords[i][0] - coords[j][0];
+      const dy = coords[i][1] - coords[j][1];
+      const dz = coords[i][2] - coords[j][2];
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const maxD = 1.28 * (r1 + r2);
+
+      if (d >= 0.4 && d <= maxD) {
+        const pair = [s1, s2].sort().join('-');
+        let targetOrder = 1;
+        if (pair === 'C-O') {
+          if (d < 1.16) targetOrder = 3;
+          else if (d < 1.265) targetOrder = 2;
+        } else if (pair === 'C-C') {
+          if (d < 1.24) targetOrder = 3;
+          else if (d < 1.39) targetOrder = 2;
+        } else if (pair === 'C-N') {
+          if (d < 1.18) targetOrder = 3;
+          else if (d < 1.32) targetOrder = 2;
+        } else if (pair === 'N-N') {
+          if (d < 1.14) targetOrder = 3;
+          else if (d < 1.28) targetOrder = 2;
+        } else if (pair === 'N-O' || pair === 'O-O') {
+          if (d < 1.25) targetOrder = 2;
+        }
+        candidates.push({ d, i, j, s1, s2, targetOrder });
+      }
+    }
+  }
+
+  // Shortest bonds assigned first
+  candidates.sort((a, b) => a.d - b.d);
+
+  for (const c of candidates) {
+    bonds.push({ a1: c.i, a2: c.j, order: 1, target: c.targetOrder, s1: c.s1, s2: c.s2, d: c.d });
+    valences[c.i]++;
+    valences[c.j]++;
+  }
+
+  // Promote to double/triple bond if atom valences allow
+  for (const b of bonds) {
+    if (b.target > 1) {
+      const v1Cap = MAX_VALENCE[b.s1] || 4;
+      const v2Cap = MAX_VALENCE[b.s2] || 4;
+      const desiredBoost = b.target - 1;
+      const maxBoost = Math.min(v1Cap - valences[b.a1], v2Cap - valences[b.a2]);
+      const boost = Math.max(0, Math.min(desiredBoost, maxBoost));
+      if (boost > 0) {
+        b.order += boost;
+        valences[b.a1] += boost;
+        valences[b.a2] += boost;
+      }
+    }
+  }
+
+  return bonds;
+}
+
 export class Viewer3D {
   constructor(containerElement) {
     this.container = containerElement;
@@ -51,9 +128,10 @@ export class Viewer3D {
     const coords = frame.coords || frame.positions || [];
     const symbols = traj.symbols || [];
 
-    // 1. Build SDF format in memory
+    // 1. Build SDF format with dynamic bond orders (single, double, triple)
     const natoms = Math.min(symbols.length, coords.length);
-    let sdf = `\n  Reaction Pathway Viewer\n\n${String(natoms).padStart(3, ' ')}  0  0  0  0  0  0  0  0  0999 V2000\n`;
+    const bonds = computeBonds(symbols, coords);
+    let sdf = `\n  Reaction Pathway Viewer\n\n${String(natoms).padStart(3, ' ')}${String(bonds.length).padStart(3, ' ')}  0  0  0  0  0  0  0  0999 V2000\n`;
     for (let i = 0; i < natoms; i++) {
       const sym = symbols[i];
       const pos = coords[i];
@@ -61,6 +139,10 @@ export class Viewer3D {
       const y = Number(pos[1]).toFixed(4).padStart(10, ' ');
       const z = Number(pos[2]).toFixed(4).padStart(10, ' ');
       sdf += `${x}${y}${z} ${sym.padEnd(3, ' ')} 0  0  0  0  0  0  0  0  0  0  0  0\n`;
+    }
+    for (let i = 0; i < bonds.length; i++) {
+      const b = bonds[i];
+      sdf += `${String(b.a1 + 1).padStart(3, ' ')}${String(b.a2 + 1).padStart(3, ' ')}${String(b.order).padStart(3, ' ')}  0  0  0  0\n`;
     }
     sdf += 'M  END\n$$$$\n';
 
@@ -71,7 +153,7 @@ export class Viewer3D {
 
     const m = this.glViewer.addModel(sdf, 'sdf');
     m.setStyle({}, {
-      stick: { radius: 0.15, colorscheme: 'Jmol' },
+      stick: { radius: 0.13, colorscheme: 'Jmol' },
       sphere: { scale: 0.28, colorscheme: 'Jmol' }
     });
 

@@ -90,9 +90,11 @@ export class ViewerUI {
       this.elSolvent.textContent = manifest.solvent || traj.solvent || 'Gas Phase';
     }
 
-    // 2. Mechanism SVG
+    // 2. Mechanism SVG & Wiring
+    this.wiring = bundle.svgWiring || (bundle.manifest && bundle.manifest.svg_wiring) || (bundle.trajectory && bundle.trajectory.svg_wiring) || {};
     if (this.elMechanism && bundle.mechanismSvg) {
       this.elMechanism.innerHTML = bundle.mechanismSvg;
+      this.initInteractiveSvg();
     }
 
     // 3. Slider configuration
@@ -105,6 +107,77 @@ export class ViewerUI {
 
     // 4. Populate Orbitals Checklist
     this.populateOrbitals(bundle);
+  }
+
+  initInteractiveSvg() {
+    if (!this.elMechanism || !this.wiring) return;
+    const svg = this.elMechanism.querySelector('svg');
+    if (!svg) return;
+
+    for (const [key, cfg] of Object.entries(this.wiring)) {
+      const el = svg.getElementById(key) ||
+                 svg.querySelector(`[inkscape\\:label="${key}"]`) ||
+                 svg.querySelector(`[label="${key}"]`);
+      if (!el) continue;
+
+      if (cfg.role === 'arrow' || cfg.role === 'push_arrow') {
+        el.classList.add('svg-clickable-arrow');
+        const dir = cfg.direction === 'reverse' ? '⟵' : '⟶';
+        el.title = `Reaction Step: ${cfg.startFrame ?? 0} ${dir} ${cfg.endFrame ?? 0} (Click to play)`;
+      } else if (cfg.role === 'state' || cfg.role === 'state_molecule') {
+        el.classList.add('svg-clickable-state');
+        el.title = `State (Frame ${cfg.targetFrame ?? 0}): Click to jump`;
+      } else if (cfg.role === 'molecule') {
+        el.classList.add('svg-clickable-molecule');
+        el.title = `${cfg.moleculeName || 'Molecule'}`;
+      }
+    }
+
+    svg.addEventListener('click', (e) => {
+      let cur = e.target;
+      while (cur && cur !== svg && cur.tagName && cur.tagName.toLowerCase() !== 'svg') {
+        const id = cur.getAttribute('id');
+        const lbl = cur.getAttribute('inkscape:label') || cur.getAttribute('label');
+        const cfg = this.wiring[id] || this.wiring[lbl];
+        if (cfg) {
+          e.stopPropagation();
+          if (cfg.role === 'arrow' || cfg.role === 'push_arrow') {
+            const sf = cfg.startFrame !== undefined ? parseInt(cfg.startFrame, 10) : 0;
+            const ef = cfg.endFrame !== undefined ? parseInt(cfg.endFrame, 10) : this.app.totalFrames - 1;
+            this.app.playSegment(sf, ef, cfg.direction || 'forward');
+          } else if (cfg.role === 'state' || cfg.role === 'state_molecule') {
+            const tf = cfg.targetFrame !== undefined ? parseInt(cfg.targetFrame, 10) : 0;
+            this.app.goToFrame(tf);
+          }
+          return;
+        }
+        cur = cur.parentElement;
+      }
+    });
+  }
+
+  updateSvgActive(frameIdx) {
+    if (!this.elMechanism || !this.wiring) return;
+    const svg = this.elMechanism.querySelector('svg');
+    if (!svg) return;
+
+    svg.querySelectorAll('.svg-active-element').forEach(el => el.classList.remove('svg-active-element'));
+
+    let closestState = null;
+    let minDiff = 12;
+    for (const [key, cfg] of Object.entries(this.wiring)) {
+      if ((cfg.role === 'state' || cfg.role === 'state_molecule') && cfg.targetFrame !== undefined) {
+        const diff = Math.abs(cfg.targetFrame - frameIdx);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestState = key;
+        }
+      }
+    }
+    if (closestState) {
+      const el = svg.getElementById(closestState) || svg.querySelector(`[inkscape\\:label="${closestState}"]`);
+      if (el) el.classList.add('svg-active-element');
+    }
   }
 
   populateOrbitals(bundle) {
@@ -155,6 +228,7 @@ export class ViewerUI {
       const eStr = energy !== undefined ? ` | ${energy >= 0 ? '+' : ''}${energy.toFixed(2)} kcal/mol` : '';
       this.elFrameInfo.innerHTML = `Frame <strong>${frameIdx + 1}</strong> / ${totalFrames}${eStr}`;
     }
+    this.updateSvgActive(frameIdx);
   }
 
   updatePlayState(isPlaying) {
