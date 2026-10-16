@@ -87,7 +87,7 @@ export class Viewer3D {
     this.glViewer = null;
     this.bundle = null;
     this.currentFrameIdx = 0;
-    this.activeOrbital = null;
+    this.activeOrbitals = new Set();
     this.activeEsp = false;
     this.orbitalIsovalue = 0.035;
 
@@ -157,27 +157,29 @@ export class Viewer3D {
       sphere: { scale: 0.28, colorscheme: 'Jmol' }
     });
 
-    // 3. Render Orbital Mesh if active
-    if (this.activeOrbital && this.bundle.orbitalMeshes) {
-      const meshPair = this.findOrbitalMesh(frameIdx, this.activeOrbital);
-      if (meshPair) {
-        if (meshPair.pos) {
-          this.glViewer.addCustom({
-            vertexArr: meshPair.pos.vertexArr,
-            normalArr: meshPair.pos.normalArr,
-            faceArr: meshPair.pos.faceArr,
-            color: 0x38bdf8,
-            alpha: 0.85
-          });
-        }
-        if (meshPair.neg) {
-          this.glViewer.addCustom({
-            vertexArr: meshPair.neg.vertexArr,
-            normalArr: meshPair.neg.normalArr,
-            faceArr: meshPair.neg.faceArr,
-            color: 0xf97316,
-            alpha: 0.85
-          });
+    // 3. Render all Active Orbitals concurrently
+    if (this.activeOrbitals.size > 0 && this.bundle.orbitalMeshes) {
+      for (const orbKey of this.activeOrbitals) {
+        const meshPair = this.findOrbitalMesh(frameIdx, orbKey);
+        if (meshPair) {
+          if (meshPair.pos && meshPair.pos.vertexArr) {
+            this.glViewer.addCustom({
+              vertexArr: meshPair.pos.vertexArr,
+              normalArr: meshPair.pos.normalArr,
+              faceArr: meshPair.pos.faceArr,
+              color: 0x38bdf8,
+              alpha: 0.78
+            });
+          }
+          if (meshPair.neg && meshPair.neg.vertexArr) {
+            this.glViewer.addCustom({
+              vertexArr: meshPair.neg.vertexArr,
+              normalArr: meshPair.neg.normalArr,
+              faceArr: meshPair.neg.faceArr,
+              color: 0xf97316,
+              alpha: 0.78
+            });
+          }
         }
       }
     }
@@ -222,8 +224,17 @@ export class Viewer3D {
     return null;
   }
 
-  setOrbital(orbKey) {
-    this.activeOrbital = orbKey;
+  toggleOrbital(orbKey, isChecked) {
+    if (isChecked) {
+      this.activeOrbitals.add(orbKey);
+    } else {
+      this.activeOrbitals.delete(orbKey);
+    }
+    this.renderFrame(this.currentFrameIdx, false);
+  }
+
+  clearOrbitals() {
+    this.activeOrbitals.clear();
     this.renderFrame(this.currentFrameIdx, false);
   }
 

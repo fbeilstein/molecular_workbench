@@ -1,19 +1,24 @@
 /**
  * viewer_app.js
  * Main coordinator orchestrating loader, 3Dmol viewer, static PES plot, and playback loop.
+ * Supports multi-bundle dropdown switching, molecule inspection modal, and self-invoking popups.
  */
 
 import { loadReactionBundle } from './viewer_loader.js';
 import { Viewer3D } from './viewer_3d.js';
 import { ViewerPES } from './viewer_pes.js';
 import { ViewerUI } from './viewer_ui.js';
+import { ViewerMoleculeModal } from './viewer_modal.js';
 
 class ReactionViewerApp {
   constructor() {
     this.bundle = null;
+    this.currentBundleUrl = '';
+    this.bundleList = [];
     this.currentFrame = 0;
     this.totalFrames = 0;
     this.isPlaying = false;
+    this.playDirection = 'forward';
     this.playSpeed = 1.0;
     this.loop = true;
     this.playTimer = null;
@@ -25,26 +30,102 @@ class ReactionViewerApp {
     this.progressBarContainer = document.getElementById('progress-bar-container');
     this.progressBar = document.getElementById('progress-bar');
     this.fileInput = document.getElementById('file-input');
+    this.bundleSelector = document.getElementById('sel-bundle-switcher');
 
     // Submodules
     this.viewer3d = new Viewer3D(document.getElementById('gl-canvas-container'));
     this.viewerPes = new ViewerPES(document.getElementById('pes-canvas'));
     this.ui = new ViewerUI(this);
+    this.moleculeModal = new ViewerMoleculeModal(this);
 
     this.bindDropEvents();
     this.bindKeyboard();
+    this.bindBundleSelector();
   }
 
   init() {
     const params = new URLSearchParams(window.location.search);
-    const bundleUrl = params.get('bundle');
+    const bundleParams = [];
+
+    // Parse ?bundle=... and ?bundles=...
+    params.getAll('bundle').forEach(b => {
+      b.split(',').forEach(item => {
+        const tr = item.trim();
+        if (tr && !bundleParams.includes(tr)) bundleParams.push(tr);
+      });
+    });
+    if (params.get('bundles')) {
+      params.get('bundles').split(',').forEach(item => {
+        const tr = item.trim();
+        if (tr && !bundleParams.includes(tr)) bundleParams.push(tr);
+      });
+    }
+
+    this.bundleList = bundleParams;
+    this.populateBundleSelector(this.bundleList);
+
     const initialFrame = parseInt(params.get('frame') || '0', 10);
     const autoplay = params.get('autoplay') === '1' || params.get('autoplay') === 'true';
+    const targetMolecule = params.get('molecule');
 
-    if (bundleUrl) {
-      this.loadUrl(bundleUrl, initialFrame, autoplay);
+    if (this.bundleList.length > 0) {
+      this.loadUrl(this.bundleList[0], initialFrame, autoplay, targetMolecule);
     } else {
       this.showDropzone();
+    }
+  }
+
+  bindBundleSelector() {
+    if (!this.bundleSelector) return;
+    this.bundleSelector.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (!val) return;
+
+      if (val.startsWith('mol:')) {
+        const molId = val.replace('mol:', '');
+        this.openMoleculeModal(molId, { moleculeName: molId });
+      } else {
+        this.loadUrl(val, 0, false);
+      }
+    });
+  }
+
+  populateBundleSelector(bundleUrls) {
+    if (!this.bundleSelector) return;
+    if (bundleUrls.length <= 1 && (!this.bundle || !this.bundle.molecules)) {
+      this.bundleSelector.style.display = 'none';
+      return;
+    }
+
+    this.bundleSelector.style.display = 'inline-block';
+    this.bundleSelector.innerHTML = '';
+
+    bundleUrls.forEach((url, idx) => {
+      const opt = document.createElement('option');
+      opt.value = url;
+      const fname = url.split('/').pop().replace(/\.zip$/i, '').replace(/_/g, ' ');
+      opt.textContent = `📦 ${fname}`;
+      if (url === this.currentBundleUrl) opt.selected = true;
+      this.bundleSelector.appendChild(opt);
+    });
+
+    // Also populate embedded single molecules if available
+    if (this.bundle) {
+      const mb = (this.bundle.trajectory && this.bundle.trajectory.molecule_bundles) || {};
+      const mols = this.bundle.molecules || {};
+      const molKeys = Array.from(new Set([...Object.keys(mb), ...Object.keys(mols)]));
+      if (molKeys.length > 0) {
+        const group = document.createElement('optgroup');
+        group.label = 'Molecules in Bundle';
+        molKeys.forEach(k => {
+          if (k.startsWith('mol_')) return;
+          const opt = document.createElement('option');
+          opt.value = `mol:${k}`;
+          opt.textContent = `⚛️ ${k.replace(/_/g, ' ')}`;
+          group.appendChild(opt);
+        });
+        this.bundleSelector.appendChild(group);
+      }
     }
   }
 
@@ -73,11 +154,12 @@ class ReactionViewerApp {
     }
   }
 
-  async loadUrl(url, initialFrame = 0, autoplay = false) {
+  async loadUrl(url, initialFrame = 0, autoplay = false, targetMolecule = null) {
     try {
+      this.currentBundleUrl = url;
       this.showProgress(10, 'Fetching bundle...');
       const bundle = await loadReactionBundle(url, (pct, msg) => this.showProgress(pct, msg));
-      this.onBundleLoaded(bundle, initialFrame, autoplay);
+      this.onBundleLoaded(bundle, initialFrame, autoplay, targetMolecule);
     } catch (err) {
       console.error(err);
       this.showDropzone();
@@ -94,7 +176,8 @@ class ReactionViewerApp {
     try {
       this.showProgress(10, 'Reading file...');
       const bundle = await loadReactionBundle(file, (pct, msg) => this.showProgress(pct, msg));
-      this.onBundleLoaded(bundle, 0, false);
+      this.currentBundleUrl = file.name;
+      this.onBundleLoaded(bundle, 0, false, null);
     } catch (err) {
       console.error(err);
       this.showDropzone();
@@ -104,7 +187,7 @@ class ReactionViewerApp {
     }
   }
 
-  onBundleLoaded(bundle, initialFrame = 0, autoplay = false) {
+  onBundleLoaded(bundle, initialFrame = 0, autoplay = false, targetMolecule = null) {
     this.bundle = bundle;
     const frames = (bundle.trajectory && bundle.trajectory.frames) || [];
     this.totalFrames = frames.length;
@@ -113,12 +196,22 @@ class ReactionViewerApp {
     this.viewerPes.setTrajectory(bundle.trajectory);
     this.ui.setBundle(bundle);
 
+    this.populateBundleSelector(this.bundleList);
+
     this.goToFrame(initialFrame >= 0 && initialFrame < this.totalFrames ? initialFrame : 0);
     this.hideOverlay();
+
+    if (targetMolecule) {
+      this.openMoleculeModal(targetMolecule, { moleculeName: targetMolecule });
+    }
 
     if (autoplay) {
       this.play();
     }
+  }
+
+  openMoleculeModal(molId, cfg) {
+    this.moleculeModal.show(molId, cfg);
   }
 
   goToFrame(frameIdx) {
@@ -134,6 +227,7 @@ class ReactionViewerApp {
   }
 
   stepFrame(delta) {
+    this.playDirection = delta >= 0 ? 'forward' : 'reverse';
     let next = this.currentFrame + delta;
     if (next >= this.totalFrames) {
       next = this.loop ? 0 : this.totalFrames - 1;
@@ -151,6 +245,7 @@ class ReactionViewerApp {
   play() {
     if (this.isPlaying || this.totalFrames <= 1) return;
     this.isPlaying = true;
+    this.playDirection = 'forward';
     this.ui.updatePlayState(true);
 
     const intervalMs = Math.max(25, Math.floor(1000 / (this.baseFps * this.playSpeed)));
@@ -172,7 +267,8 @@ class ReactionViewerApp {
     this.pause();
     if (this.totalFrames <= 1) return;
 
-    const isRev = direction === 'reverse' || startFrame > endFrame;
+    this.playDirection = direction || (startFrame > endFrame ? 'reverse' : 'forward');
+    const isRev = this.playDirection === 'reverse';
     const start = Math.max(0, Math.min(startFrame, this.totalFrames - 1));
     const target = Math.max(0, Math.min(endFrame, this.totalFrames - 1));
     this.goToFrame(start);
@@ -269,7 +365,7 @@ class ReactionViewerApp {
   }
 }
 
-// Instantiate and start app on page load
+// Start app on DOMContentLoaded
 window.addEventListener('DOMContentLoaded', () => {
   const app = new ReactionViewerApp();
   window.app = app;

@@ -1,7 +1,12 @@
 /**
  * viewer_ui.js
  * Static UI manager for mechanism header, side orbital controls, and playback transport dock.
+ * Supports Molecular Explorer style grouped collapsible orbitals with checkboxes,
+ * embedded ESP surface toggle, collapsible side drawer, and Step 5 SVG interactions.
  */
+
+import { ViewerOrbitalsPanel } from './viewer_orbitals.js';
+import { ViewerSvgMechanism } from './viewer_svg.js';
 
 export class ViewerUI {
   constructor(app) {
@@ -15,9 +20,24 @@ export class ViewerUI {
     this.elSlider = document.getElementById('frame-slider');
     this.elFrameInfo = document.getElementById('frame-info');
     this.elBtnPlay = document.getElementById('btn-play');
-    this.elOrbitalsList = document.getElementById('orbitals-list');
-    this.elEspCheck = document.getElementById('chk-esp');
+    this.elSidePanel = document.getElementById('side-panel');
+    this.elBtnToggleOrbitals = document.getElementById('btn-toggle-orbitals');
+    this.elOrbitalsContainer = document.getElementById('orbitals-list');
 
+    // Submodules
+    this.orbitalsPanel = new ViewerOrbitalsPanel(
+      this.elOrbitalsContainer,
+      (orbKey, isChecked) => this.app.viewer3d?.toggleOrbital(orbKey, isChecked),
+      (isEsp) => this.app.viewer3d?.setEspActive(isEsp)
+    );
+
+    this.svgMechanism = new ViewerSvgMechanism(this.elMechanism, {
+      onPlaySegment: (sf, ef, dir) => this.app.playSegment(sf, ef, dir),
+      onJumpFrame: (tf) => this.app.goToFrame(tf),
+      onOpenMolecule: (id, cfg) => this.app.openMoleculeModal(id, cfg)
+    });
+
+    this.isPanelCollapsed = false;
     this.bindEvents();
   }
 
@@ -64,13 +84,19 @@ export class ViewerUI {
       }
     });
 
-    // ESP Toggle
-    if (this.elEspCheck) {
-      this.elEspCheck.addEventListener('change', (e) => {
-        if (this.app.viewer3d) {
-          this.app.viewer3d.setEspActive(e.target.checked);
-        }
-      });
+    // Collapsible side drawer toggle [ Orbitals ▾ ]
+    if (this.elBtnToggleOrbitals) {
+      this.elBtnToggleOrbitals.addEventListener('click', () => this.togglePanel());
+    }
+  }
+
+  togglePanel() {
+    this.isPanelCollapsed = !this.isPanelCollapsed;
+    if (this.elSidePanel) {
+      this.elSidePanel.classList.toggle('panel-hidden', this.isPanelCollapsed);
+    }
+    if (this.elBtnToggleOrbitals) {
+      this.elBtnToggleOrbitals.innerHTML = `Orbitals ${this.isPanelCollapsed ? '▸' : '▾'}`;
     }
   }
 
@@ -90,11 +116,10 @@ export class ViewerUI {
       this.elSolvent.textContent = manifest.solvent || traj.solvent || 'Gas Phase';
     }
 
-    // 2. Mechanism SVG & Wiring
-    this.wiring = bundle.svgWiring || (bundle.manifest && bundle.manifest.svg_wiring) || (bundle.trajectory && bundle.trajectory.svg_wiring) || {};
-    if (this.elMechanism && bundle.mechanismSvg) {
-      this.elMechanism.innerHTML = bundle.mechanismSvg;
-      this.initInteractiveSvg();
+    // 2. Interactive Mechanism SVG
+    const wiring = bundle.svgWiring || manifest.svg_wiring || traj.svg_wiring || {};
+    if (bundle.mechanismSvg) {
+      this.svgMechanism.setMechanism(bundle.mechanismSvg, wiring);
     }
 
     // 3. Slider configuration
@@ -105,119 +130,26 @@ export class ViewerUI {
       this.elSlider.value = 0;
     }
 
-    // 4. Populate Orbitals Checklist
+    // 4. Populate Orbitals with Molecular Explorer categories & ESP
     this.populateOrbitals(bundle);
   }
 
-  initInteractiveSvg() {
-    if (!this.elMechanism || !this.wiring) return;
-    const svg = this.elMechanism.querySelector('svg');
-    if (!svg) return;
-
-    for (const [key, cfg] of Object.entries(this.wiring)) {
-      const el = svg.getElementById(key) ||
-                 svg.querySelector(`[inkscape\\:label="${key}"]`) ||
-                 svg.querySelector(`[label="${key}"]`);
-      if (!el) continue;
-
-      if (cfg.role === 'arrow' || cfg.role === 'push_arrow') {
-        el.classList.add('svg-clickable-arrow');
-        const dir = cfg.direction === 'reverse' ? '⟵' : '⟶';
-        el.title = `Reaction Step: ${cfg.startFrame ?? 0} ${dir} ${cfg.endFrame ?? 0} (Click to play)`;
-      } else if (cfg.role === 'state' || cfg.role === 'state_molecule') {
-        el.classList.add('svg-clickable-state');
-        el.title = `State (Frame ${cfg.targetFrame ?? 0}): Click to jump`;
-      } else if (cfg.role === 'molecule') {
-        el.classList.add('svg-clickable-molecule');
-        el.title = `${cfg.moleculeName || 'Molecule'}`;
-      }
-    }
-
-    svg.addEventListener('click', (e) => {
-      let cur = e.target;
-      while (cur && cur !== svg && cur.tagName && cur.tagName.toLowerCase() !== 'svg') {
-        const id = cur.getAttribute('id');
-        const lbl = cur.getAttribute('inkscape:label') || cur.getAttribute('label');
-        const cfg = this.wiring[id] || this.wiring[lbl];
-        if (cfg) {
-          e.stopPropagation();
-          if (cfg.role === 'arrow' || cfg.role === 'push_arrow') {
-            const sf = cfg.startFrame !== undefined ? parseInt(cfg.startFrame, 10) : 0;
-            const ef = cfg.endFrame !== undefined ? parseInt(cfg.endFrame, 10) : this.app.totalFrames - 1;
-            this.app.playSegment(sf, ef, cfg.direction || 'forward');
-          } else if (cfg.role === 'state' || cfg.role === 'state_molecule') {
-            const tf = cfg.targetFrame !== undefined ? parseInt(cfg.targetFrame, 10) : 0;
-            this.app.goToFrame(tf);
-          }
-          return;
-        }
-        cur = cur.parentElement;
-      }
-    });
-  }
-
-  updateSvgActive(frameIdx) {
-    if (!this.elMechanism || !this.wiring) return;
-    const svg = this.elMechanism.querySelector('svg');
-    if (!svg) return;
-
-    svg.querySelectorAll('.svg-active-element').forEach(el => el.classList.remove('svg-active-element'));
-
-    let closestState = null;
-    let minDiff = 12;
-    for (const [key, cfg] of Object.entries(this.wiring)) {
-      if ((cfg.role === 'state' || cfg.role === 'state_molecule') && cfg.targetFrame !== undefined) {
-        const diff = Math.abs(cfg.targetFrame - frameIdx);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closestState = key;
-        }
-      }
-    }
-    if (closestState) {
-      const el = svg.getElementById(closestState) || svg.querySelector(`[inkscape\\:label="${closestState}"]`);
-      if (el) el.classList.add('svg-active-element');
-    }
-  }
-
   populateOrbitals(bundle) {
-    if (!this.elOrbitalsList) return;
-    this.elOrbitalsList.innerHTML = '';
+    const timeline = (bundle.manifest && bundle.manifest.orbital_timeline) ||
+                     (bundle.trajectory && bundle.trajectory.orbital_timeline);
+    const tracks = (timeline && timeline.tracks) || [];
 
-    const meshes = bundle.orbitalMeshes || {};
-    const keys = Object.keys(meshes);
-    if (!keys.length) {
-      this.elOrbitalsList.innerHTML = '<span style="color:var(--text-secondary);font-size:11px;">No orbital surfaces in bundle</span>';
-      return;
+    let categories = [];
+    if (tracks.length > 0) {
+      categories = ViewerOrbitalsPanel.parsePathwayTracks(tracks);
+    } else if (bundle.orbitalMeshes && Object.keys(bundle.orbitalMeshes).length > 0) {
+      categories = ViewerOrbitalsPanel.parseRawOrbitalKeys(Object.keys(bundle.orbitalMeshes));
     }
 
-    // Extract unique orbital names across frames
-    const orbNames = new Set();
-    for (const k of keys) {
-      const parts = k.split('_');
-      if (parts.length > 1 && !isNaN(parts[0])) {
-        orbNames.add(parts.slice(1).join('_'));
-      } else {
-        orbNames.add(k);
-      }
-    }
+    const hasEsp = (bundle.espMeshes && Object.keys(bundle.espMeshes).length > 0) ||
+                   (tracks && tracks.some(t => t.role === 'esp' || t.orbital_key === 'track_esp_charge'));
 
-    // "None" option
-    const noneItem = document.createElement('label');
-    noneItem.innerHTML = '<input type="radio" name="orbital-choice" value="" checked> None';
-    noneItem.querySelector('input').addEventListener('change', () => {
-      this.app.viewer3d.setOrbital(null);
-    });
-    this.elOrbitalsList.appendChild(noneItem);
-
-    for (const name of Array.from(orbNames).sort()) {
-      const item = document.createElement('label');
-      item.innerHTML = `<input type="radio" name="orbital-choice" value="${name}"> ${name}`;
-      item.querySelector('input').addEventListener('change', () => {
-        this.app.viewer3d.setOrbital(name);
-      });
-      this.elOrbitalsList.appendChild(item);
-    }
+    this.orbitalsPanel.renderGroups(categories, hasEsp);
   }
 
   updateFrameDisplay(frameIdx, totalFrames, energy) {
@@ -228,7 +160,12 @@ export class ViewerUI {
       const eStr = energy !== undefined ? ` | ${energy >= 0 ? '+' : ''}${energy.toFixed(2)} kcal/mol` : '';
       this.elFrameInfo.innerHTML = `Frame <strong>${frameIdx + 1}</strong> / ${totalFrames}${eStr}`;
     }
-    this.updateSvgActive(frameIdx);
+
+    // Step 5 SVG updates: push arrow pulse and state highlight
+    if (this.svgMechanism) {
+      this.svgMechanism.updatePushArrows(frameIdx, this.app.playDirection || 'forward');
+      this.svgMechanism.highlightCurrentState(frameIdx);
+    }
   }
 
   updatePlayState(isPlaying) {

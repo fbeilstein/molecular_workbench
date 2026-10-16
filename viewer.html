@@ -10,10 +10,13 @@
 </head>
 <body>
   <div id="app-container">
-    <!-- Top Header: Title, Reaction Stats & Mechanism SVG -->
+    <!-- Top Header: Title, Bundle Selector, Reaction Stats & Mechanism SVG -->
     <header id="top-header">
       <div class="header-meta">
-        <h1 class="reaction-title" id="reaction-title">Loading Reaction...</h1>
+        <div class="header-title-row">
+          <select id="sel-bundle-switcher" class="bundle-select" style="display:none;"></select>
+          <h1 class="reaction-title" id="reaction-title">Loading Reaction...</h1>
+        </div>
         <div class="reaction-stats">
           <span>Barrier: <strong id="stat-barrier">—</strong></span>
           <span>Solvent: <strong id="stat-solvent">—</strong></span>
@@ -29,28 +32,22 @@
         <canvas id="pes-canvas"></canvas>
       </div>
 
-      <!-- Side Panel: Static Orbital & Surface Controls -->
+      <!-- Top-right Orbitals Drawer Toggle Button -->
+      <div class="viewport-overlay-controls">
+        <button class="btn btn-panel-toggle" id="btn-toggle-orbitals">Orbitals ▾</button>
+      </div>
+
+      <!-- Side Panel: Molecular Explorer Grouped Orbitals & ESP Controls -->
       <aside id="side-panel">
         <div class="panel-header">
-          <span>Surfaces & View</span>
+          <span>Orbitals & Surfaces</span>
         </div>
         <div class="panel-body">
-          <div class="control-group">
-            <label>Molecular Orbitals</label>
-            <div class="orbitals-list" id="orbitals-list">
-              <span style="color:var(--text-secondary);font-size:11px;">None</span>
-            </div>
+          <div class="orbitals-list-container" id="orbitals-list">
+            <span style="color:var(--text-secondary);font-size:11px;">Loading orbitals...</span>
           </div>
-
-          <div class="control-group">
-            <label>Electrostatic Potential</label>
-            <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;">
-              <input type="checkbox" id="chk-esp"> ESP Surface
-            </label>
-          </div>
-
-          <div class="control-group" style="margin-top:6px;">
-            <button class="btn" id="btn-reset-cam">⟲ Reset Camera</button>
+          <div class="panel-actions">
+            <button class="btn btn-sm" id="btn-reset-cam">⟲ Reset Camera</button>
           </div>
         </div>
       </aside>
