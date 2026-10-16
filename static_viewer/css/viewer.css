@@ -1,0 +1,345 @@
+:root {
+  --bg-primary: #0f141c;
+  --bg-secondary: #18202c;
+  --bg-tertiary: #222d3d;
+  --text-primary: #f0f4f8;
+  --text-secondary: #94a3b8;
+  --border-color: #2e3d52;
+  --accent-color: #38bdf8;
+  --accent-hover: #0284c7;
+  --danger-color: #ef4444;
+  --success-color: #10b981;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 14px;
+}
+
+#app-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* --- Top Header (Mechanism SVG & Title) --- */
+#top-header {
+  height: 110px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.header-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.reaction-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reaction-stats {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 12px;
+}
+
+.reaction-stats span strong {
+  color: var(--accent-color);
+}
+
+#mechanism-strip {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: #0b0f15;
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+#mechanism-strip svg {
+  max-height: 70px;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+}
+
+/* --- Main Viewport (3D + PES Background) --- */
+#viewport-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(circle at center, #161e2b 0%, #0c1017 100%);
+}
+
+#gl-canvas-container {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+}
+
+#pes-canvas-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 140px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+#pes-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* --- Sidebar / Drawer (Orbitals & View Options) --- */
+#side-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 240px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 110px);
+}
+
+.panel-header {
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  background-color: var(--bg-tertiary);
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+}
+
+.panel-body {
+  padding: 10px 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.control-group label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.orbitals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  padding: 6px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+}
+
+.orbitals-list label {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--text-primary);
+  text-transform: none;
+}
+
+/* --- Static Bottom Playback Dock --- */
+#bottom-dock {
+  height: 64px;
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  gap: 16px;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.playback-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.btn:hover {
+  background-color: #2b394e;
+  border-color: var(--accent-color);
+}
+
+.btn-primary {
+  background-color: var(--accent-color);
+  color: #041019;
+  border-color: var(--accent-color);
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.slider-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#frame-slider {
+  flex: 1;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+  height: 6px;
+}
+
+.frame-info {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.frame-info strong {
+  color: var(--text-primary);
+}
+
+.dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --- Loading & Dropzone Overlays --- */
+#overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(15, 20, 28, 0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+}
+
+.overlay-box {
+  background-color: var(--bg-secondary);
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  padding: 36px 48px;
+  text-align: center;
+  max-width: 500px;
+  width: 100%;
+}
+
+.overlay-box.dragover {
+  border-color: var(--accent-color);
+  background-color: #1a2535;
+}
+
+.overlay-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.overlay-desc {
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background-color: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 16px;
+  display: none;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background-color: var(--accent-color);
+  transition: width 0.2s;
+}

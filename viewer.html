@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reaction Pathway Player</title>
+  <link rel="stylesheet" href="static_viewer/css/viewer.css">
+  <script src="static_viewer/libs/jszip.min.js"></script>
+  <script src="static_viewer/libs/3Dmol-min.js"></script>
+</head>
+<body>
+  <div id="app-container">
+    <!-- Top Header: Title, Reaction Stats & Mechanism SVG -->
+    <header id="top-header">
+      <div class="header-meta">
+        <h1 class="reaction-title" id="reaction-title">Loading Reaction...</h1>
+        <div class="reaction-stats">
+          <span>Barrier: <strong id="stat-barrier">—</strong></span>
+          <span>Solvent: <strong id="stat-solvent">—</strong></span>
+        </div>
+      </div>
+      <div id="mechanism-strip"></div>
+    </header>
+
+    <!-- Main Viewport: 3D Mol WebGL Canvas & Background PES Energy Plot -->
+    <main id="viewport-container">
+      <div id="gl-canvas-container"></div>
+      <div id="pes-canvas-container">
+        <canvas id="pes-canvas"></canvas>
+      </div>
+
+      <!-- Side Panel: Static Orbital & Surface Controls -->
+      <aside id="side-panel">
+        <div class="panel-header">
+          <span>Surfaces & View</span>
+        </div>
+        <div class="panel-body">
+          <div class="control-group">
+            <label>Molecular Orbitals</label>
+            <div class="orbitals-list" id="orbitals-list">
+              <span style="color:var(--text-secondary);font-size:11px;">None</span>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label>Electrostatic Potential</label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="chk-esp"> ESP Surface
+            </label>
+          </div>
+
+          <div class="control-group" style="margin-top:6px;">
+            <button class="btn" id="btn-reset-cam">⟲ Reset Camera</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- Bottom Dock: Static Playback Controls -->
+    <footer id="bottom-dock">
+      <div class="playback-buttons">
+        <button class="btn" id="btn-first" title="First Frame">|◀</button>
+        <button class="btn" id="btn-prev" title="Previous Frame">◀</button>
+        <button class="btn btn-primary" id="btn-play">▶ Play</button>
+        <button class="btn" id="btn-next" title="Next Frame">▶</button>
+        <button class="btn" id="btn-last" title="Last Frame">▶|</button>
+      </div>
+
+      <div class="slider-container">
+        <input type="range" id="frame-slider" min="0" max="0" value="0">
+        <div class="frame-info" id="frame-info">Frame <strong>0</strong> / 0</div>
+      </div>
+
+      <div class="dock-actions">
+        <select class="btn" id="select-speed" title="Playback Speed">
+          <option value="0.5">0.5x</option>
+          <option value="1.0" selected>1.0x</option>
+          <option value="1.5">1.5x</option>
+          <option value="2.0">2.0x</option>
+        </select>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text-secondary);">
+          <input type="checkbox" id="chk-loop" checked> Loop
+        </label>
+      </div>
+    </footer>
+
+    <!-- Dropzone / Progress Overlay -->
+    <div id="overlay">
+      <div class="overlay-box" id="drop-box">
+        <h2 class="overlay-title">Reaction Pathway Player</h2>
+        <p class="overlay-desc" id="overlay-status">Drag & drop a .rxnbundle.zip here, or click to choose a file</p>
+        <input type="file" id="file-input" accept=".zip,.rxnbundle" style="display:none;">
+        <button class="btn btn-primary" id="btn-browse">Browse File...</button>
+        <div class="progress-bar-container" id="progress-bar-container">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="static_viewer/js/viewer_app.js"></script>
+</body>
+</html>
