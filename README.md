@@ -101,5 +101,6 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 |Molecule|Name|Bundle|Notes|
 |--|--|--|--|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/%5B18%5Dannulene.svg)|**Cyclooctadecanonaene** or **[18]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/%5B18%5Dannulene.zip)|Aromatic: $4n+2$ electrons + planar|
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/all-cis-%5B10%5Dannulene.svg)|**Cyclodecapentaene** or **[10]annulene**, or **all-cis-[10]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/all-cis-%5B10%5Dannulene.zip)|NOT Aromatic: $4n+2$ electrons BUT non-planar|
 
 </details>

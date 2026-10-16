@@ -206,7 +206,11 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             return self.send_error(404, 'Bundle not found')
 
         custom_zip_path = os.path.join(OUTPUT_DIR, name, f'{name}_custom.rxnbundle.zip')
-        package_custom_bundle(zip_path, custom_zip_path, set(body.get('files', [])), body.get('isovalue'), name)
+        raw_keep = body.get('keep_files')
+        if raw_keep is None:
+            raw_keep = body.get('files')
+        keep_set = set(raw_keep) if raw_keep is not None else None
+        package_custom_bundle(zip_path, custom_zip_path, keep_set, body.get('isovalue'), name)
         self._json_response({'download_url': f'/output/{name}/{name}_custom.rxnbundle.zip'})
 
     def _api_orbital_remesh(self, body):

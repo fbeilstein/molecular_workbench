@@ -78,7 +78,13 @@ def package_custom_bundle(zip_path, custom_zip_path, keep_files, isovalue, name)
                 continue
             seen_files.add(item.filename)
 
-            keep_item = is_bundle_metadata(item.filename) or item.filename in keep_files
+            fn = item.filename
+            fn_base = fn.replace('molecules/', '')
+            matched_keep = False
+            if keep_files is not None:
+                matched_keep = (fn in keep_files) or (fn_base in keep_files) or (f'molecules/{fn}' in keep_files)
+
+            keep_item = (keep_files is None) or is_bundle_metadata(item.filename) or matched_keep
             if not keep_item:
                 continue
 

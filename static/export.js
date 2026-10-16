@@ -96,7 +96,7 @@ window.WB.confirmDownloadBundle = async function() {
         }
     });
     
-    const payload = { name: name, keep_files: keepFiles };
+    const payload = { name: name, keep_files: keepFiles, files: keepFiles };
     if (window._customIsovalue) {
         payload.isovalue = window._customIsovalue;
     }

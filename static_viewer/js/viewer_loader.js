@@ -40,6 +40,7 @@ export async function loadReactionBundle(source, onProgress) {
     espMeshes: {},
     molecules: {}
   };
+  const flatMoleculeFiles = {};
 
   const fileKeys = Object.keys(zip.files);
   const totalFiles = fileKeys.length;
@@ -104,14 +105,26 @@ export async function loadReactionBundle(source, onProgress) {
         }
       } else if (parts.length === 2) {
         const sub = parts[1];
-        const molKey = sub.replace(/(_esp|_pos|_neg)?\.json$/, '');
-        bundle.molecules[molKey] = bundle.molecules[molKey] || {};
         if (sub.endsWith('.json')) {
           const text = await file.async('string');
-          try { bundle.molecules[molKey][sub] = JSON.parse(text); } catch (_) { bundle.molecules[molKey][sub] = text; }
+          try { flatMoleculeFiles[sub] = JSON.parse(text); } catch (_) { flatMoleculeFiles[sub] = text; }
         }
       }
     }
+  }
+
+  if (Object.keys(bundle.molecules).length === 0 && Object.keys(flatMoleculeFiles).length > 0) {
+    let molKey = bundle.manifest?.molecules?.[0]?.key || bundle.manifest?.name;
+    if (!molKey) {
+      for (const fname of Object.keys(flatMoleculeFiles)) {
+        if (fname.endsWith('.json') && !fname.endsWith('_pos.json') && !fname.endsWith('_neg.json') && !fname.endsWith('_esp.json')) {
+          molKey = fname.replace(/\.json$/, '');
+          break;
+        }
+      }
+    }
+    molKey = molKey || 'molecule';
+    bundle.molecules[molKey] = flatMoleculeFiles;
   }
 
   if (!bundle.trajectory && bundle.manifest && bundle.manifest.files && bundle.manifest.files.trajectory_json) {
@@ -202,7 +215,7 @@ export function buildMoleculeBundle(molIdentifier, parentBundle) {
 
   if (!molDict) return null;
 
-  const manifest = molDict['manifest.json'] || {};
+  const manifest = molDict['manifest.json'] || parentBundle.manifest || {};
   const molInfo = (manifest.molecules && manifest.molecules[0]) || molDict[`${molKey}.json`] || {};
 
   const xyzText = molInfo.xyz || '';
@@ -223,11 +236,11 @@ export function buildMoleculeBundle(molIdentifier, parentBundle) {
   const espMeshes = {};
   for (const [fname, content] of Object.entries(molDict)) {
     if (fname.endsWith('_pos.json')) {
-      const base = fname.replace(/_pos\.json$/, '');
+      const base = fname.replace(/^molecules\//, '').replace(/_pos\.json$/, '');
       orbitalMeshes[base] = orbitalMeshes[base] || {};
       orbitalMeshes[base].pos = content;
     } else if (fname.endsWith('_neg.json')) {
-      const base = fname.replace(/_neg\.json$/, '');
+      const base = fname.replace(/^molecules\//, '').replace(/_neg\.json$/, '');
       orbitalMeshes[base] = orbitalMeshes[base] || {};
       orbitalMeshes[base].neg = content;
     } else if (fname.endsWith('_esp.json')) {
