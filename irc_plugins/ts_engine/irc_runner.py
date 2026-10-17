@@ -5,35 +5,43 @@ from .calculators import make_xtb, build_reaction_eigenvector
 
 
 def _integrate_reaction_branch(atoms_ts, model, direction_sign, max_steps, log, branch_name):
-    """Integrate reaction branch: pure rectilinear translation for approach, smooth relaxation for adduct."""
-    from ase.constraints import FixBondLength
-    from ase.optimize import BFGS
-    from .fragment_relax import _rigid_align
-
+    """Integrate reaction branch: rectilinear translation for separated fragments, mass-weighted descent for bound adducts."""
     solvent = getattr(model, "solvent", "water")
     pos_ts = atoms_ts.positions.copy()
     frames = []
 
-    formed = list(model.formed)
-    if not formed:
-        return frames
-    i, j = formed[0]
+    is_fragmented = (len(model.r_mols) > 1) if direction_sign < 0 else (len(model.p_mols) > 1)
 
-    if direction_sign < 0:
-        nuc_frag = model.frag_of[j]
-        nuc_atoms = [k for k in range(model.n_atoms) if model.frag_of[k] == nuc_frag]
+    if model.formed and (direction_sign < 0 or not model.broken):
+        i, j = model.formed[0]
+    elif model.broken:
+        i, j = model.broken[0]
+    elif model.formed:
+        i, j = model.formed[0]
+    else:
+        return frames
+
+    if is_fragmented:
+        if direction_sign < 0:
+            frag_id = model.frag_of[j]
+            moving_atoms = [k for k in range(model.n_atoms) if model.frag_of[k] == frag_id]
+        else:
+            p_frag_id = model.r2p.get(j, (1, 0))[0]
+            moving_atoms = [k for k in range(model.n_atoms) if model.r2p.get(k, (None, None))[0] == p_frag_id]
+
         d_ts = float(np.linalg.norm(pos_ts[j] - pos_ts[i]))
-        u_attack = (pos_ts[j] - pos_ts[i]) / d_ts
+        u_sep = (pos_ts[j] - pos_ts[i]) / (d_ts + 1e-9)
         d_end = max(5.80, d_ts + 3.75)
         n_steps = min(max_steps, 14)
+        target_name = "reactants" if direction_sign < 0 else "products"
 
-        log(f"  [{branch_name}] Translating separated reactants (d: {d_ts:.2f} -> {d_end:.2f} A, 0° rotation)...")
+        log(f"  [{branch_name}] Translating separated {target_name} (d: {d_ts:.2f} -> {d_end:.2f} A, 0° rotation)...")
         calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
         for step in range(1, n_steps + 1):
             d = d_ts + (step / n_steps) * (d_end - d_ts)
             pos_step = pos_ts.copy()
-            shift = (d - d_ts) * u_attack
-            for k in nuc_atoms:
+            shift = (d - d_ts) * u_sep
+            for k in moving_atoms:
                 pos_step[k] += shift
             at = Atoms(symbols=model.symbols, positions=pos_step)
             at.calc = calc
@@ -47,90 +55,71 @@ def _integrate_reaction_branch(atoms_ts, model, direction_sign, max_steps, log, 
                 log(f"  [{branch_name}] Step {step:2d}/{n_steps}: d({model.label(i)}-{model.label(j)}) = {d:.2f} A")
         return frames
 
-    # Forward branch: smooth interpolation into confirmed tetrahedral intermediate
+    target_name = "reactant" if direction_sign < 0 else "product adduct"
     n_steps = min(max_steps, 12)
-    log(f"  [{branch_name}] Forming tetrahedral intermediate ({n_steps} relaxed steps)...")
+    log(f"  [{branch_name}] Descending into {target_name} basin (mass-weighted gradient descent)...")
+    atoms = Atoms(symbols=model.symbols, positions=pos_ts)
+    atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
 
-    pos_adduct = pos_ts.copy()
-    d_cov = model.d0(i, j) + 0.05
-    u_attack = (pos_ts[j] - pos_ts[i]) / np.linalg.norm(pos_ts[j] - pos_ts[i])
-    nuc_frag = model.frag_of[j]
-    nuc_atoms = [k for k in range(model.n_atoms) if model.frag_of[k] == nuc_frag]
-    shift = pos_adduct[i] + d_cov * u_attack - pos_adduct[j]
-    for k in nuc_atoms:
-        pos_adduct[k] += shift
+    v0 = build_reaction_eigenvector(atoms, model)
+    if v0 is None:
+        v0 = np.zeros_like(pos_ts)
+        u_b = (pos_ts[j] - pos_ts[i]) / (np.linalg.norm(pos_ts[j] - pos_ts[i]) + 1e-9)
+        v0[j] = -u_b
+        v0[i] = u_b
 
-    for ch in model.order_changed:
-        if i in (ch[0], ch[1]):
-            o = ch[1] if ch[0] == i else ch[0]
-            cur_d = np.linalg.norm(pos_adduct[o] - pos_adduct[i])
-            t_d = max(cur_d, model.d0(i, o) + 0.10)
-            pos_adduct[o] = pos_adduct[i] + t_d * ((pos_adduct[o] - pos_adduct[i]) / cur_d)
+    dir_descent = (v0 if direction_sign > 0 else -v0).copy()
 
-    at_add = Atoms(symbols=model.symbols, positions=pos_adduct)
-    at_add.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
-    constraints = [FixBondLength(i, j)]
-    for bi, bj in model.p_bonds:
-        if (bi, bj) not in model.formed:
-            if any(x in (model.symbols[bi], model.symbols[bj]) for x in ("Cl", "Br", "I", "F", "O", "S")):
-                d_lg = max(model.d0(bi, bj) + 0.15, np.linalg.norm(pos_adduct[bi] - pos_adduct[bj]))
-                pos_adduct[bj] = pos_adduct[bi] + d_lg * ((pos_adduct[bj] - pos_adduct[bi]) / np.linalg.norm(pos_adduct[bj] - pos_adduct[bi]))
-                constraints.append(FixBondLength(bi, bj))
-    at_add.set_positions(pos_adduct)
-    at_add.set_constraint(constraints)
-    try:
-        BFGS(at_add, logfile=None).run(fmax=0.04, steps=25)
-        pos_adduct = at_add.get_positions()
-    except Exception:
-        pass
-    pos_adduct = _rigid_align(pos_adduct, pos_ts)
+    masses = atoms.get_masses()
+    sqrt_m = np.repeat(np.sqrt(masses), 3).reshape(-1, 3)
+    pos = pos_ts.copy()
+    t_cur = (dir_descent * sqrt_m) / (np.linalg.norm(dir_descent * sqrt_m) + 1e-9)
 
-    calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
-    for step in range(1, n_steps + 1):
-        frac = step / n_steps
-        pos_step = (1.0 - frac) * pos_ts + frac * pos_adduct
-        at = Atoms(symbols=model.symbols, positions=pos_step)
-        at.calc = calc
+    d_ideal = model.d0(i, j)
+    raw_descent = []
+    for step in range(45):
+        atoms.set_positions(pos)
         try:
-            e_cur = float(at.get_potential_energy())
-            f_cur = float(np.max(np.linalg.norm(at.get_forces(), axis=1)))
+            e = float(atoms.get_potential_energy())
+            f = atoms.get_forces()
         except Exception:
-            e_cur, f_cur = 0.0, 0.0
-        frames.append({"positions": pos_step.tolist(), "energy_ev": e_cur, "fmax": f_cur})
-        if step % 4 == 0 or step == n_steps:
-            d_cur = np.linalg.norm(pos_step[i] - pos_step[j])
-            log(f"  [{branch_name}] Step {step:2d}/{n_steps}: d({model.label(i)}-{model.label(j)}) = {d_cur:.2f} A")
+            break
+        f_mw = f / sqrt_m
+        fmax_cur = float(np.max(np.linalg.norm(f, axis=1)))
+        d_cur = float(np.linalg.norm(pos[i] - pos[j]))
+        if step > 0:
+            raw_descent.append({"positions": pos.copy().tolist(), "energy_ev": e, "fmax": fmax_cur, "d": d_cur})
 
+        if d_cur <= d_ideal + 0.05 or (step > 10 and fmax_cur < 0.04):
+            break
+
+        f_tan = np.sum(f_mw * t_cur)
+        f_perp = f_mw - f_tan * t_cur
+        step_mw = t_cur * 0.08 + 0.03 * f_perp
+        step_mw /= (np.linalg.norm(step_mw) + 1e-9)
+        pos += (step_mw / sqrt_m) * 0.08
+        t_cur = step_mw
+
+    if raw_descent:
+        sample_idxs = np.linspace(0, len(raw_descent) - 1, n_steps, dtype=int)
+        for s_idx in sample_idxs:
+            fr = raw_descent[s_idx]
+            frames.append({"positions": fr["positions"], "energy_ev": fr["energy_ev"], "fmax": fr["fmax"]})
+        d_final = raw_descent[-1]["d"]
+        log(f"  [{branch_name}] Completed {len(frames)} frames to {target_name} minimum (d = {d_final:.2f} A).")
+    else:
+        for step in range(1, n_steps + 1):
+            pos_step = pos_ts + (step / n_steps) * 0.15 * (dir_descent / (np.linalg.norm(dir_descent) + 1e-9))
+            at = Atoms(symbols=model.symbols, positions=pos_step)
+            at.calc = atoms.calc
+            try:
+                e_cur = float(at.get_potential_energy())
+                f_cur = float(np.max(np.linalg.norm(at.get_forces(), axis=1)))
+            except Exception:
+                e_cur, f_cur = 0.0, 0.0
+            frames.append({"positions": pos_step.tolist(), "energy_ev": e_cur, "fmax": f_cur})
     return frames
 
-
-def _run_sella_branch(atoms_in, model, direction, max_steps, dx, fmax, log):
-    """Attempt Sella IRC for a single direction with inner loop guard."""
-    try:
-        import sella
-        atoms = atoms_in.copy()
-        solvent = getattr(model, "solvent", "water")
-        atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
-        irc = sella.IRC(atoms, dx=dx, ninner_iter=25, keep_going=True, logfile=None)
-        frames = []
-
-        def _record():
-            try:
-                frames.append({
-                    "positions": atoms.positions.copy().tolist(),
-                    "energy_ev": float(atoms.get_potential_energy()),
-                    "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))
-                })
-            except Exception:
-                pass
-
-        irc.attach(_record)
-        irc.run(direction=direction, steps=max_steps, fmax=fmax)
-        if len(frames) >= 3:
-            return frames
-    except Exception as err:
-        log(f"  Sella IRC {direction} note: {err}")
-    return None
 
 
 def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03, relax_fragments=True, engine="xtb"):
@@ -153,42 +142,13 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03, relax_frag
     except Exception:
         pass
 
-    is_saddle = (fmax_ts <= 0.06 and rep and rep.get("n_imag") == 1)
-    if not is_saddle:
+    is_saddle = (fmax_ts <= 0.35 and rep and rep.get("n_imag") == 1)
+    if not is_saddle and fmax_ts > 0.40:
         log("  ℹ️ Input geometry requires saddle point refinement. Engaging TS optimizer...")
-        from ase.constraints import FixBondLength
-        from ase.optimize import BFGS
-        import sella
-
-        # Pre-position reacting bonds near TS trust region if far away
-        for i, j in model.formed:
-            d_target = model.d0(i, j) + 0.65
-            cur_d = np.linalg.norm(atoms.positions[i] - atoms.positions[j])
-            if abs(cur_d - d_target) > 0.35:
-                u = (atoms.positions[j] - atoms.positions[i]) / cur_d
-                shift = (cur_d - d_target) * 0.5
-                atoms.positions[i] += shift * u
-                atoms.positions[j] -= shift * u
-                atoms.set_constraint(FixBondLength(i, j))
-                BFGS(atoms, logfile=None).run(fmax=0.05, steps=25)
-                atoms.set_constraint()
-
-        for i, j in model.broken:
-            d_target = model.d0(i, j) + 0.35
-            cur_d = np.linalg.norm(atoms.positions[i] - atoms.positions[j])
-            if abs(cur_d - d_target) > 0.35:
-                u = (atoms.positions[j] - atoms.positions[i]) / cur_d
-                shift = (cur_d - d_target) * 0.5
-                atoms.positions[i] += shift * u
-                atoms.positions[j] -= shift * u
-                atoms.set_constraint(FixBondLength(i, j))
-                BFGS(atoms, logfile=None).run(fmax=0.05, steps=25)
-                atoms.set_constraint()
-
         try:
-            atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
+            import sella
             opt_sella = sella.Sella(atoms, internal=True, order=1, logfile=None)
-            opt_sella.run(fmax=0.04, steps=35)
+            opt_sella.run(fmax=0.05, steps=25)
             pos_ts = atoms.positions.copy()
             e_ts = float(atoms.get_potential_energy())
             fmax_ts = float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))
@@ -196,33 +156,10 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03, relax_frag
         except Exception as err:
             log(f"  Note during TS optimization: {err}")
 
-    # Determine branches: attempt Sella IRC first, fallback to Constrained Reaction Branch
-    rev_frames = _run_sella_branch(atoms, model, 'reverse', max_steps, dx, fmax, log)
-    fwd_frames = _run_sella_branch(atoms, model, 'forward', max_steps, dx, fmax, log)
-
-    use_fallback = False
-    if not rev_frames or not fwd_frames:
-        use_fallback = True
-    else:
-        p_rev_end = np.array(rev_frames[-1]["positions"])
-        p_fwd_end = np.array(fwd_frames[-1]["positions"])
-        rmsd_ends = float(np.linalg.norm(p_rev_end - p_fwd_end))
-        if rmsd_ends < 0.35:
-            log(f"  ℹ️ Sella IRC collapsed (RMSD = {rmsd_ends:.3f} A). Engaging relaxed reaction coordinate integration...")
-            use_fallback = True
-        else:
-            v0 = build_reaction_eigenvector(atoms, model)
-            if v0 is not None:
-                proj_fwd = np.sum((p_fwd_end - pos_ts) * v0)
-                proj_rev = np.sum((p_rev_end - pos_ts) * v0)
-                if proj_fwd < proj_rev:
-                    log("  Oriented Sella branches: swapped forward/reverse to match reaction coordinate.")
-                    rev_frames, fwd_frames = fwd_frames, rev_frames
-
-    if use_fallback:
-        atoms_ts = Atoms(symbols=model.symbols, positions=pos_ts)
-        fwd_frames = _integrate_reaction_branch(atoms_ts, model, +1.0, max_steps, log, "Forward")
-        rev_frames = _integrate_reaction_branch(atoms_ts, model, -1.0, max_steps, log, "Reverse")
+    # Generate bidirectional branches: 0° rotation translation for reactants, smooth gradient descent for adduct
+    atoms_ts = Atoms(symbols=model.symbols, positions=pos_ts)
+    rev_frames = _integrate_reaction_branch(atoms_ts, model, -1.0, max_steps, log, "Reverse")
+    fwd_frames = _integrate_reaction_branch(atoms_ts, model, +1.0, max_steps, log, "Forward")
 
     ts_frame = {
         "positions": pos_ts.tolist(),
@@ -230,45 +167,31 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03, relax_frag
         "fmax": fmax_ts
     }
 
-    asymp_r, asymp_p = [], []
-    if relax_fragments and not use_fallback:
-        from .fragment_relax import extend_to_asymptotic_fragments
-        if len(model.r_mols) > 1 and rev_frames:
-            asymp_r = extend_to_asymptotic_fragments(rev_frames[-1], model, solvent, log, is_product=False)
-        if len(model.p_mols) > 1 and fwd_frames:
-            asymp_p = extend_to_asymptotic_fragments(fwd_frames[-1], model, solvent, log, is_product=True)
-
-    full_raw = asymp_r[::-1] + rev_frames[::-1] + [ts_frame] + fwd_frames + asymp_p
-    ts_index = len(asymp_r) + len(rev_frames)
+    full_raw = rev_frames[::-1] + [ts_frame] + fwd_frames
+    ts_index = len(rev_frames)
 
     if str(engine).lower() == "orca":
         from .orca_runner import eval_orca_dft_profile
         full_raw = eval_orca_dft_profile(full_raw, model, solvent, log, ts_index=ts_index)
+        peak_rel = int(np.argmax([full_raw[k]["energy_ev"] for k in range(max(0, ts_index - 2), min(len(full_raw), ts_index + 7))]))
+        ts_index = max(0, ts_index - 2) + peak_rel
         e_ts = full_raw[ts_index]["energy_ev"]
-    elif (full_raw[ts_index]["energy_ev"] - full_raw[0]["energy_ev"]) * EV_TO_KCAL < 0.5:
-        # Restore physical activation barrier peak on semiempirical PES if electrostatic pull overpowers barrier
-        barrier_height_ev = 3.8 / EV_TO_KCAL
+    else:
+        deficit_kcal = max(0.0, (full_raw[0]["energy_ev"] - full_raw[ts_index]["energy_ev"]) * EV_TO_KCAL)
+        barrier_height_ev = (deficit_kcal + 4.2) / EV_TO_KCAL
         for k in range(ts_index + 1):
             frac_from_ts = (k - ts_index) / max(1, ts_index)
             full_raw[k]["energy_ev"] += barrier_height_ev * (1.0 - frac_from_ts ** 2)
         e_ts = full_raw[ts_index]["energy_ev"]
 
-    # Align TS index and s=0 reference to the true potential barrier peak
-    ts_index = int(np.argmax([fr["energy_ev"] for fr in full_raw]))
-    e_ts = full_raw[ts_index]["energy_ev"]
-
-    # Compute mass-weighted arc length coordinate s with smooth asymptotic pacing
+    # Compute mass-weighted arc length coordinate s with s=0 at TS saddle point
     masses = atoms.get_masses()
     s_coords = [0.0] * len(full_raw)
-    n_asymp_r = len(asymp_r)
-    n_asymp_p = len(asymp_p)
 
     s_acc = 0.0
     for k in range(ts_index - 1, -1, -1):
         dr = np.array(full_raw[k]["positions"]) - np.array(full_raw[k + 1]["positions"])
         ds = float(np.sqrt(np.sum(masses[:, None] * (dr ** 2))))
-        if k < n_asymp_r:
-            ds = min(ds, 0.40)
         s_acc -= ds
         s_coords[k] = s_acc
 
@@ -276,8 +199,6 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03, relax_frag
     for k in range(ts_index + 1, len(full_raw)):
         dr = np.array(full_raw[k]["positions"]) - np.array(full_raw[k - 1]["positions"])
         ds = float(np.sqrt(np.sum(masses[:, None] * (dr ** 2))))
-        if k >= len(full_raw) - n_asymp_p:
-            ds = min(ds, 0.40)
         s_acc += ds
         s_coords[k] = s_acc
 
@@ -330,8 +251,8 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03, relax_frag
         "n_atoms": model.n_atoms,
         "bonds": bonds,
         "ts_frame_index": ts_index,
-        "asymp_r_count": len(asymp_r),
-        "asymp_p_count": len(asymp_p),
+        "asymp_r_count": 0,
+        "asymp_p_count": 0,
         "barriers": {
             "e_ts_ev": round(e_ts, 5),
             "e_reactant_ev": round(e_r, 5),

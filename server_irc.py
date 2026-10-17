@@ -3,7 +3,13 @@ import http.server
 import socketserver
 import json
 import urllib.parse
-from irc_plugins import get_plugins
+def get_plugins():
+    import sys
+    for mod_name in list(sys.modules.keys()):
+        if mod_name.startswith("irc_plugins"):
+            del sys.modules[mod_name]
+    import irc_plugins
+    return irc_plugins.get_plugins()
 
 PORT = 8082
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -123,15 +129,17 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
     # -----------------------------------------------------------------------
     # POST Handlers
     # -----------------------------------------------------------------------
-    def _handle_step_run(self, plugin, user_input):
+    def _handle_step_run(self, plugin, user_input, plugins=None):
         global pipeline_state
-        plugins = get_plugins()
-        plugin_idx = plugins.index(plugin)
+        if plugins is None:
+            plugins = get_plugins()
+        plugin_idx = next((i for i, p in enumerate(plugins) if p.step_id == plugin.step_id), -1)
 
         # Invalidate downstream steps before running this one
-        for downstream in plugins[plugin_idx + 1:]:
-            if downstream.step_id in pipeline_state:
-                del pipeline_state[downstream.step_id]
+        if plugin_idx >= 0:
+            for downstream in plugins[plugin_idx + 1:]:
+                if downstream.step_id in pipeline_state:
+                    del pipeline_state[downstream.step_id]
 
         result = plugin.run(pipeline_state, user_input)
         if result.success:
@@ -162,34 +170,39 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
 
         user_input = self._read_json_body()
         if action == 'run':
-            return self._handle_step_run(plugin, user_input)
+            return self._handle_step_run(plugin, user_input, plugins)
         if action == 'custom':
             return self._handle_step_custom(plugin, user_input)
 
         self._send_json({"error": f"Unknown action: {action}"}, 400)
 
     def do_POST(self):
-        global pipeline_state
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        try:
+            global pipeline_state
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
 
-        if path.startswith('/api/step/'):
-            return self._handle_post_step(path)
+            if path.startswith('/api/step/'):
+                return self._handle_post_step(path)
 
-        if path == '/api/reset':
-            pipeline_state.clear()
-            save_current_state()
-            return self._send_json({})
+            if path == '/api/reset':
+                pipeline_state.clear()
+                save_current_state()
+                return self._send_json({})
 
-        if path == '/api/environment':
-            data = self._read_json_body()
-            solvent = data.get("solvent", "water")
-            pipeline_state["solvent"] = solvent
-            save_current_state()
-            return self._send_json({"success": True, "solvent": solvent})
+            if path == '/api/environment':
+                data = self._read_json_body()
+                solvent = data.get("solvent", "water")
+                pipeline_state["solvent"] = solvent
+                save_current_state()
+                return self._send_json({"success": True, "solvent": solvent})
 
-        self.send_response(404)
-        self.end_headers()
+            self.send_response(404)
+            self.end_headers()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._send_json({"success": False, "error": str(e)}, 500)
 
 
 if __name__ == '__main__':

@@ -34,3 +34,11 @@ class PipelineStep:
     def validate(self, step_data: Dict[str, Any]) -> bool:
         """Verifies if the step's output is complete to enable the Next button."""
         return True
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, PipelineStep):
+            return self.step_id == other.step_id
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.step_id)

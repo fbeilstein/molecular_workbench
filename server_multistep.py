@@ -141,12 +141,13 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_step_run(self, step, user_input):
         global pipeline_state
         steps = get_all_steps()
-        step_idx = steps.index(step)
+        step_idx = next((i for i, s in enumerate(steps) if s.step_id == step.step_id), -1)
 
         # Invalidate downstream steps
-        for downstream in steps[step_idx + 1:]:
-            if downstream.step_id in pipeline_state:
-                del pipeline_state[downstream.step_id]
+        if step_idx >= 0:
+            for downstream in steps[step_idx + 1:]:
+                if downstream.step_id in pipeline_state:
+                    del pipeline_state[downstream.step_id]
 
         result = step.run(pipeline_state, user_input)
         if result.success:
