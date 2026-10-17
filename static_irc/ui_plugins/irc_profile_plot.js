@@ -45,6 +45,24 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // Asymptotic Approach boundary if present
+    const asympCount = trajectory.asymp_r_count || 0;
+    if (asympCount > 0 && asympCount < frames.length) {
+        const ax = toX(frames[asympCount].s_arc);
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(ax, padTop);
+        ctx.lineTo(ax, padTop + plotH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '9px sans-serif';
+        ctx.fillText('Approach', padLeft + 6, padTop + 12);
+        ctx.fillText('Chemical IRC', ax + 6, padTop + 12);
+    }
+
     // Curve
     ctx.strokeStyle = '#4f6ef7';
     ctx.lineWidth = 2.5;
@@ -61,7 +79,13 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     frames.forEach((f, idx) => {
         const x = toX(f.s_arc);
         const y = toY(f.rel_energy_kcal);
-        ctx.fillStyle = idx === trajectory.ts_frame_index ? '#e11d48' : '#3b82f6';
+        if (idx === trajectory.ts_frame_index) {
+            ctx.fillStyle = '#e11d48';
+        } else if (idx < asympCount) {
+            ctx.fillStyle = '#93c5fd';
+        } else {
+            ctx.fillStyle = '#3b82f6';
+        }
         ctx.beginPath();
         ctx.arc(x, y, idx === trajectory.ts_frame_index ? 4.5 : 2.5, 0, Math.PI * 2);
         ctx.fill();
@@ -99,8 +123,15 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     ctx.fillText(`${maxE.toFixed(1)} kcal`, 4, padTop + 10);
     ctx.fillText(`${minE.toFixed(1)} kcal`, 4, padTop + plotH);
     ctx.fillText(`s: ${minS.toFixed(1)}`, padLeft, h - 8);
-    ctx.fillText(`s: 0 (TS)`, toX(0) - 20, h - 8);
-    ctx.fillText(`s: +${maxS.toFixed(1)}`, padLeft + plotW - 45, h - 8);
+
+    const tsX = toX(0);
+    const endX = padLeft + plotW;
+    if (endX - tsX > 60) {
+        ctx.fillText(`s: 0 (TS)`, tsX - 22, h - 8);
+        ctx.fillText(`s: +${maxS.toFixed(1)}`, endX - 45, h - 8);
+    } else {
+        ctx.fillText(`s: 0 (TS)`, Math.min(tsX - 22, endX - 55), h - 8);
+    }
 
     // Interactive Click
     canvas.onclick = e => {

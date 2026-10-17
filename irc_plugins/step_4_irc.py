@@ -70,6 +70,7 @@ class Step4IRC(PipelineStep):
         max_steps = int(user_input.get("max_steps", 30))
         dx = float(user_input.get("step_size", 0.08))
         solvent = user_input.get("solvent") or global_state.get("solvent", "water")
+        engine = user_input.get("engine") or "xtb"
         relax_fragments = bool(user_input.get("relax_fragments", True))
 
         log_fh = open(LOG_PATH, 'w', buffering=1)
@@ -88,9 +89,9 @@ class Step4IRC(PipelineStep):
             atoms = Atoms(symbols=symbols, positions=positions)
             log(f"=== Starting IRC Calculation for {raw_smiles} ===")
             log(f"  System: {len(symbols)} atoms, charge = {model.charge}, multiplicity = {model.multiplicity}")
-            log(f"  Environment: {solvent.upper() if solvent else 'GAS PHASE'}")
+            log(f"  Engine: {engine.upper()} | Environment: {solvent.upper() if solvent else 'GAS PHASE'}")
 
-            traj = run_irc_path(atoms, model, log, max_steps=max_steps, dx=dx, relax_fragments=relax_fragments)
+            traj = run_irc_path(atoms, model, log, max_steps=max_steps, dx=dx, relax_fragments=relax_fragments, engine=engine)
 
             # Persist trajectory JSON to root
             try:

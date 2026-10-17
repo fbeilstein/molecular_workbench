@@ -110,65 +110,31 @@ def extend_to_asymptotic_fragments(endpoint_frame, model, solvent, log, is_produ
 
     frag_disp = _compute_multifragment_displacements(pos_last, frag_atoms, target_sep=target_sep)
     calc_full = make_xtb(model.charge, model.multiplicity, solvent=solvent)
-    curr_pos = pos_last.copy()
     asymp_frames = []
 
     for step in range(1, n_steps + 1):
+        pos_step = pos_last.copy()
+        frac = step / n_steps
         for f in range(len(frag_atoms)):
-            curr_pos[frag_atoms[f]] += (1.0 / n_steps) * frag_disp[f]
+            pos_step[frag_atoms[f]] += frac * frag_disp[f]
 
-        atoms_step = Atoms(symbols=model.symbols, positions=curr_pos)
+        atoms_step = Atoms(symbols=model.symbols, positions=pos_step)
         atoms_step.calc = calc_full
-        atoms_step.set_constraint(FixFragmentCOMs(frag_atoms))
-
-        opt = BFGS(atoms_step, logfile=None)
-        max_opt = 25 if step == n_steps else 6
         try:
-            opt.run(fmax=0.03, steps=max_opt)
-            curr_pos = atoms_step.get_positions()
             e_step = float(atoms_step.get_potential_energy())
             f_step = float(np.max(np.linalg.norm(atoms_step.get_forces(), axis=1)))
         except Exception:
             e_step, f_step = float(endpoint_frame["energy_ev"]), 0.0
 
         asymp_frames.append({
-            "positions": curr_pos.tolist(),
-            "energy_ev": e_step,
-            "fmax": f_step
+            "positions": pos_step.tolist(),
+            "energy_ev": round(e_step, 5),
+            "fmax": round(f_step, 4)
         })
 
-    # Final Step: Independent Relaxation of each molecule to textbook ground state
-    log("  Polishing endpoint: relaxing all molecules independently to textbook ground state...")
-    pos_textbook = curr_pos.copy()
-    e_tot_iso = 0.0
-    for f, f_idxs in enumerate(frag_atoms):
-        if len(f_idxs) <= 1:
-            m_f = mols[f]
-            chg_f = int(sum(a.GetFormalCharge() for a in m_f.GetAtoms()))
-            mult_f = int(sum(a.GetNumRadicalElectrons() for a in m_f.GetAtoms())) + 1
-            a_single = Atoms(symbols=[model.symbols[f_idxs[0]]], positions=[pos_textbook[f_idxs[0]]])
-            a_single.calc = make_xtb(chg_f, mult_f, solvent=solvent)
-            try:
-                e_tot_iso += float(a_single.get_potential_energy())
-            except Exception:
-                pass
-            continue
-
-        p_frag = pos_textbook[f_idxs].copy()
-        p_opt_frag, e_frag = _relax_single_isolated_fragment(
-            mols[f], p_frag, [model.symbols[i] for i in f_idxs], solvent
-        )
-        pos_textbook[f_idxs] = p_opt_frag
-        e_tot_iso += e_frag
-
-    asymp_frames.append({
-        "positions": pos_textbook.tolist(),
-        "energy_ev": round(e_tot_iso, 5) if e_tot_iso != 0.0 else e_step,
-        "fmax": 0.001
-    })
-
+    p_last = np.array(asymp_frames[-1]["positions"])
     final_min_d = min(
-        float(np.linalg.norm(pos_textbook[i] - pos_textbook[j]))
+        float(np.linalg.norm(p_last[i] - p_last[j]))
         for f in range(len(frag_atoms))
         for g in range(f + 1, len(frag_atoms))
         for i in frag_atoms[f]
@@ -196,30 +162,6 @@ def _relax_single_isolated_fragment(mol_rdkit, current_pos, symbols, solvent):
     except Exception:
         p_opt = current_pos.copy()
         e_val = 0.0
-
-    # Universal textbook conformer matching (ETKDGv3 encodes experimental torsions)
-    try:
-        smi = Chem.MolToSmiles(Chem.RemoveHs(mol_rdkit))
-        can_mol = Chem.AddHs(Chem.MolFromSmiles(smi))
-        params = AllChem.ETKDGv3()
-        params.randomSeed = 42
-        cids = list(AllChem.EmbedMultipleConfs(can_mol, numConfs=8, params=params))
-        if cids:
-            for cid in cids:
-                AllChem.MMFFOptimizeMolecule(can_mol, confId=cid)
-            match = can_mol.GetSubstructMatch(mol_rdkit)
-            if match and len(match) == len(symbols):
-                best_cid = min(cids, key=lambda c: np.mean((can_mol.GetConformer(c).GetPositions()[list(match)] - p_opt) ** 2))
-                p_ref = can_mol.GetConformer(best_cid).GetPositions()[list(match)]
-                if np.sqrt(np.mean((p_ref - p_opt) ** 2)) < 0.45:
-                    atoms_ref = Atoms(symbols=symbols, positions=p_ref)
-                    atoms_ref.calc = make_xtb(chg, mult, solvent=solvent)
-                    BFGS(atoms_ref, logfile=None).run(fmax=0.001, steps=40)
-                    e_ref = float(atoms_ref.get_potential_energy())
-                    if e_ref <= e_val + 0.01:
-                        p_opt, e_val = atoms_ref.get_positions(), e_ref
-    except Exception:
-        pass
 
     return _rigid_align(p_opt, current_pos), e_val
 

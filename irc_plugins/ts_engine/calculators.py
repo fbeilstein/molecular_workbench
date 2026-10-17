@@ -175,10 +175,6 @@ def build_reaction_eigenvector(atoms, model):
         u = _unit(pos[j] - pos[i])
         v[i] -= u
         v[j] += u
-    for i, j, _, _ in model.order_changed:
-        u = _unit(pos[j] - pos[i])
-        v[i] -= u * 0.5
-        v[j] += u * 0.5
 
     norm = np.linalg.norm(v)
     return v / norm if norm > 1e-6 else None

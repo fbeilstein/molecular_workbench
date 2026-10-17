@@ -137,6 +137,7 @@ export const IRCViewerUI = {
                         max_steps: 30,
                         step_size: 0.08,
                         ts_molblocks: ui.ts_molblocks,
+                        engine: dom.engineSelect ? dom.engineSelect.value : 'xtb',
                         solvent: dom.solventSelect.value,
                         relax_fragments: dom.relaxCheckbox.checked
                     })
@@ -158,9 +159,17 @@ export const IRCViewerUI = {
                 alert('IRC Request failed: ' + err.message);
             } finally {
                 dom.calcBtn.disabled = false;
-                dom.calcBtn.textContent = '⚡ Re-Calculate IRC Path (xTB)';
+                const engName = (dom.engineSelect && dom.engineSelect.value === 'orca') ? 'ORCA 6.1 DFT' : 'xTB';
+                dom.calcBtn.textContent = `⚡ Re-Calculate IRC Path (${engName})`;
             }
         };
+
+        if (dom.engineSelect) {
+            dom.engineSelect.onchange = () => {
+                const engName = dom.engineSelect.value === 'orca' ? 'ORCA 6.1 DFT' : 'xTB';
+                dom.calcBtn.textContent = `⚡ Calculate IRC Path (${engName})`;
+            };
+        }
 
         if (currentTrajectory) {
             loadTrajectory(currentTrajectory);

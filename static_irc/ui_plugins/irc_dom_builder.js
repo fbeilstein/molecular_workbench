@@ -187,6 +187,29 @@ export function buildIRCLayout(container) {
     optRow.style.padding = '4px 0';
     optRow.style.fontSize = '12px';
 
+    const engineLabel = document.createElement('span');
+    engineLabel.style.color = '#475569';
+    engineLabel.style.fontWeight = '500';
+    engineLabel.textContent = 'Engine:';
+
+    const engineSelect = document.createElement('select');
+    engineSelect.style.padding = '3px 6px';
+    engineSelect.style.fontSize = '12px';
+    engineSelect.style.borderRadius = '4px';
+    engineSelect.style.border = '1px solid #cbd5e1';
+    engineSelect.style.background = '#f8fafc';
+
+    const engineOptions = [
+        { val: 'xtb', label: 'xTB (Fast Prescreening)' },
+        { val: 'orca', label: 'ORCA 6.1 (r2SCAN-3c DFT, Accurate)' }
+    ];
+    for (const opt of engineOptions) {
+        const el = document.createElement('option');
+        el.value = opt.val;
+        el.textContent = opt.label;
+        engineSelect.appendChild(el);
+    }
+
     const solvLabel = document.createElement('span');
     solvLabel.style.color = '#475569';
     solvLabel.style.fontWeight = '500';
@@ -225,6 +248,8 @@ export function buildIRCLayout(container) {
     relaxLabel.appendChild(relaxCheckbox);
     relaxLabel.appendChild(document.createTextNode('Relax to isolated products'));
 
+    optRow.appendChild(engineLabel);
+    optRow.appendChild(engineSelect);
     optRow.appendChild(solvLabel);
     optRow.appendChild(solventSelect);
     optRow.appendChild(relaxLabel);
@@ -277,7 +302,7 @@ export function buildIRCLayout(container) {
         fwdBadge, revBadge, rxnBadge,
         energyCanvas, frameSlider, frameCountLabel,
         playBtn, prevBtn, nextBtn, loopCheckbox,
-        solventSelect, relaxCheckbox,
+        engineSelect, solventSelect, relaxCheckbox,
         calcBtn, downloadBtn, logBox
     };
 }
