@@ -112,16 +112,6 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
     if np.linalg.norm(v_user) < 1e-4:
         v_user = np.array([1.0, 0.0, 0.0])
 
-    u_back = None
-    if model.broken:
-        for i_b, k_b in model.broken:
-            if i_b == i_sub:
-                u_back = - _unit(atoms.positions[k_b] - atoms.positions[i_b])
-                break
-            elif k_b == i_sub:
-                u_back = - _unit(atoms.positions[i_b] - atoms.positions[k_b])
-                break
-
     p_sub_local = atoms.positions[sub_idx] - atoms.positions[i_sub]
     p_nuc_local = atoms.positions[nuc_idx] - atoms.positions[j_nuc]
 
@@ -162,39 +152,19 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
                 d_ab = np.linalg.norm(pos[a] - pos[b])
                 d_tgt = 1.45 * (rcov(atoms.symbols[a]) + rcov(atoms.symbols[b]))
                 e_pen += 15.0 * (d_ab - d_tgt) ** 2
-
-        # Collinearity penalty to guarantee collinear backside attack (180 deg)
-        if u_back is not None:
-            for i_b, k_b in model.broken:
-                if i_b == i_sub:
-                    v_leaving = pos[k_b] - pos[i_sub]
-                elif k_b == i_sub:
-                    v_leaving = pos[i_b] - pos[i_sub]
-                else:
-                    continue
-                v_incoming = pos[j_nuc] - pos[i_sub]
-                d_l = np.linalg.norm(v_leaving) + 1e-9
-                d_in = np.linalg.norm(v_incoming) + 1e-9
-                cos_theta = np.dot(v_leaving, v_incoming) / (d_l * d_in)
-                e_pen += 30.0 * max(0.0, cos_theta + 0.90) ** 2
         return e_base + e_pen
 
     pop = []
     for idx in range(pop_size):
         r_init = float(np.random.uniform(d_ts - 0.20, d_ts + 0.35))
-        if u_back is not None and idx < int(0.40 * pop_size):
-            u_init = _random_cone_vector(u_back, np.radians(45))
-        elif idx < int(0.70 * pop_size):
+        if idx < int(0.50 * pop_size):
             u_init = _random_cone_vector(v_user, np.radians(60))
         else:
             u_init = _unit(np.random.normal(size=3))
 
-        # Substrate rotation: 40% uniform Haar, 30% spin around reaction axis, 30% small tilt
-        if idx % 3 == 0:
+        # Substrate rotation: 50% random, 50% small tilt
+        if idx % 2 == 0:
             q_sub = Rotation.random().as_quat()
-        elif idx % 3 == 1 and u_back is not None:
-            spin = np.random.uniform(0, 2 * np.pi)
-            q_sub = Rotation.from_rotvec(spin * (-u_back)).as_quat()
         else:
             q_sub = Rotation.from_rotvec(np.random.normal(0, np.radians(25), size=3)).as_quat()
 
@@ -209,17 +179,15 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
 
         pop.append([r_init, u_init, q_sub, q_nuc])
 
-    log(f"  SE(3) Population: {pop_size} individuals exploring rotations & translations.")
+    log(f"  SE(3) Population: {pop_size} individuals exploring rotations & translations in {solvent.upper()}.")
     for gen in range(n_gen):
         scores = [evaluate(decode(ind)) for ind in pop]
         ranked = np.argsort(scores)
         best_e = scores[ranked[0]]
         best_gene = pop[ranked[0]]
-        u_best = best_gene[1]
-        deg_bk = np.degrees(np.arccos(np.clip(np.dot(u_best, u_back), -1.0, 1.0))) if u_back is not None else 0.0
         rot_a = np.degrees(np.linalg.norm(Rotation.from_quat(best_gene[2]).as_rotvec()))
         rot_b = np.degrees(np.linalg.norm(Rotation.from_quat(best_gene[3]).as_rotvec()))
-        log(f"  Cycle {gen + 1}/{n_gen}: Best E = {best_e:.3f} eV, r = {best_gene[0]:.2f} A, back = {deg_bk:.1f}°, rotA = {rot_a:.1f}°, rotB = {rot_b:.1f}°")
+        log(f"  Cycle {gen + 1}/{n_gen}: Best E = {best_e:.3f} eV, r = {best_gene[0]:.2f} A, rotA = {rot_a:.1f}°, rotB = {rot_b:.1f}°")
 
         new_pop = [pop[k] for k in ranked[:6]]
         while len(new_pop) < pop_size:
@@ -281,8 +249,5 @@ def run_genetic_swarm_ts(atoms, model, log, n_gen=8, pop_size=60):
         log(f"  ✓ Saddle point confirmed by vibrational analysis ({ts_rep['imag_freqs'][0]:.0f}i cm-1).")
         return [{"step": 1, "energy_ev": float(atoms.get_potential_energy()), "fmax": float(np.max(np.linalg.norm(atoms.get_forces(), axis=1)))}]
 
-    if ts_rep and ts_rep.get("n_imag") == 0:
-        log("  ℹ️ Local minimum detected in scan: steering along reaction coordinate into saddle region...")
-
-    return guard_saddle_polish(atoms, model, log, max_steps=20, max_drift=0.15)
+    return guard_saddle_polish(atoms, model, log, max_steps=50, max_drift=0.35)
 

@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 from rdkit import Chem
 from ase import Atoms
 from .calculators import make_xtb
+from .common import rcov
 
 
 def get_formal_charge(smiles: str) -> int:
@@ -199,19 +200,31 @@ def balance_pathway_energies(
         # Case A: Associative Step (incoming reagent arrives)
         if inc_frags and forming_bonds:
             bi, bj = forming_bonds[0]["from"], forming_bonds[0]["to"]
+            d0_form = rcov(symbols[bi]) + rcov(symbols[bj])
+            d_contact, d_cov = d0_form + 1.25, d0_form * 1.15
             for idx in range(start, end + 1):
                 pos = np.array(master_frames[idx].get("coords", master_frames[idx].get("positions", [])))
                 d_val = float(np.linalg.norm(pos[bi] - pos[bj]))
-                assoc_w = _smoothstep((3.5 - d_val) / (3.5 - 2.0))
+                assoc_w = _smoothstep((d_contact - d_val) / max(0.2, (d_contact - d_cov)))
                 balanced_ev[idx] = active_e[idx] + delta_g_assoc * assoc_w + s_offset
 
         # Case B: Dissociative Step (leaving group departs)
         elif leaving_frags and breaking_bonds:
             bi, bj = breaking_bonds[0]["from"], breaking_bonds[0]["to"]
-            leaving_atom = bj if symbols[bj] in ("Cl", "Br", "I", "F") else bi
-            hero_idxs = [i for i in range(len(symbols)) if i != leaving_atom]
+            d0_break = rcov(symbols[bi]) + rcov(symbols[bj])
+            d_tight, d_free = d0_break * 1.25, d0_break * 1.65
+
+            leaving_atom_set = set(leaving_frags[0].get("atom_indices", []))
+            if not leaving_atom_set:
+                leaving_atom_set = {bj}
+            hero_idxs = [i for i in range(len(symbols)) if i not in leaving_atom_set]
+
+            q_leaving = leaving_frags[0].get("charge", 0)
+            tot_step_chg = sum(r.get("charge", 0) for r in s_info["reactants"])
+            q_hero = tot_step_chg - q_leaving
+
             hero_atoms = Atoms(symbols=[symbols[i] for i in hero_idxs])
-            hero_calc = make_xtb(charge=0, multiplicity=1, solvent=solvent)
+            hero_calc = make_xtb(charge=q_hero, multiplicity=1, solvent=solvent)
             hero_atoms.calc = hero_calc
             e_leaving_iso = frag_energies.get(leaving_frags[0]["smiles"], 0.0)
 
@@ -223,12 +236,12 @@ def balance_pathway_energies(
                 e_hero = float(hero_atoms.get_potential_energy())
                 e_decoupled = e_hero + e_leaving_iso
 
-                if d_val <= 2.2:
+                if d_val <= d_tight:
                     balanced_ev[idx] = e_bound + s_offset
-                elif d_val >= 2.7:
+                elif d_val >= d_free:
                     balanced_ev[idx] = e_decoupled + s_offset
                 else:
-                    w = _smoothstep((d_val - 2.2) / (2.7 - 2.2))
+                    w = _smoothstep((d_val - d_tight) / max(0.1, (d_free - d_tight)))
                     balanced_ev[idx] = ((1.0 - w) * e_bound + w * e_decoupled) + s_offset
 
         # Case C: Isomerization / Rearrangement

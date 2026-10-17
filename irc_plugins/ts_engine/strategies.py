@@ -3,11 +3,12 @@ from .common import EV_TO_KCAL, DOCK_EXTRA, BREAK_EXTRA
 from .calculators import make_xtb, _make_restrained_calc, build_reaction_eigenvector
 
 
-def _polish_with_sella(atoms, model, log, max_steps=40):
+def _polish_with_sella(atoms, model, log, max_steps=60):
     """Polish a candidate saddle point using Sella with TS trust zone guarding."""
     from .calculators import guard_saddle_polish
     from .vibrations import analyse_mode
-    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    solvent = getattr(model, "solvent", "water")
+    atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
     ts_rep = None
     try:
         ts_rep = analyse_mode(atoms, model, log)
@@ -21,7 +22,7 @@ def _polish_with_sella(atoms, model, log, max_steps=40):
     if ts_rep and ts_rep.get("n_imag") == 0:
         log("  ℹ️ Local minimum detected in scan: steering along reaction coordinate into saddle region...")
 
-    return guard_saddle_polish(atoms, model, log, max_steps=max_steps, max_drift=0.15)
+    return guard_saddle_polish(atoms, model, log, max_steps=max_steps, max_drift=0.35)
 
 
 
@@ -46,7 +47,8 @@ def _build_drive_targets(model, pos, pairs):
 def run_drive_sella_ts(atoms, model, log, n_points=11, k=25.0):
     """Strategy: Constrained Coordinate Drive across barrier peak -> Sella."""
     from ase.optimize import LBFGS
-    log("\n=== Strategy: Constrained Coordinate Drive -> Sella ===")
+    solvent = getattr(model, "solvent", "water")
+    log(f"\n=== Strategy: Constrained Coordinate Drive in {solvent.upper()} -> Sella ===")
 
     pairs = model.formed + model.broken
     pos = atoms.get_positions()
@@ -54,7 +56,7 @@ def run_drive_sella_ts(atoms, model, log, n_points=11, k=25.0):
     spec_restraints = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in model.spectator_bonds]
 
     base = atoms.copy()
-    base.calc = make_xtb(model.charge, model.multiplicity)
+    base.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
 
     frames, energies, lams = [], [], []
     i_max = 0
@@ -105,6 +107,7 @@ def _build_relaxed_product_endpoint(atoms, model):
         pass
 
     from ase.optimize import LBFGS
+    solvent = getattr(model, "solvent", "water")
     p_atoms = atoms.copy()
     p_targets = [(i, j, model.d0(i, j)) for i, j in model.formed]
     p_targets += [(i, j, model.d0(i, j) + 1.25) for i, j in model.broken]
@@ -112,19 +115,20 @@ def _build_relaxed_product_endpoint(atoms, model):
                        for i, j in model.spectator_bonds]
 
     p_base = p_atoms.copy()
-    p_base.calc = make_xtb(model.charge, model.multiplicity)
+    p_base.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
     p_atoms.calc = _make_restrained_calc(p_base, p_targets, k=30.0, spectator_restraints=spec_restraints)
     p_opt = LBFGS(p_atoms, logfile=None, maxstep=0.2)
     p_opt.run(fmax=0.08, steps=50)
     return p_atoms.get_positions()
 
 
-def run_neb_ts(atoms, model, log, n_images=7):
+def run_neb_ts(atoms, model, log, n_images=9):
     """Strategy: Climbing Image Nudged Elastic Band (CI-NEB with IDPP)."""
-    from ase.optimize import MDMin
+    from ase.optimize import FIRE
     from ase.mep import NEB
     from ase.mep.neb import idpp_interpolate
-    log("\n=== Strategy: Climbing Image NEB (CI-NEB) ===")
+    solvent = getattr(model, "solvent", "water")
+    log(f"\n=== Strategy: Climbing Image NEB (CI-NEB) in {solvent.upper()} ===")
 
     pos_p = _build_relaxed_product_endpoint(atoms, model)
 
@@ -134,11 +138,11 @@ def run_neb_ts(atoms, model, log, n_images=7):
     idpp_interpolate(images, mic=False)
 
     for img in images:
-        img.calc = make_xtb(model.charge, model.multiplicity)
+        img.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
 
     neb = NEB(images, climb=True, method='improvedtangent')
-    opt = MDMin(neb, logfile=None)
-    opt.run(fmax=0.10, steps=80)
+    opt = FIRE(neb, logfile=None)
+    opt.run(fmax=0.08, steps=120)
 
     energies = [img.get_potential_energy() for img in images]
     mid_idx = int(np.argmax(energies[1:-1])) + 1
@@ -161,9 +165,9 @@ def _precondition_dimer_guess(atoms, model, log):
     if not far_forming:
         return
 
-    log("  Initial manual placement has large forming distance; pre-contracting into the TS zone...")
+    solvent = getattr(model, "solvent", "water")
     base = atoms.copy()
-    base.calc = make_xtb(model.charge, model.multiplicity)
+    base.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
     targets = [(i, j, model.d0(i, j) + 0.65) for i, j in model.formed]
     spec = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in model.spectator_bonds]
     atoms.calc = _make_restrained_calc(base, targets, 35.0, spectator_restraints=spec, model=model)
@@ -176,12 +180,13 @@ def _precondition_dimer_guess(atoms, model, log):
 def run_dimer_ts(atoms, model, log, steps=100, fmax=0.04):
     """Strategy: Dimer Method (ase.mep.dimer)."""
     from ase.mep.dimer import DimerControl, MinModeAtoms, MinModeTranslate
-    log("\n=== Strategy: Dimer Method (ase.mep.dimer) ===")
+    solvent = getattr(model, "solvent", "water")
+    log(f"\n=== Strategy: Dimer Method (ase.mep.dimer) in {solvent.upper()} ===")
     log("Dynamically searching and following lowest-curvature reaction mode using force replicas...")
 
     _precondition_dimer_guess(atoms, model, log)
 
-    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
     d_control = DimerControl(
         initial_eigenmode_method='displacement',
         displacement_method='vector',
@@ -221,7 +226,7 @@ def run_dimer_ts(atoms, model, log, steps=100, fmax=0.04):
         log(f"  Dimer search note: {e}")
 
     log("  Polishing Dimer saddle point with Sella...")
-    _polish_with_sella(atoms, model, log, max_steps=30)
+    _polish_with_sella(atoms, model, log, max_steps=60)
     return True
 
 
@@ -231,14 +236,15 @@ def run_dimer_ts(atoms, model, log, steps=100, fmax=0.04):
 def run_seeded_sella_ts(atoms, model, log):
     """Strategy: Constrained Pre-Relaxation -> Sella."""
     from ase.optimize import LBFGS
-    log("\n=== Strategy: Pre-Relaxation -> Sella ===")
+    solvent = getattr(model, "solvent", "water")
+    log(f"\n=== Strategy: Pre-Relaxation in {solvent.upper()} -> Sella ===")
     pairs = model.formed + model.broken
     pos = atoms.get_positions()
     restraints = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in pairs]
     spec_restraints = [(i, j, float(np.linalg.norm(pos[i] - pos[j]))) for i, j in model.spectator_bonds]
 
     base = atoms.copy()
-    base.calc = make_xtb(model.charge, model.multiplicity)
+    base.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
     atoms.calc = _make_restrained_calc(base, restraints, 25.0, spectator_restraints=spec_restraints)
     opt = LBFGS(atoms, logfile=None, maxstep=0.15)
     opt.run(fmax=0.06, steps=120)

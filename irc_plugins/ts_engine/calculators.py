@@ -184,7 +184,7 @@ def build_reaction_eigenvector(atoms, model):
     return v / norm if norm > 1e-6 else None
 
 
-def guard_saddle_polish(atoms, model, log, max_steps=25, max_drift=0.15):
+def guard_saddle_polish(atoms, model, log, max_steps=50, max_drift=0.35):
     """Safely polish a candidate saddle point with Sella DLC while guarding the reaction coordinate.
 
     If Sella drifts away from the transition state (> max_drift A on reacting bonds),
@@ -221,23 +221,8 @@ def guard_saddle_polish(atoms, model, log, max_steps=25, max_drift=0.15):
                     drifted = True
                     break
 
-            for f1, f2 in model.formed:
-                for b1, b2 in model.broken:
-                    shared = None
-                    if f1 == b1: shared, a, b = f1, f2, b2
-                    elif f1 == b2: shared, a, b = f1, f2, b1
-                    elif f2 == b1: shared, a, b = f2, f1, b2
-                    elif f2 == b2: shared, a, b = f2, f1, b1
-                    if shared is not None:
-                        va = cur_pos[a] - cur_pos[shared]
-                        vb = cur_pos[b] - cur_pos[shared]
-                        cos_ang = float(np.dot(va, vb) / (np.linalg.norm(va) * np.linalg.norm(vb) + 1e-9))
-                        if cos_ang > -0.75:
-                            drifted = True
-                            break
-
             if drifted:
-                log(f"  Sella step {step + 1}: Reaction coordinate drifted (> {max_drift:.2f} A / bent angle). Stopping Sella to preserve TS saddle.")
+                log(f"  Sella step {step + 1}: Reaction coordinate drifted (> {max_drift:.2f} A). Stopping Sella to preserve TS saddle.")
                 break
 
             if cur_fmax < best_fmax:

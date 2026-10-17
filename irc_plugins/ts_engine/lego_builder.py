@@ -43,24 +43,21 @@ def _embed_aligned_products(model, pos_R):
         r_atoms = [ci for ci in range(model.n_atoms) if model.r2p[ci][0] == pfi]
         p_atoms = [model.r2p[ci][1] for ci in r_atoms]
         coords_sub = p_coords[pfi][p_atoms]
-        if len(r_atoms) >= 3:
-            aligned = _kabsch_align(coords_sub, pos_R[r_atoms], list(range(len(r_atoms))))
-            for idx, ci in enumerate(r_atoms):
-                pos_P[ci] = aligned[idx]
-        elif len(r_atoms) == 1:
-            ci = r_atoms[0]
-            broken_partners = [i for i, k in model.broken if k == ci] + [k for i, k in model.broken if i == ci]
-            if broken_partners:
-                partner = broken_partners[0]
-                u = pos_R[ci] - pos_R[partner]
-                u_norm = np.linalg.norm(u)
-                dir_u = u / u_norm if u_norm > 1e-4 else np.array([1.0, 0.0, 0.0])
-                pos_P[ci] = pos_R[partner] + dir_u * (model.d0(ci, partner) + 2.5)
-            else:
-                pos_P[ci] = pos_R[ci]
+
+        # If r_atoms span multiple reactant fragments, align using only the largest reactant fragment
+        frags = {}
+        for ci in r_atoms:
+            frags.setdefault(model.frag_of[ci], []).append(ci)
+        best_frag = max(frags.values(), key=len)
+
+        if len(best_frag) >= 3:
+            align_sub_indices = [r_atoms.index(ci) for ci in best_frag]
+            aligned = _kabsch_align(coords_sub, pos_R[best_frag], align_sub_indices)
         else:
-            for idx, ci in enumerate(r_atoms):
-                pos_P[ci] = pos_R[ci]
+            aligned = coords_sub - np.mean(coords_sub, axis=0) + np.mean(pos_R[r_atoms], axis=0)
+
+        for idx, ci in enumerate(r_atoms):
+            pos_P[ci] = aligned[idx]
     return pos_P
 
 
@@ -108,9 +105,10 @@ def run_lego_ts(atoms, model, log):
     log(f"  Step 2: IDPP geometric midpoint synthesized for {len(model.formed)} forming & {len(model.broken)} breaking bonds.")
 
     # Stage 2: Quantum Valley Internal Relaxation
-    log("  Step 3: Quantum valley relaxation of internal coordinates...")
+    solvent = getattr(model, "solvent", "water")
+    log(f"  Step 3: Quantum valley relaxation of internal coordinates in {solvent.upper()}...")
     base = atoms.copy()
-    base.calc = make_xtb(model.charge, model.multiplicity)
+    base.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
     targets = [(i, j, model.d0(i, j) + 0.65) for i, j in model.formed]
     targets += [(i, j, model.d0(i, j) + 0.35) for i, j in model.broken]
     pos_cur = atoms.positions.copy()
@@ -125,7 +123,7 @@ def run_lego_ts(atoms, model, log):
     log("  Step 4: Polishing saddle point with Sella in internal coordinates...")
     from .calculators import guard_saddle_polish
     from .vibrations import analyse_mode
-    atoms.calc = make_xtb(model.charge, model.multiplicity)
+    atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
     ts_rep = None
     try:
         ts_rep = analyse_mode(atoms, model, log)
@@ -139,5 +137,5 @@ def run_lego_ts(atoms, model, log):
     if ts_rep and ts_rep.get("n_imag") == 0:
         log("  ℹ️ Local minimum detected in scan: steering along reaction coordinate into saddle region...")
 
-    return guard_saddle_polish(atoms, model, log, max_steps=20, max_drift=0.15)
+    return guard_saddle_polish(atoms, model, log, max_steps=50, max_drift=0.35)
 
