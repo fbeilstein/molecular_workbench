@@ -105,38 +105,54 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(resp)
 
     def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        try:
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
 
-        if path == '/':
-            self.path = '/templates_multistep/index.html'
-            return super().do_GET()
+            if path == '/':
+                self.path = '/templates_multistep/index.html'
+                return super().do_GET()
 
-        if path.startswith(('/static_multistep/', '/static_viewer/', '/trajectories/', '/out/', '/bundles/')) or path.endswith('.html'):
-            return super().do_GET()
+            if path.startswith(('/static_multistep/', '/static_viewer/', '/trajectories/', '/out/', '/bundles/')) or path.endswith('.html'):
+                return super().do_GET()
 
-        if path == '/api/plugins':
-            return self._handle_get_plugins()
+            if path == '/api/plugins':
+                return self._handle_get_plugins()
 
-        if path == '/api/state':
-            clean_state = {}
-            for k, v in pipeline_state.items():
-                if isinstance(v, dict) and "megajson" in v and isinstance(v["megajson"], dict):
-                    v_copy = dict(v)
-                    mj_copy = dict(v["megajson"])
-                    if "highres_cubes" in mj_copy:
-                        mj_copy["highres_cubes"] = {
-                            ck: (cv if (isinstance(cv, str) and "\n" not in cv) else True)
-                            for ck, cv in mj_copy["highres_cubes"].items()
-                        }
-                    v_copy["megajson"] = mj_copy
-                    clean_state[k] = v_copy
-                else:
-                    clean_state[k] = v
-            return self._send_json(clean_state)
+            if path == '/api/state':
+                clean_state = {}
+                for k, v in pipeline_state.items():
+                    if isinstance(v, dict) and "megajson" in v and isinstance(v["megajson"], dict):
+                        v_copy = dict(v)
+                        mj_copy = dict(v["megajson"])
+                        if "highres_cubes" in mj_copy:
+                            mj_copy["highres_cubes"] = {
+                                ck: (cv if (isinstance(cv, str) and "\n" not in cv) else True)
+                                for ck, cv in mj_copy["highres_cubes"].items()
+                            }
+                        if "molecule_bundles" in mj_copy:
+                            mj_copy["molecule_bundles"] = {
+                                m_id: {
+                                    "filename": data.get("filename", "bundle.zip"),
+                                    "orbitals": data.get("orbitals", []),
+                                    "molecule_name": data.get("molecule_name", m_id),
+                                    "molecule_key": data.get("molecule_key", m_id),
+                                }
+                                for m_id, data in mj_copy["molecule_bundles"].items()
+                                if isinstance(data, dict)
+                            }
+                        v_copy["megajson"] = mj_copy
+                        clean_state[k] = v_copy
+                    else:
+                        clean_state[k] = v
+                return self._send_json(clean_state)
 
-        self.send_response(404)
-        self.end_headers()
+            self.send_response(404)
+            self.end_headers()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._send_json({"error": str(e)}, 500)
 
     def _handle_step_run(self, step, user_input):
         global pipeline_state
@@ -185,20 +201,25 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json({"error": f"Unknown action: {action}"}, 400)
 
     def do_POST(self):
-        global pipeline_state
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        try:
+            global pipeline_state
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
 
-        if path.startswith('/api/step/'):
-            return self._handle_post_step(path)
+            if path.startswith('/api/step/'):
+                return self._handle_post_step(path)
 
-        if path == '/api/reset':
-            pipeline_state.clear()
-            save_current_state()
-            return self._send_json({"success": True})
+            if path == '/api/reset':
+                pipeline_state.clear()
+                save_current_state()
+                return self._send_json({"success": True})
 
-        self.send_response(404)
-        self.end_headers()
+            self.send_response(404)
+            self.end_headers()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._send_json({"error": str(e)}, 500)
 
 
 if __name__ == '__main__':

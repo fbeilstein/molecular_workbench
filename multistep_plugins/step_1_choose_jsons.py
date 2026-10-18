@@ -41,17 +41,18 @@ def _extract_summary(file_path: str) -> Dict[str, Any]:
 
 
 def scan_available_trajectories() -> List[Dict[str, Any]]:
-    """Scan the trajectories directory, out/ directory, and workspace root for valid IRC JSON files."""
+    """Scan trajectories directory for valid IRC JSON files. Fallback to out/ only if empty."""
     os.makedirs(TRAJ_DIR, exist_ok=True)
     paths = glob.glob(os.path.join(TRAJ_DIR, "*.json"))
-    out_dir = os.path.join(os.path.dirname(TRAJ_DIR), "out")
-    if os.path.exists(out_dir):
-        for p in glob.glob(os.path.join(out_dir, "*.json")):
-            if not p.endswith(("_state.json", "_wiring.json")) and p not in paths:
-                paths.append(p)
-    root_traj = os.path.join(os.path.dirname(TRAJ_DIR), "irc_trajectory.json")
-    if os.path.exists(root_traj) and root_traj not in paths:
-        paths.append(root_traj)
+    if not paths:
+        out_dir = os.path.join(os.path.dirname(TRAJ_DIR), "out")
+        if os.path.exists(out_dir):
+            for p in glob.glob(os.path.join(out_dir, "*.json")):
+                if not p.endswith(("_state.json", "_wiring.json")) and p not in paths:
+                    paths.append(p)
+        root_traj = os.path.join(os.path.dirname(TRAJ_DIR), "irc_trajectory.json")
+        if os.path.exists(root_traj) and root_traj not in paths:
+            paths.append(root_traj)
 
     summaries = []
     seen_names = set()
@@ -108,7 +109,8 @@ class Step1ChooseJSONs(PipelineStep):
             for fr in traj_data.get("frames", []):
                 if "coords" not in fr and "positions" in fr:
                     fr["coords"] = fr["positions"]
-                fr.pop("positions", None)
+                if "positions" not in fr and "coords" in fr:
+                    fr["positions"] = fr["coords"]
                 if "energy_kcal" not in fr:
                     fr["energy_kcal"] = fr.get("rel_energy_kcal", 0.0)
             return {"success": True, "trajectory": traj_data, "filename": filename}
@@ -178,7 +180,8 @@ class Step1ChooseJSONs(PipelineStep):
                 for fr in t_data.get("frames", []):
                     if "coords" not in fr and "positions" in fr:
                         fr["coords"] = fr["positions"]
-                    fr.pop("positions", None)
+                    if "positions" not in fr and "coords" in fr:
+                        fr["positions"] = fr["coords"]
                 loaded_trajectories.append(t_data)
             except Exception as e:
                 return StepResult(success=False, error_message=f"Error reading {fn}: {e}")

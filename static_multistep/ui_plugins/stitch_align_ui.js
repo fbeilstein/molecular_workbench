@@ -157,7 +157,17 @@ export const StitchAlignUI = {
 
         this.attachEvents();
         this.state.viewer.init(document.getElementById('junction-viewport-3d'));
-        await this.computeAndRenderAlignment();
+        if (uiSchema.megajson && uiSchema.junction_previews && uiSchema.junction_previews.length > 0) {
+            this.state.megajson = uiSchema.megajson;
+            this.state.junctionPreviews = uiSchema.junction_previews;
+            const banner = document.getElementById('stitch-status-banner');
+            if (banner) banner.style.display = 'none';
+            this.renderJunctions();
+            updateGlobalMetrics(uiSchema.megajson);
+            this.selectJunction(0, true);
+        } else {
+            await this.computeAndRenderAlignment();
+        }
     },
 
     attachEvents() {

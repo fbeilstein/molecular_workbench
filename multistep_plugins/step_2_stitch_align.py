@@ -24,6 +24,13 @@ class Step2StitchAlign(PipelineStep):
         if existing_megajson:
             report = existing_megajson.get("stitching_alignment_report", [])
             junction_previews = existing_megajson.get("junction_previews", [])
+        elif len(trajectories) >= 2:
+            try:
+                existing_megajson = stitch_multistep_trajectories(trajectories, n_bridge_frames=8)
+                report = existing_megajson.get("stitching_alignment_report", [])
+                junction_previews = existing_megajson.get("junction_previews", [])
+            except Exception:
+                existing_megajson = None
 
         return {
             "type": "stitch_align_ui",
@@ -31,6 +38,7 @@ class Step2StitchAlign(PipelineStep):
             "sequence": step_1_data.get("sequence", []),
             "stitching_report": report,
             "junction_previews": junction_previews,
+            "megajson": existing_megajson,
             "has_megajson": bool(existing_megajson),
             "message": "Inspect boundary 3D alignment, choose Hero intermediate molecules, and verify zero RMSD continuity."
         }
@@ -59,7 +67,7 @@ class Step2StitchAlign(PipelineStep):
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
         action_type = user_input.get("action_type")
-        if action_type == "preview_stitch":
+        if action_type in ("preview_stitch", "preview_alignment"):
             return self._handle_preview_stitch(global_state, user_input)
         return {"error": f"Unknown action: {action_type}"}
 

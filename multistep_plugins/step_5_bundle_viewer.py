@@ -12,68 +12,12 @@ from .bundle_utils import (
     create_maxcomp_bundle_zip,
     unpack_molecule_bundle,
     purge_cube_files,
+    get_or_extract_surface_mesh,
+    save_state_to_file,
 )
 
-_SURFACE_CACHE: Dict[str, Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]] = {}
-
-
-def _get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: Dict[str, Any]):
-    cache_key = f"{frame_idx}_{ok}_{iso}"
-    if cache_key in _SURFACE_CACHE:
-        return _SURFACE_CACHE[cache_key]
-
-    # 1. Try reading precomputed surface from maxcomp bundle zip
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-    for sub in ("out/bundles", "static_multistep/bundles"):
-        bundle_zip = os.path.join(root_dir, sub, "multistep_reaction_bundle_maxcomp.zip")
-        if os.path.exists(bundle_zip):
-            try:
-                with zipfile.ZipFile(bundle_zip, "r") as zf:
-                    p_fn, n_fn = f"orbitals/{frame_idx}_{ok}_pos.json", f"orbitals/{frame_idx}_{ok}_neg.json"
-                    pos = json.loads(zf.read(p_fn).decode("utf-8")) if p_fn in zf.namelist() else None
-                    neg = json.loads(zf.read(n_fn).decode("utf-8")) if n_fn in zf.namelist() else None
-                    if pos or neg:
-                        _SURFACE_CACHE[cache_key] = (pos, neg)
-                        return pos, neg
-            except Exception:
-                pass
-
-    # 2. Try extracting from available cube
-    cube_text = get_cached_highres_cube(frame_idx, ok, megajson)
-    if not cube_text:
-        try:
-            from .step_4_orbitals import _CUBE_CACHE
-            cube_text = _CUBE_CACHE.get(f"{frame_idx}_{ok}")
-        except Exception:
-            pass
-
-    if cube_text:
-        try:
-            TOOLS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "tools"))
-            if TOOLS_DIR not in sys.path:
-                sys.path.insert(0, TOOLS_DIR)
-            from cube_converter import CubeConverter
-            vol, origin, step = CubeConverter.read_cube(cube_text)
-            pos = CubeConverter.extract_mesh(vol, origin, step, iso)
-            neg = CubeConverter.extract_mesh(vol, origin, step, -iso)
-            _SURFACE_CACHE[cache_key] = (pos, neg)
-            return pos, neg
-        except Exception as e:
-            print(f"[Step5] Warning: mesh extraction failed for {frame_idx}_{ok}: {e}")
-
-    return None, None
-
-
-def _save_state_to_file(global_state: Dict[str, Any]):
-    """Persist pipeline state to out/multistep_state.json."""
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-    out_dir = os.path.join(root_dir, "out")
-    os.makedirs(out_dir, exist_ok=True)
-    try:
-        with open(os.path.join(out_dir, "multistep_state.json"), "w") as f:
-            json.dump(global_state, f, indent=2)
-    except Exception as e:
-        print(f"[Step5] Warning: could not persist state to file: {e}")
+_get_or_extract_surface_mesh = get_or_extract_surface_mesh
+_save_state_to_file = save_state_to_file
 
 
 class Step5BundleViewer(PipelineStep):
@@ -109,10 +53,8 @@ class Step5BundleViewer(PipelineStep):
                 "message": "No stitched pathway found. Complete earlier steps first."
             }
 
-
         frames = megajson.get("frames", [])
         timeline = megajson.get("orbital_timeline") or current_state.get("step_4_orbitals", {}).get("orbital_timeline", {})
-        highres_cubes = megajson.get("highres_cubes", {})
         molecule_bundles = megajson.get("molecule_bundles", {})
         molecule_summary = {
             m_id: {
@@ -129,6 +71,7 @@ class Step5BundleViewer(PipelineStep):
                 k: (v if (isinstance(v, str) and "\n" not in v) else True)
                 for k, v in ui_megajson["highres_cubes"].items()
             }
+        ui_megajson["molecule_bundles"] = molecule_summary
 
         return {
             "type": "bundle_viewer_ui",
@@ -146,7 +89,7 @@ class Step5BundleViewer(PipelineStep):
             "mechanism_svg": megajson.get("mechanism_svg", ""),
             "svg_wiring": megajson.get("svg_wiring", {}),
             "orbital_resolution": megajson.get("orbital_resolution", 32),
-            "highres_count": len(highres_cubes),
+            "highres_count": len(megajson.get("highres_cubes", {})),
             "molecule_bundles": molecule_summary,
             "message": "Synchronized 3D pathway, orbitals, interactive reaction mechanism SVG, and PES profile ready."
         }
