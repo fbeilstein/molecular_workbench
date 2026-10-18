@@ -15,52 +15,49 @@ def _extract_summary(file_path: str) -> Dict[str, Any]:
         frames = data.get("frames", [])
         barriers = data.get("barriers", {})
         fragments = data.get("fragments", {})
+        is_stitched = bool(data.get("n_steps", 1) > 1 or data.get("title") == "Master Multistep IRC Trajectory" or data.get("step_boundaries"))
+        n_steps = data.get("n_steps", len(data.get("step_boundaries", [])) or 1)
         return {
             "filename": os.path.basename(file_path),
             "filepath": file_path,
-            "reaction_smiles": data.get("reaction_smiles", "Unknown Reaction"),
+            "reaction_smiles": data.get("reaction_smiles") or data.get("title") or os.path.splitext(os.path.basename(file_path))[0],
             "n_atoms": data.get("n_atoms", len(data.get("symbols", []))),
             "symbols": data.get("symbols", []),
             "total_frames": len(frames),
+            "n_steps": n_steps,
+            "is_stitched": is_stitched,
             "ts_frame_index": data.get("ts_frame_index", 0),
-            "forward_barrier_kcal": barriers.get("forward_barrier_kcal", 0.0),
+            "forward_barrier_kcal": barriers.get("forward_barrier_kcal", data.get("overall_barrier_kcal", 0.0)),
             "reverse_barrier_kcal": barriers.get("reverse_barrier_kcal", 0.0),
-            "reaction_energy_kcal": barriers.get("reaction_energy_kcal", 0.0),
+            "reaction_energy_kcal": barriers.get("reaction_energy_kcal", data.get("overall_reaction_energy_kcal", 0.0)),
             "has_fragments": bool(fragments),
             "reactants_meta": fragments.get("reactants", []),
             "products_meta": fragments.get("products", []),
-            "valid": len(frames) > 0 and "reaction_smiles" in data
+            "valid": len(frames) > 0
         }
     except Exception as err:
-        return {
-            "filename": os.path.basename(file_path),
-            "filepath": file_path,
-            "valid": False,
-            "error": str(err)
-        }
+        return {"filename": os.path.basename(file_path), "filepath": file_path, "valid": False, "error": str(err)}
 
 
 def scan_available_trajectories() -> List[Dict[str, Any]]:
-    """Scan trajectories directory for valid IRC JSON files. Fallback to out/ only if empty."""
+    """Scan trajectories/ and out/ directories for valid elementary IRC JSON files."""
     os.makedirs(TRAJ_DIR, exist_ok=True)
-    paths = glob.glob(os.path.join(TRAJ_DIR, "*.json"))
-    if not paths:
-        out_dir = os.path.join(os.path.dirname(TRAJ_DIR), "out")
-        if os.path.exists(out_dir):
-            for p in glob.glob(os.path.join(out_dir, "*.json")):
-                if not p.endswith(("_state.json", "_wiring.json")) and p not in paths:
+    paths = list(glob.glob(os.path.join(TRAJ_DIR, "*.json")))
+    out_dir = os.path.join(os.path.dirname(TRAJ_DIR), "out")
+    if os.path.exists(out_dir):
+        for p in sorted(glob.glob(os.path.join(out_dir, "*.json"))):
+            if not p.endswith(("_state.json", "_wiring.json", "optimization.log")):
+                if p not in paths:
                     paths.append(p)
-        root_traj = os.path.join(os.path.dirname(TRAJ_DIR), "irc_trajectory.json")
-        if os.path.exists(root_traj) and root_traj not in paths:
-            paths.append(root_traj)
 
     summaries = []
     seen_names = set()
     for p in sorted(paths):
         s = _extract_summary(p)
-        if s.get("valid") and s["filename"] not in seen_names:
+        fn = s.get("filename")
+        if s.get("valid") and fn not in seen_names:
             summaries.append(s)
-            seen_names.add(s["filename"])
+            seen_names.add(fn)
     return summaries
 
 
@@ -135,8 +132,11 @@ class Step1ChooseJSONs(PipelineStep):
             else:
                 data = content
 
-            if "frames" not in data or "reaction_smiles" not in data:
-                return {"error": "Invalid format: JSON must contain 'frames' and 'reaction_smiles'"}
+            if "frames" not in data or not isinstance(data["frames"], list) or len(data["frames"]) == 0:
+                return {"error": "Invalid format: JSON must contain non-empty 'frames' list"}
+
+            if not data.get("reaction_smiles"):
+                data["reaction_smiles"] = data.get("title") or os.path.splitext(os.path.basename(filename))[0]
 
             with open(target_path, "w") as f:
                 json.dump(data, f, indent=2)
@@ -146,25 +146,39 @@ class Step1ChooseJSONs(PipelineStep):
         except Exception as e:
             return {"error": f"Upload failed: {e}"}
 
+    def _handle_delete(self, user_input: Dict[str, Any]) -> Dict[str, Any]:
+        """Delete an unwanted trajectory from trajectories/ or out/."""
+        filename = user_input.get("filename")
+        if not filename:
+            return {"error": "Filename is required"}
+        p = os.path.join(TRAJ_DIR, os.path.basename(filename))
+        if not os.path.exists(p):
+            p = os.path.join(os.path.dirname(TRAJ_DIR), "out", os.path.basename(filename))
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+                return {"success": True, "message": f"Deleted {filename}", "available": scan_available_trajectories()}
+            except Exception as e:
+                return {"error": f"Failed to delete {filename}: {e}"}
+        return {"error": f"File '{filename}' not found"}
+
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         action_type = user_input.get("action_type")
         if action_type == "get_trajectory":
             return self._handle_get_trajectory(user_input)
         if action_type == "upload":
             return self._handle_upload(user_input)
+        if action_type == "delete":
+            return self._handle_delete(user_input)
         if action_type == "rescan":
             return {"success": True, "available": scan_available_trajectories()}
         return {"error": f"Unknown action: {action_type}"}
 
     def run(self, global_state: Dict[str, Any], user_input: Dict[str, Any]) -> StepResult:
         sequence_files = user_input.get("sequence", [])
-        if not sequence_files or len(sequence_files) < 2:
-            return StepResult(
-                success=False,
-                error_message="Please select at least 2 consecutive reaction trajectories to stitch."
-            )
+        if not sequence_files:
+            return StepResult(success=False, error_message="Please select trajectory file(s).")
 
-        # Validate that all files exist and load their full trajectory objects
         loaded_trajectories = []
         for fn in sequence_files:
             p = os.path.join(TRAJ_DIR, fn)
@@ -186,14 +200,30 @@ class Step1ChooseJSONs(PipelineStep):
             except Exception as e:
                 return StepResult(success=False, error_message=f"Error reading {fn}: {e}")
 
+        is_single_cascade = False
+        megajson = None
+        if len(loaded_trajectories) == 1:
+            t0 = loaded_trajectories[0]
+            if t0.get("n_steps", 1) > 1 or t0.get("title") == "Master Multistep IRC Trajectory" or t0.get("step_boundaries"):
+                is_single_cascade = True
+                megajson = t0
+
+        if len(loaded_trajectories) < 2 and not is_single_cascade:
+            return StepResult(
+                success=False,
+                error_message="Please select at least 2 elementary trajectories, or 1 pre-stitched cascade trajectory."
+            )
+
         return StepResult(
             success=True,
             data={
                 "sequence": sequence_files,
-                "trajectories": loaded_trajectories
+                "trajectories": loaded_trajectories,
+                "is_stitched_cascade": is_single_cascade,
+                "megajson": megajson
             }
         )
 
     def validate(self, step_data: Dict[str, Any]) -> bool:
         seq = step_data.get("sequence", []) if step_data else []
-        return len(seq) >= 2
+        return len(seq) >= 2 or bool(step_data and step_data.get("is_stitched_cascade"))

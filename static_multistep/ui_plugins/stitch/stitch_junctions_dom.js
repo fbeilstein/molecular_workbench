@@ -2,13 +2,189 @@
  * Junctions Queue DOM Builder & Metrics for Step 2 Stitch Align.
  */
 
+export function buildStitchAlignHTML(state) {
+    const nBridge = state.nBridgeFrames || 8;
+    const viewMode = (state.viewer && state.viewer.viewMode) || 'transition';
+
+    return `
+        <!-- Top High-Visibility Action Bar -->
+        <div class="stitch-header-banner" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: var(--radius-md); padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; box-shadow: 0 4px 16px rgba(0,0,0,0.35); flex-wrap: wrap; gap: 0.75rem;">
+            <div style="display: flex; align-items: center; gap: 0.85rem;">
+                <div style="width: 38px; height: 38px; border-radius: 8px; background: linear-gradient(135deg, #2563eb, #7c3aed); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);">
+                    🔗
+                </div>
+                <div>
+                    <div style="font-weight: 700; font-size: 0.95rem; color: #f8fafc;">Step 2: Coordinate Alignment & Bridge Stitching</div>
+                    <div id="stitch-banner-subtitle" style="font-size: 0.775rem; color: #94a3b8;">
+                        Verify intermediate Kabsch overlap and bridge continuity across reaction steps.
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <button id="btn-recalculate-align" class="btn btn-secondary" style="font-size: 0.825rem; padding: 0.5rem 1rem;">
+                    ⚡ Re-Stitch Pathway
+                </button>
+            </div>
+        </div>
+
+        <div class="choose-container">
+            <!-- Left Panel: Junctions, Bridge Interpolation & Choices -->
+            <div class="left-panel">
+                <div class="queue-card" style="flex: 1;">
+                    <div class="section-title">
+                        <span>Pathway Junctions</span>
+                        <span class="chip blue" id="junctions-count-badge">Analyzing...</span>
+                    </div>
+                    <div id="stitch-status-banner" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; font-size: 0.8rem; margin-bottom: 0.5rem;">
+                        Detecting intermediate molecule overlaps and calculating Hungarian Kabsch alignment...
+                    </div>
+                    <div id="junctions-list" class="queue-list" style="max-height: 280px; overflow-y: auto;"></div>
+                </div>
+
+                <!-- Bridge Frame Interpolation Settings Card -->
+                <div class="catalog-card" style="flex: 0 0 auto;">
+                    <div class="section-title">
+                        <span>Intermittent Bridge Frames</span>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="chip emerald" id="n-bridge-val">${nBridge} Frames</span>
+                            <button id="btn-apply-bridge" class="btn btn-xs btn-primary" style="font-size: 0.725rem; padding: 0.2rem 0.55rem; font-weight: 600;">
+                                ⚡ Re-Stitch
+                            </button>
+                        </div>
+                    </div>
+                    <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem;">
+                        Generates smooth cubic smoothstep transition frames connecting Step K product to Step K+1 reactant to stitch pathways without geometric discontinuity.
+                    </p>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">0</span>
+                        <input type="range" id="n-bridge-slider" class="scrub-slider" min="0" max="20" step="1" value="${nBridge}" style="flex: 1;">
+                        <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">20</span>
+                    </div>
+                </div>
+
+                <!-- Global Metrics Summary -->
+                <div class="catalog-card" style="flex: 0 0 auto;">
+                    <div class="section-title">Global Master Pathway Metrics</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.8rem; margin-bottom: 0.65rem;">
+                        <div class="detail-box">
+                            <div class="detail-box-title">Total Atoms</div>
+                            <div id="metric-atoms" style="font-weight: 700; color: #93c5fd; font-family: var(--font-mono);">-</div>
+                        </div>
+                        <div class="detail-box">
+                            <div class="detail-box-title">Total Frames</div>
+                            <div id="metric-frames" style="font-weight: 700; color: #93c5fd; font-family: var(--font-mono);">-</div>
+                        </div>
+                        <div class="detail-box">
+                            <div class="detail-box-title">Overall Barrier</div>
+                            <div id="metric-barrier" style="font-weight: 700; color: #fcd34d; font-family: var(--font-mono);">-</div>
+                        </div>
+                        <div class="detail-box">
+                            <div class="detail-box-title">Net Reaction Energy</div>
+                            <div id="metric-rxn-energy" style="font-weight: 700; color: #6ee7b7; font-family: var(--font-mono);">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Interactive 3D Boundary & Transition Viewer -->
+            <div class="preview-panel">
+                <div class="preview-header">
+                    <div>
+                        <div class="preview-rxn-title" id="junction-preview-title">Junction Alignment & Transition</div>
+                        <div class="preview-meta-chips" id="junction-preview-chips"></div>
+                    </div>
+                    <div style="display: flex; gap: 0.6rem; align-items: center; font-size: 0.75rem; font-family: var(--font-mono);">
+                        <span style="display: flex; align-items: center; gap: 0.3rem;">
+                            <span style="display: inline-block; width: 10px; height: 10px; background: #38bdf8; border-radius: 50%;"></span>
+                            Step K Product
+                        </span>
+                        <span style="display: flex; align-items: center; gap: 0.3rem;">
+                            <span style="display: inline-block; width: 10px; height: 10px; background: #a855f7; border-radius: 50%;"></span>
+                            Bridge
+                        </span>
+                        <span style="display: flex; align-items: center; gap: 0.3rem;">
+                            <span style="display: inline-block; width: 10px; height: 10px; background: #f43f5e; border-radius: 50%;"></span>
+                            Step K+1 Reactant
+                        </span>
+                    </div>
+                </div>
+
+                <!-- View Mode Selection Buttons -->
+                <div style="display: flex; gap: 0.4rem; background: var(--bg-surface); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); margin-bottom: 0.6rem; flex-wrap: wrap;">
+                    <button class="btn btn-xs btn-mode ${viewMode === 'transition' ? 'btn-primary' : 'btn-secondary'}" data-mode="transition">
+                        🎬 Smoothstep Transition
+                    </button>
+                    <button class="btn btn-xs btn-mode ${viewMode === 'overlay' ? 'btn-primary' : 'btn-secondary'}" data-mode="overlay">
+                        🔍 Superposition Overlay
+                    </button>
+                    <button class="btn btn-xs btn-mode ${viewMode === 'blink' ? 'btn-primary' : 'btn-secondary'}" data-mode="blink">
+                        💡 Alternating Blink
+                    </button>
+                    <button class="btn btn-xs btn-mode ${viewMode === 'prev_only' ? 'btn-primary' : 'btn-secondary'}" data-mode="prev_only">
+                        ⬅ Step K Final Only
+                    </button>
+                    <button class="btn btn-xs btn-mode ${viewMode === 'next_only' ? 'btn-primary' : 'btn-secondary'}" data-mode="next_only">
+                        ➡ Step K+1 Start Only
+                    </button>
+                    <button class="btn btn-xs btn-mode ${viewMode === 'unaligned' ? 'btn-primary' : 'btn-secondary'}" data-mode="unaligned">
+                        ⚠️ Raw Unaligned
+                    </button>
+                    <button class="btn btn-xs btn-mode ${viewMode === 'full_trajectory' ? 'btn-primary' : 'btn-secondary'}" data-mode="full_trajectory">
+                        🎞 Entire Pathway
+                    </button>
+                </div>
+
+                <!-- 3Dmol Boundary Viewport -->
+                <div class="viewer-wrapper">
+                    <div id="junction-viewport-3d" class="viewport-3d"></div>
+                    <div id="junction-status-badge" class="viewer-overlay-badge">Computing Boundary Overlap...</div>
+                </div>
+
+                <!-- Transition Playback Controller -->
+                <div class="playback-bar" id="transition-controls-bar" style="display: flex;">
+                    <button id="btn-trans-play" class="btn btn-sm btn-secondary" title="Play / Pause">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                    </button>
+                    <button id="btn-trans-prev" class="btn btn-sm btn-secondary" title="Previous Frame">⏮</button>
+                    <input type="range" id="trans-scrubber" class="scrub-slider" min="0" max="10" value="0">
+                    <button id="btn-trans-next" class="btn btn-sm btn-secondary" title="Next Frame">⏭</button>
+                    <div id="trans-counter" class="frame-counter">1 / 10</div>
+                </div>
+
+                <!-- Details Inspector Grid -->
+                <div class="preview-details" style="display: grid; grid-template-columns: 1fr 1fr 1fr; margin-top: 0.6rem;">
+                    <div class="detail-box">
+                        <div class="detail-box-title">Step K Product</div>
+                        <div id="j-prev-info" style="font-family: var(--font-mono); font-size: 0.75rem; color: #93c5fd;">-</div>
+                    </div>
+                    <div class="detail-box">
+                        <div class="detail-box-title">Aligned Boundary Fit</div>
+                        <div id="alignment-rmsd-display" style="font-weight: 700; color: #6ee7b7; font-family: var(--font-mono);">-</div>
+                    </div>
+                    <div class="detail-box">
+                        <div class="detail-box-title">Step K+1 Reactant</div>
+                        <div id="j-next-info" style="font-family: var(--font-mono); font-size: 0.75rem; color: #f43f5e;">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 export function renderJunctionsQueue(containerEl, badgeEl, state, callbacks) {
     const previews = state.junctionPreviews || [];
     if (badgeEl) badgeEl.innerText = `${previews.length} Junctions`;
     if (!containerEl) return;
 
     if (previews.length === 0) {
-        containerEl.innerHTML = `<div class="empty-state" style="padding: 1.5rem; font-size: 0.8rem; color: var(--text-muted);">No multi-step junctions to align (single-step pathway).</div>`;
+        containerEl.innerHTML = `
+            <div class="empty-state" style="padding: 1.25rem 0.75rem; font-size: 0.8rem; color: #94a3b8; background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.25); border-radius: var(--radius-sm); text-align: center;">
+                ✓ Continuous Pathway Loaded.<br>
+                <span style="color: #6ee7b7; font-weight: 600;">No unaligned boundaries detected.</span>
+            </div>
+        `;
         return;
     }
 
@@ -78,3 +254,4 @@ export function updateGlobalMetrics(megajson) {
         if (rxnEl) rxnEl.innerText = `${(ep.overall_reaction_energy_kcal || 0).toFixed(2)} kcal/mol`;
     }
 }
+

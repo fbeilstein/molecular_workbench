@@ -7,10 +7,12 @@ export class Stitch3DViewer {
         this.viewer = null;
         this.viewMode = 'transition';
         this.transitionFrameIdx = 0;
+        this.trajFrameIdx = 0;
         this.isTransitionPlaying = false;
         this.transitionTimer = null;
         this.blinkTimer = null;
         this.blinkState = 0;
+        this._hasInitialZoom = false;
     }
 
     init(containerEl) {
@@ -21,6 +23,7 @@ export class Stitch3DViewer {
                 defaultcolors: $3Dmol.rasmolElementColors,
                 backgroundColor: '0x0d121c'
             });
+            this._hasInitialZoom = false;
         }
     }
 
@@ -140,8 +143,9 @@ export class Stitch3DViewer {
             if (badge) badge.innerText = isPrev ? `[Blink] Step ${j.step_prev_index} End` : `[Blink] Step ${j.step_next_index} Start (RMSD: ${(j.rmsd || 0).toFixed(4)} Å)`;
         }
 
-        if (resetCamera) {
+        if (resetCamera || !this._hasInitialZoom) {
             this.viewer.zoomTo();
+            this._hasInitialZoom = true;
         }
         this.viewer.render();
     }
@@ -176,8 +180,9 @@ export class Stitch3DViewer {
             });
         }
 
-        if (resetCamera) {
+        if (resetCamera || !this._hasInitialZoom) {
             this.viewer.zoomTo();
+            this._hasInitialZoom = true;
         }
         this.viewer.render();
 
@@ -190,6 +195,42 @@ export class Stitch3DViewer {
         if (badge) badge.innerText = `${item.label} (RMSD: ${(j.rmsd || 0).toFixed(4)} Å)`;
     }
 
+    renderTrajectoryFrame(megajson, frameIdx, resetCamera = false) {
+        if (!this.viewer || !megajson) return;
+        const frames = megajson.frames || [];
+        if (frames.length === 0) return;
+        const idx = Math.max(0, Math.min(frames.length - 1, frameIdx));
+        this.trajFrameIdx = idx;
+        const f = frames[idx];
+        const symbols = megajson.symbols || [];
+        const coords = f.coords || f.positions || [];
+
+        this.viewer.clear();
+        const xyz = this._buildXYZ(symbols, coords);
+        const m = this.viewer.addModel(xyz, 'xyz');
+        this.viewer.setStyle({ model: m }, {
+            stick: { radius: 0.14 },
+            sphere: { scale: 0.25 }
+        });
+
+        if (resetCamera || !this._hasInitialZoom) {
+            this.viewer.zoomTo();
+            this._hasInitialZoom = true;
+        }
+        this.viewer.render();
+
+        const scrubber = document.getElementById('trans-scrubber');
+        const counter = document.getElementById('trans-counter');
+        const badge = document.getElementById('junction-status-badge');
+
+        if (scrubber) scrubber.value = idx;
+        if (counter) counter.innerText = `${idx + 1} / ${frames.length}`;
+        if (badge) {
+            const stepLabel = f.step_index ? `Step ${f.step_index}` : (f.is_bridge ? 'Bridge Transition' : 'Reaction Pathway');
+            badge.innerText = `${stepLabel} | Frame ${idx + 1}/${frames.length} (Energy: ${(f.rel_energy_kcal || f.energy_kcal || 0).toFixed(2)} kcal/mol)`;
+        }
+    }
+
     stepTransition(j, delta) {
         this.pauseTransition();
         const seq = this.getTransitionSequence(j);
@@ -199,9 +240,23 @@ export class Stitch3DViewer {
         this.renderTransitionFrame(j, target);
     }
 
+    stepTrajectory(megajson, delta) {
+        this.pauseTransition();
+        const frames = (megajson && megajson.frames) || [];
+        if (frames.length === 0) return;
+        let target = (this.trajFrameIdx || 0) + delta;
+        target = Math.max(0, Math.min(frames.length - 1, target));
+        this.renderTrajectoryFrame(megajson, target);
+    }
+
     toggleTransitionPlay(j) {
         if (this.isTransitionPlaying) this.pauseTransition();
         else this.playTransition(j);
+    }
+
+    toggleTrajectoryPlay(megajson) {
+        if (this.isTransitionPlaying) this.pauseTransition();
+        else this.playTrajectory(megajson);
     }
 
     playTransition(j) {
@@ -225,6 +280,27 @@ export class Stitch3DViewer {
             }
             this.renderTransitionFrame(j, next);
         }, 110);
+    }
+
+    playTrajectory(megajson) {
+        const frames = (megajson && megajson.frames) || [];
+        if (frames.length === 0) return;
+        if (this.trajFrameIdx >= frames.length - 1) {
+            this.trajFrameIdx = 0;
+        }
+        this.isTransitionPlaying = true;
+        const btn = document.getElementById('btn-trans-play');
+        if (btn) btn.innerHTML = '⏸';
+
+        clearInterval(this.transitionTimer);
+        this.transitionTimer = setInterval(() => {
+            const next = (this.trajFrameIdx || 0) + 1;
+            if (next >= frames.length) {
+                this.pauseTransition();
+                return;
+            }
+            this.renderTrajectoryFrame(megajson, next);
+        }, 90);
     }
 
     pauseTransition() {

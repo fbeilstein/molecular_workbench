@@ -51,7 +51,7 @@ def _integrate_reaction_branch(atoms_ts, model, direction_sign, max_steps, log, 
                     sub_at = Atoms(symbols=[model.symbols[k] for k in f_idxs], positions=pos_ts[f_idxs].copy())
                     sub_at.calc = make_xtb(chg, mult, solvent=solvent)
                     opt = BFGS(sub_at, logfile=None)
-                    opt.run(fmax=0.03, steps=25)
+                    opt.run(fmax=0.005, steps=100)
                     opt_pos = _rigid_align(sub_at.get_positions(), pos_ts[f_idxs])
                     frag_shifts[f_idxs] = opt_pos - pos_ts[f_idxs]
                 except Exception:

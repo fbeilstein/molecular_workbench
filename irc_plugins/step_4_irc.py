@@ -136,7 +136,7 @@ class Step4IRC(PipelineStep):
             try:
                 with open(c_path, "r") as f:
                     tj = json.load(f)
-                if tj.get("reaction_smiles") != cur_smiles and "frames" in tj:
+                if tj.get("reaction_smiles") and tj.get("reaction_smiles") != cur_smiles and "frames" in tj and tj.get("fragments"):
                     prev_traj = tj
                     break
             except Exception:

@@ -1,5 +1,5 @@
-import { Stitch3DViewer } from './stitch/stitch_viewer_3d.js';
-import { renderJunctionsQueue, updateGlobalMetrics } from './stitch/stitch_junctions_dom.js';
+import { Stitch3DViewer } from './stitch/stitch_viewer_3d.js?v=2.0.8';
+import { buildStitchAlignHTML, renderJunctionsQueue, updateGlobalMetrics } from './stitch/stitch_junctions_dom.js?v=2.0.8';
 
 export const StitchAlignUI = {
     state: {
@@ -17,146 +17,17 @@ export const StitchAlignUI = {
         this.state.activeJunctionIdx = 0;
         this.state.viewer = new Stitch3DViewer();
 
-        container.innerHTML = `
-            <div class="choose-container">
-                <!-- Left Panel: Junctions, Bridge Interpolation & Choices -->
-                <div class="left-panel">
-                    <div class="queue-card" style="flex: 1;">
-                        <div class="section-title">
-                            <span>Pathway Junctions</span>
-                            <span class="chip blue" id="junctions-count-badge">Analyzing...</span>
-                        </div>
-                        <div id="stitch-status-banner" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; font-size: 0.8rem; margin-bottom: 0.5rem;">
-                            Detecting intermediate molecule overlaps and calculating Hungarian Kabsch alignment...
-                        </div>
-                        <div id="junctions-list" class="queue-list" style="max-height: 280px; overflow-y: auto;"></div>
-                    </div>
+        if (uiSchema.n_bridge_frames !== undefined) {
+            this.state.nBridgeFrames = parseInt(uiSchema.n_bridge_frames, 10);
+        } else if (globalState && globalState[stepId] && globalState[stepId].n_bridge_frames !== undefined) {
+            this.state.nBridgeFrames = parseInt(globalState[stepId].n_bridge_frames, 10);
+        }
 
-                    <!-- Bridge Frame Interpolation Settings Card -->
-                    <div class="catalog-card" style="flex: 0 0 auto;">
-                        <div class="section-title">
-                            <span>Intermittent Bridge Frames</span>
-                            <span class="chip emerald" id="n-bridge-val">${this.state.nBridgeFrames} Frames</span>
-                        </div>
-                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem;">
-                            Generates smooth cubic smoothstep transition frames connecting Step K product to Step K+1 reactant to stitch pathways without geometric discontinuity.
-                        </p>
-                        <div style="display: flex; align-items: center; gap: 0.75rem;">
-                            <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">0</span>
-                            <input type="range" id="n-bridge-slider" class="scrub-slider" min="0" max="20" step="1" value="${this.state.nBridgeFrames}" style="flex: 1;">
-                            <span style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-muted);">20</span>
-                        </div>
-                    </div>
-
-                    <!-- Global Metrics Summary -->
-                    <div class="catalog-card" style="flex: 0 0 auto;">
-                        <div class="section-title">Global Master Pathway Metrics</div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.8rem;">
-                            <div class="detail-box">
-                                <div class="detail-box-title">Total Atoms</div>
-                                <div id="metric-atoms" style="font-weight: 700; color: #93c5fd; font-family: var(--font-mono);">-</div>
-                            </div>
-                            <div class="detail-box">
-                                <div class="detail-box-title">Total Frames</div>
-                                <div id="metric-frames" style="font-weight: 700; color: #93c5fd; font-family: var(--font-mono);">-</div>
-                            </div>
-                            <div class="detail-box">
-                                <div class="detail-box-title">Overall Barrier</div>
-                                <div id="metric-barrier" style="font-weight: 700; color: #fcd34d; font-family: var(--font-mono);">-</div>
-                            </div>
-                            <div class="detail-box">
-                                <div class="detail-box-title">Net Reaction Energy</div>
-                                <div id="metric-rxn-energy" style="font-weight: 700; color: #6ee7b7; font-family: var(--font-mono);">-</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Right Panel: Interactive 3D Boundary & Transition Viewer -->
-                <div class="preview-panel">
-                    <div class="preview-header">
-                        <div>
-                            <div class="preview-rxn-title" id="junction-preview-title">Junction Alignment & Transition</div>
-                            <div class="preview-meta-chips" id="junction-preview-chips"></div>
-                        </div>
-                        <div style="display: flex; gap: 0.6rem; align-items: center; font-size: 0.75rem; font-family: var(--font-mono);">
-                            <span style="display: flex; align-items: center; gap: 0.3rem;">
-                                <span style="display: inline-block; width: 10px; height: 10px; background: #38bdf8; border-radius: 50%;"></span>
-                                Step K Product
-                            </span>
-                            <span style="display: flex; align-items: center; gap: 0.3rem;">
-                                <span style="display: inline-block; width: 10px; height: 10px; background: #a855f7; border-radius: 50%;"></span>
-                                Bridge
-                            </span>
-                            <span style="display: flex; align-items: center; gap: 0.3rem;">
-                                <span style="display: inline-block; width: 10px; height: 10px; background: #f43f5e; border-radius: 50%;"></span>
-                                Step K+1 Reactant
-                            </span>
-                        </div>
-                    </div>
-
-                    <!-- View Mode Selection Buttons -->
-                    <div style="display: flex; gap: 0.4rem; background: var(--bg-surface); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); margin-bottom: 0.6rem; flex-wrap: wrap;">
-                        <button class="btn btn-xs btn-mode ${this.state.viewer.viewMode === 'transition' ? 'btn-primary' : 'btn-secondary'}" data-mode="transition">
-                            🎬 Smoothstep Transition
-                        </button>
-                        <button class="btn btn-xs btn-mode ${this.state.viewer.viewMode === 'overlay' ? 'btn-primary' : 'btn-secondary'}" data-mode="overlay">
-                            🔍 Superposition Overlay
-                        </button>
-                        <button class="btn btn-xs btn-mode ${this.state.viewer.viewMode === 'blink' ? 'btn-primary' : 'btn-secondary'}" data-mode="blink">
-                            💡 Alternating Blink
-                        </button>
-                        <button class="btn btn-xs btn-mode ${this.state.viewer.viewMode === 'prev_only' ? 'btn-primary' : 'btn-secondary'}" data-mode="prev_only">
-                            ⬅ Step K Final Only
-                        </button>
-                        <button class="btn btn-xs btn-mode ${this.state.viewer.viewMode === 'next_only' ? 'btn-primary' : 'btn-secondary'}" data-mode="next_only">
-                            ➡ Step K+1 Start Only
-                        </button>
-                        <button class="btn btn-xs btn-mode ${this.state.viewer.viewMode === 'unaligned' ? 'btn-primary' : 'btn-secondary'}" data-mode="unaligned">
-                            ⚠️ Raw Unaligned
-                        </button>
-                    </div>
-
-                    <!-- 3Dmol Boundary Viewport -->
-                    <div class="viewer-wrapper">
-                        <div id="junction-viewport-3d" class="viewport-3d"></div>
-                        <div id="junction-status-badge" class="viewer-overlay-badge">Computing Boundary Overlap...</div>
-                    </div>
-
-                    <!-- Transition Playback Controller -->
-                    <div class="playback-bar" id="transition-controls-bar" style="display: flex;">
-                        <button id="btn-trans-play" class="btn btn-sm btn-secondary">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                <polygon points="5 3 19 12 5 21 5 3"/>
-                            </svg>
-                        </button>
-                        <button id="btn-trans-prev" class="btn btn-sm btn-secondary">⏮</button>
-                        <input type="range" id="trans-scrubber" class="scrub-slider" min="0" max="10" value="0">
-                        <button id="btn-trans-next" class="btn btn-sm btn-secondary">⏭</button>
-                        <div id="trans-counter" class="frame-counter">1 / 10</div>
-                    </div>
-
-                    <!-- Details Inspector Grid -->
-                    <div class="preview-details" style="display: grid; grid-template-columns: 1fr 1fr 1fr; margin-top: 0.6rem;">
-                        <div class="detail-box">
-                            <div class="detail-box-title">Step K Product</div>
-                            <div id="j-prev-info" style="font-family: var(--font-mono); font-size: 0.75rem; color: #93c5fd;">-</div>
-                        </div>
-                        <div class="detail-box">
-                            <div class="detail-box-title">Aligned Boundary Fit</div>
-                            <div id="alignment-rmsd-display" style="font-weight: 700; color: #6ee7b7; font-family: var(--font-mono);">-</div>
-                        </div>
-                        <div class="detail-box">
-                            <div class="detail-box-title">Step K+1 Reactant</div>
-                            <div id="j-next-info" style="font-family: var(--font-mono); font-size: 0.75rem; color: #f43f5e;">-</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
+        container.innerHTML = buildStitchAlignHTML(this.state);
 
         this.attachEvents();
         this.state.viewer.init(document.getElementById('junction-viewport-3d'));
+
         if (uiSchema.megajson && uiSchema.junction_previews && uiSchema.junction_previews.length > 0) {
             this.state.megajson = uiSchema.megajson;
             this.state.junctionPreviews = uiSchema.junction_previews;
@@ -165,20 +36,61 @@ export const StitchAlignUI = {
             this.renderJunctions();
             updateGlobalMetrics(uiSchema.megajson);
             this.selectJunction(0, true);
+        } else if (uiSchema.megajson) {
+            this.state.megajson = uiSchema.megajson;
+            this.state.junctionPreviews = uiSchema.junction_previews || [];
+            this.renderJunctions();
+            updateGlobalMetrics(uiSchema.megajson);
+            this.renderFullTrajectoryView(uiSchema.megajson);
         } else {
             await this.computeAndRenderAlignment();
         }
     },
 
     attachEvents() {
+        const recalcBtn = document.getElementById('btn-recalculate-align');
+        if (recalcBtn) {
+            recalcBtn.onclick = async () => {
+                recalcBtn.innerHTML = '⚡ Stitching...';
+                recalcBtn.disabled = true;
+                await this.computeAndRenderAlignment();
+                recalcBtn.innerHTML = '⚡ Re-Stitch Pathway';
+                recalcBtn.disabled = false;
+            };
+        }
+
+        const applyBridgeBtn = document.getElementById('btn-apply-bridge');
+        if (applyBridgeBtn) {
+            applyBridgeBtn.onclick = async () => {
+                applyBridgeBtn.innerHTML = '⚡...';
+                applyBridgeBtn.disabled = true;
+                await this.computeAndRenderAlignment();
+                applyBridgeBtn.innerHTML = '⚡ Re-Stitch';
+                applyBridgeBtn.disabled = false;
+            };
+        }
+
         const slider = document.getElementById('n-bridge-slider');
         const valBadge = document.getElementById('n-bridge-val');
+        let debounceTimer = null;
         if (slider) {
             slider.oninput = (e) => {
                 this.state.nBridgeFrames = parseInt(e.target.value, 10);
                 if (valBadge) valBadge.innerText = `${this.state.nBridgeFrames} Frames`;
+                const banner = document.getElementById('stitch-status-banner');
+                if (banner) {
+                    banner.innerText = `Re-stitching with ${this.state.nBridgeFrames} bridge frames...`;
+                    banner.style.display = 'block';
+                }
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    this.computeAndRenderAlignment();
+                }, 250);
             };
-            slider.onchange = () => this.computeAndRenderAlignment();
+            slider.onchange = () => {
+                clearTimeout(debounceTimer);
+                this.computeAndRenderAlignment();
+            };
         }
 
         document.querySelectorAll('.btn-mode').forEach(btn => {
@@ -201,22 +113,40 @@ export const StitchAlignUI = {
         const scrubber = document.getElementById('trans-scrubber');
 
         if (playBtn) playBtn.onclick = () => {
-            const j = this.state.junctionPreviews[this.state.activeJunctionIdx];
-            if (j) v.toggleTransitionPlay(j);
+            if (v.viewMode === 'full_trajectory' && this.state.megajson) {
+                v.toggleTrajectoryPlay(this.state.megajson);
+            } else {
+                const j = this.state.junctionPreviews[this.state.activeJunctionIdx];
+                if (j) v.toggleTransitionPlay(j);
+            }
         };
         if (prevBtn) prevBtn.onclick = () => {
-            const j = this.state.junctionPreviews[this.state.activeJunctionIdx];
-            if (j) v.stepTransition(j, -1);
+            if (v.viewMode === 'full_trajectory' && this.state.megajson) {
+                v.stepTrajectory(this.state.megajson, -1);
+            } else {
+                const j = this.state.junctionPreviews[this.state.activeJunctionIdx];
+                if (j) v.stepTransition(j, -1);
+            }
         };
         if (nextBtn) nextBtn.onclick = () => {
-            const j = this.state.junctionPreviews[this.state.activeJunctionIdx];
-            if (j) v.stepTransition(j, 1);
+            if (v.viewMode === 'full_trajectory' && this.state.megajson) {
+                v.stepTrajectory(this.state.megajson, 1);
+            } else {
+                const j = this.state.junctionPreviews[this.state.activeJunctionIdx];
+                if (j) v.stepTransition(j, 1);
+            }
         };
         if (scrubber) scrubber.oninput = (e) => {
-            const j = this.state.junctionPreviews[this.state.activeJunctionIdx];
-            if (j) {
+            const val = parseInt(e.target.value, 10);
+            if (v.viewMode === 'full_trajectory' && this.state.megajson) {
                 v.pauseTransition();
-                v.renderTransitionFrame(j, parseInt(e.target.value, 10));
+                v.renderTrajectoryFrame(this.state.megajson, val);
+            } else {
+                const j = this.state.junctionPreviews[this.state.activeJunctionIdx];
+                if (j) {
+                    v.pauseTransition();
+                    v.renderTransitionFrame(j, val);
+                }
             }
         };
     },
@@ -224,20 +154,41 @@ export const StitchAlignUI = {
     setMode(mode) {
         this.state.viewer.stopBlink();
         this.state.viewer.viewMode = mode;
+        if (mode === 'full_trajectory') {
+            this.renderFullTrajectoryView(this.state.megajson);
+            return;
+        }
+
         const j = this.state.junctionPreviews[this.state.activeJunctionIdx];
         if (!j) return;
 
         if (mode === 'blink') {
             this.state.viewer.startBlink(j);
         } else {
-            this.state.viewer.apply3DScene(j, mode);
+            this.state.viewer.apply3DScene(j, mode, false);
         }
+    },
+
+    renderFullTrajectoryView(megajson) {
+        if (!megajson || !megajson.frames) return;
+        const v = this.state.viewer;
+        v.stopBlink();
+        v.viewMode = 'full_trajectory';
+        const frames = megajson.frames || [];
+        const scrubber = document.getElementById('trans-scrubber');
+        if (scrubber) {
+            scrubber.max = Math.max(0, frames.length - 1);
+            scrubber.value = 0;
+        }
+        const transControls = document.getElementById('transition-controls-bar');
+        if (transControls) transControls.style.display = 'flex';
+        v.renderTrajectoryFrame(megajson, 0, true);
     },
 
     async computeAndRenderAlignment() {
         const banner = document.getElementById('stitch-status-banner');
         if (banner) {
-            banner.innerText = 'Calculating Kabsch alignment and bridge interpolation...';
+            banner.innerText = `Calculating alignment & generating ${this.state.nBridgeFrames} bridge frames...`;
             banner.style.display = 'block';
         }
 
@@ -265,8 +216,12 @@ export const StitchAlignUI = {
             this.renderJunctions();
             updateGlobalMetrics(data.megajson);
 
-            if (this.state.junctionPreviews.length > 0) {
-                this.selectJunction(this.state.activeJunctionIdx, true);
+            if (this.state.viewer && this.state.viewer.viewMode === 'full_trajectory') {
+                this.renderFullTrajectoryView(data.megajson);
+            } else if (this.state.junctionPreviews.length > 0) {
+                this.selectJunction(this.state.activeJunctionIdx, false);
+            } else if (data.megajson) {
+                this.renderFullTrajectoryView(data.megajson);
             }
         } catch (err) {
             if (banner) banner.innerText = 'Error: ' + err.message;
@@ -277,7 +232,7 @@ export const StitchAlignUI = {
         const container = document.getElementById('junctions-list');
         const badge = document.getElementById('junctions-count-badge');
         renderJunctionsQueue(container, badge, this.state, {
-            onSelect: (idx) => this.selectJunction(idx),
+            onSelect: (idx) => this.selectJunction(idx, true),
             onStrategyChange: (idx, val) => {
                 this.state.junctionChoices[idx] = val;
                 this.computeAndRenderAlignment();
@@ -309,8 +264,8 @@ export const StitchAlignUI = {
             `;
         }
         if (rmsdLabel) rmsdLabel.innerText = `RMSD: ${(j.rmsd || 0).toFixed(4)} Å`;
-        if (pInfo) pInfo.innerText = `${j.step_prev_name} (${j.prev_symbols.length} atoms)`;
-        if (nInfo) nInfo.innerText = `${j.step_next_name} (${j.next_symbols.length} atoms)`;
+        if (pInfo) pInfo.innerText = `${j.step_prev_name} (${(j.prev_symbols || []).length} atoms)`;
+        if (nInfo) nInfo.innerText = `${j.step_next_name} (${(j.next_symbols || []).length} atoms)`;
 
         const seq = this.state.viewer.getTransitionSequence(j);
         const scrubber = document.getElementById('trans-scrubber');
@@ -322,7 +277,7 @@ export const StitchAlignUI = {
             scrubber.value = this.state.viewer.transitionFrameIdx;
         }
 
-        this.setMode(this.state.viewer.viewMode);
+        this.setMode(this.state.viewer.viewMode || 'transition');
     },
 
     async getData(uiSchema) {

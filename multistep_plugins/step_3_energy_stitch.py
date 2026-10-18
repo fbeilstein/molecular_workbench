@@ -34,7 +34,7 @@ class Step3EnergyStitch(PipelineStep):
 
         if not balanced_megajson or "energy_profile" not in balanced_megajson:
             balanced_megajson = balance_pathway_energies(
-                megajson, trajectories, recalculate_with_xtb=True, solvent=saved_solvent, fragment_roles=saved_roles
+                megajson, trajectories, recalculate_with_xtb=False, solvent=saved_solvent, fragment_roles=saved_roles
             )
 
         return {
@@ -51,7 +51,7 @@ class Step3EnergyStitch(PipelineStep):
 
     def _handle_recalculate(self, global_state: Dict[str, Any], user_input: Dict[str, Any] = None) -> Dict[str, Any]:
         user_input = user_input or {}
-        use_xtb = bool(user_input.get("recalculate_with_xtb", True))
+        use_xtb = bool(user_input.get("recalculate_with_xtb", False))
         solvent = user_input.get("solvent", "water")
         fragment_roles = user_input.get("fragment_roles", {})
 
@@ -67,7 +67,7 @@ class Step3EnergyStitch(PipelineStep):
             balanced = balance_pathway_energies(
                 megajson, trajectories, recalculate_with_xtb=use_xtb, solvent=solvent, fragment_roles=fragment_roles
             )
-            return {
+            result = {
                 "success": True,
                 "megajson": balanced,
                 "energy_profile": balanced.get("energy_profile", {}),
@@ -75,13 +75,16 @@ class Step3EnergyStitch(PipelineStep):
                 "solvent": solvent,
                 "fragment_roles": fragment_roles
             }
+            if self.step_id in global_state:
+                global_state[self.step_id].update(result)
+            return result
         except Exception as e:
             return {"error": f"Hess's Law energy calculation failed: {e}"}
 
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
-        action = user_input.get("action_type")
-        if action == "recalculate_energies":
+        action = user_input.get("action_type") or user_input.get("action")
+        if action in ("recalculate", "recalculate_energies"):
             return self._handle_recalculate(global_state, user_input)
         return {"error": f"Unknown action: {action}"}
 
@@ -94,7 +97,7 @@ class Step3EnergyStitch(PipelineStep):
         if not megajson:
             return StepResult(success=False, error_message="Step 2 trajectory missing.")
 
-        use_xtb = bool(user_input.get("recalculate_with_xtb", True))
+        use_xtb = bool(user_input.get("recalculate_with_xtb", False))
         solvent = user_input.get("solvent", "water")
         fragment_roles = user_input.get("fragment_roles", {})
 

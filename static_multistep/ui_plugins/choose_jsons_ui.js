@@ -36,21 +36,26 @@ export const ChooseJSONsUI = {
                     <div class="catalog-card">
                         <div class="section-title">
                             <span>Available Trajectories</span>
-                            <button id="btn-rescan-traj" class="btn-icon" title="Refresh files">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                                </svg>
-                            </button>
+                            <div style="display: flex; gap: 6px; align-items: center;">
+                                <button id="btn-browse-direct" class="btn btn-sm btn-primary" title="Open trajectory JSON from computer">
+                                    📂 Open Files...
+                                </button>
+                                <button id="btn-rescan-traj" class="btn-icon" title="Refresh files">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                         <div id="catalog-list" class="catalog-list"></div>
                         
                         <!-- Upload Dropzone -->
                         <div id="upload-zone" class="upload-dropzone">
-                            <input type="file" id="file-input-upload" accept=".json" style="display: none;">
+                            <input type="file" id="file-input-upload" accept=".json" multiple style="display: none;">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 4px;">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
                             </svg>
-                            <div>Drop or <strong>browse</strong> custom IRC trajectory JSON</div>
+                            <div>Click to <strong>Open Files</strong> or drop JSONs here</div>
                         </div>
                     </div>
                 </div>
@@ -147,17 +152,34 @@ export const ChooseJSONsUI = {
 
         const uploadZone = document.getElementById('upload-zone');
         const fileInput = document.getElementById('file-input-upload');
+        const browseBtn = document.getElementById('btn-browse-direct');
+        if (browseBtn && fileInput) {
+            browseBtn.onclick = (e) => {
+                e.stopPropagation();
+                fileInput.value = '';
+                fileInput.click();
+            };
+        }
         if (uploadZone && fileInput) {
-            uploadZone.onclick = () => fileInput.click();
+            uploadZone.onclick = () => {
+                fileInput.value = '';
+                fileInput.click();
+            };
+            fileInput.onclick = (e) => e.stopPropagation();
             fileInput.onchange = (e) => {
-                if (e.target.files.length > 0) this.handleFileUpload(e.target.files[0]);
+                if (e.target.files && e.target.files.length > 0) {
+                    this.handleFilesUpload(Array.from(e.target.files));
+                    fileInput.value = '';
+                }
             };
             uploadZone.ondragover = (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); };
             uploadZone.ondragleave = () => uploadZone.classList.remove('dragover');
             uploadZone.ondrop = (e) => {
                 e.preventDefault();
                 uploadZone.classList.remove('dragover');
-                if (e.dataTransfer.files.length > 0) this.handleFileUpload(e.dataTransfer.files[0]);
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    this.handleFilesUpload(Array.from(e.dataTransfer.files));
+                }
             };
         }
 
@@ -216,6 +238,28 @@ export const ChooseJSONsUI = {
             onChanged: () => {
                 this.renderQueue();
                 this.renderCatalog();
+            },
+            onDelete: async (fn) => {
+                if (!confirm(`Delete trajectory '${fn}' from server?`)) return;
+                try {
+                    const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action_type: 'delete', filename: fn })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        this.state.available = data.available;
+                        const idx = this.state.sequence.indexOf(fn);
+                        if (idx >= 0) this.state.sequence.splice(idx, 1);
+                        this.renderQueue();
+                        this.renderCatalog();
+                    } else {
+                        alert(data.error || 'Failed to delete');
+                    }
+                } catch (e) {
+                    alert('Delete failed: ' + e);
+                }
             }
         });
     },
@@ -293,36 +337,58 @@ export const ChooseJSONsUI = {
         }
     },
 
-    async handleFileUpload(file) {
-        try {
-            const text = await file.text();
-            const data = JSON.parse(text);
+    async handleFilesUpload(files) {
+        if (!files || files.length === 0) return;
+        let lastAdded = null;
+        for (const file of files) {
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
 
-            const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action_type: 'upload',
-                    filename: file.name,
-                    content: data
-                })
-            });
+                const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: 'upload',
+                        filename: file.name,
+                        content: data
+                    })
+                });
 
-            const respData = await res.json();
-            if (respData.success) {
-                this.state.available = respData.available;
-                this.renderCatalog();
-                this.loadAndPreview(respData.summary.filename);
-            } else {
-                alert("Upload failed: " + (respData.error || "Invalid file"));
+                const respData = await res.json();
+                if (respData.success) {
+                    this.state.available = respData.available;
+                    const fn = respData.summary.filename;
+                    if (!this.state.sequence.includes(fn)) {
+                        this.state.sequence.push(fn);
+                    }
+                    lastAdded = fn;
+                } else {
+                    alert(`Failed to open '${file.name}': ${respData.error || 'Invalid file'}`);
+                }
+            } catch (e) {
+                alert(`Error reading '${file.name}': ${e.message}`);
             }
-        } catch (e) {
-            alert("Error parsing JSON: " + e.message);
+        }
+        this.renderQueue();
+        this.renderCatalog();
+        if (lastAdded) {
+            this.loadAndPreview(lastAdded);
         }
     },
 
+    async handleFileUpload(file) {
+        await this.handleFilesUpload([file]);
+    },
+
     async getData(uiSchema) {
-        if (this.state.sequence.length < 2) {
+        if (this.state.sequence.length === 1) {
+            const fn = this.state.sequence[0];
+            const item = (this.state.available || []).find(a => a.filename === fn);
+            if (!item || !item.is_stitched) {
+                throw new Error("Please select at least 2 elementary trajectories, or 1 pre-stitched cascade trajectory.");
+            }
+        } else if (this.state.sequence.length < 2) {
             throw new Error("Please select at least 2 consecutive reaction trajectories in the Pathway Sequence before clicking Next.");
         }
         return {

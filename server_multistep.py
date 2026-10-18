@@ -180,6 +180,7 @@ class MultistepHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_step_custom(self, step, user_input):
         print(f"CUSTOM_REQ: action={user_input.get('action_type')} f={user_input.get('frame_index')} orb={user_input.get('orbital')} chem={user_input.get('chem_key')} sel={len(user_input.get('selected_tracks', []))}")
         result_data = step.custom_action(user_input, pipeline_state) if hasattr(step, 'custom_action') else {}
+        save_current_state()
         self._send_json(result_data)
 
     def _handle_post_step(self, path):
