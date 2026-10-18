@@ -98,7 +98,7 @@ class Step4IRC(PipelineStep):
                     run_orca_native_irc,
                     run_orca_neb_ci
                 )
-                nprocs = min(6, os.cpu_count() or 4)
+                nprocs = min(4, os.cpu_count() or 4)
                 if orca_mode == "thermo":
                     traj = run_orca_thermo_profile(atoms, model, solvent, log, max_steps=max_steps, dx=dx, nprocs=nprocs)
                 elif orca_mode == "irc":
@@ -110,7 +110,7 @@ class Step4IRC(PipelineStep):
             else:
                 traj = run_irc_path(atoms, model, log, max_steps=max_steps, dx=dx, relax_fragments=relax_fragments, engine="xtb")
 
-            if not traj or not traj.get("frames"):
+            if not traj or not isinstance(traj, dict) or not traj.get("frames"):
                 return {"error": "Failed to calculate IRC trajectory. Check log for details."}
 
             # Persist trajectory JSON with previous backup
@@ -119,6 +119,25 @@ class Step4IRC(PipelineStep):
                 if os.path.exists(TRAJECTORY_FILE):
                     shutil.copy2(TRAJECTORY_FILE, os.path.join(OUT_DIR, "irc_trajectory_prev.json"))
                 with open(TRAJECTORY_FILE, 'w') as f:
+                    json.dump(traj, f, indent=2)
+
+                # Persist to active project step directory
+                from .project_manager import init_project, _step_traj_path
+                proj = init_project()
+                active_id = proj.get("active_step_id", "step_1")
+                step_traj_file = _step_traj_path(active_id)
+                with open(step_traj_file, 'w') as f:
+                    json.dump(traj, f, indent=2)
+
+                # Also backup to trajectories directory with step index
+                step_idx = 1
+                for s in proj.get("steps", []):
+                    if s["id"] == active_id:
+                        step_idx = s.get("index", 1)
+                        break
+                traj_dir = os.path.join(ROOT_DIR, "trajectories")
+                os.makedirs(traj_dir, exist_ok=True)
+                with open(os.path.join(traj_dir, f"irc_trajectory{step_idx}.json"), 'w') as f:
                     json.dump(traj, f, indent=2)
             except Exception as err:
                 log(f"  Note: Failed to write {TRAJECTORY_FILE}: {err}")

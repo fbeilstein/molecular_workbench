@@ -3,6 +3,8 @@ import http.server
 import socketserver
 import json
 import urllib.parse
+import shutil
+
 def get_plugins():
     import sys
     for mod_name in list(sys.modules.keys()):
@@ -15,30 +17,27 @@ PORT = 8082
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(ROOT_DIR, 'out')
 os.makedirs(OUT_DIR, exist_ok=True)
-STATE_FILE = os.path.join(OUT_DIR, 'reaction_state.json')
-LEGACY_STATE_FILE = os.path.join(ROOT_DIR, 'reaction_state.json')
+
+from irc_plugins import project_manager
+
 pipeline_state = {}
 
 
 def load_saved_state():
     global pipeline_state
-    sf = STATE_FILE if os.path.exists(STATE_FILE) else (LEGACY_STATE_FILE if os.path.exists(LEGACY_STATE_FILE) else None)
-    if sf and os.path.exists(sf):
-        try:
-            with open(sf, 'r') as f:
-                data = json.load(f)
-                pipeline_state.clear()
-                pipeline_state.update(data)
-                print(f"Loaded persistent reaction state from {sf}: {list(pipeline_state.keys())}")
-        except Exception as e:
-            print(f"Failed to load state: {e}")
+    try:
+        data = project_manager.load_active_state()
+        pipeline_state.clear()
+        pipeline_state.update(data)
+        cur_id = project_manager.init_project().get("active_step_id", "step_1")
+        print(f"Loaded persistent reaction state for active step [{cur_id}]: {list(pipeline_state.keys())}")
+    except Exception as e:
+        print(f"Failed to load state: {e}")
 
 
 def save_current_state():
     try:
-        os.makedirs(OUT_DIR, exist_ok=True)
-        with open(STATE_FILE, 'w') as f:
-            json.dump(pipeline_state, f, indent=2)
+        project_manager.save_active_state(pipeline_state)
     except Exception as e:
         print(f"Failed to save state: {e}")
 
@@ -123,6 +122,9 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/state':
             return self._send_json(pipeline_state)
 
+        if path == '/api/project':
+            return self._send_json(project_manager.get_project_summary())
+
         self.send_response(404)
         self.end_headers()
 
@@ -135,7 +137,6 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
             plugins = get_plugins()
         plugin_idx = next((i for i, p in enumerate(plugins) if p.step_id == plugin.step_id), -1)
 
-        # Invalidate downstream steps before running this one, preserving seeded docked reactants if compatible
         saved_docked = pipeline_state.get("step_3_ts", {}).get("docked_reactants")
         if plugin_idx >= 0:
             for downstream in plugins[plugin_idx + 1:]:
@@ -172,6 +173,9 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         if result_data.get("success") and "molblocks" in result_data:
             pipeline_state.setdefault(plugin.step_id, {})["docked_reactants"] = result_data["molblocks"]
             save_current_state()
+        if result_data.get("success") and "trajectory" in result_data:
+            pipeline_state.setdefault(plugin.step_id, {})["trajectory"] = result_data["trajectory"]
+            save_current_state()
         self._send_json(result_data)
 
     def _handle_post_step(self, path):
@@ -202,10 +206,55 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
             if path.startswith('/api/step/'):
                 return self._handle_post_step(path)
 
-            if path == '/api/reset':
+            if path == '/api/project/step/select':
+                data = self._read_json_body()
+                target_id = data.get("step_id", "step_1")
+                new_state, summary = project_manager.select_step(target_id, pipeline_state)
                 pipeline_state.clear()
+                pipeline_state.update(new_state)
+                return self._send_json({"success": True, "active_step_id": target_id, "project": summary, "state": pipeline_state})
+
+            if path == '/api/project/step/add':
+                data = self._read_json_body()
+                seed = bool(data.get("seed", True))
+                new_id, new_state, summary = project_manager.add_step(seed_from_previous=seed, current_state=pipeline_state)
+                pipeline_state.clear()
+                pipeline_state.update(new_state)
+                return self._send_json({"success": True, "active_step_id": new_id, "project": summary, "state": pipeline_state})
+
+            if path == '/api/project/step/delete':
+                data = self._read_json_body()
+                target_id = data.get("step_id")
+                new_id, new_state, summary = project_manager.delete_step(target_id)
+                pipeline_state.clear()
+                pipeline_state.update(new_state)
+                return self._send_json({"success": True, "active_step_id": new_id, "project": summary, "state": pipeline_state})
+
+            if path == '/api/project/stitch':
                 save_current_state()
-                return self._send_json({})
+                success, master, msg = project_manager.stitch_project_trajectories()
+                if success:
+                    pipeline_state.setdefault("step_4_irc", {})["trajectory"] = master
+                    save_current_state()
+                    return self._send_json({"success": True, "trajectory": master, "message": msg})
+                else:
+                    return self._send_json({"success": False, "error": msg}, 400)
+
+            if path == '/api/reset':
+                data = self._read_json_body()
+                if data.get("all_steps"):
+                    shutil.rmtree(project_manager.STEPS_DIR, ignore_errors=True)
+                    if os.path.exists(project_manager.PROJECT_FILE):
+                        try:
+                            os.remove(project_manager.PROJECT_FILE)
+                        except Exception:
+                            pass
+                    pipeline_state.clear()
+                    project_manager.init_project()
+                else:
+                    pipeline_state.clear()
+                    save_current_state()
+                return self._send_json({"success": True, "project": project_manager.get_project_summary()})
 
             if path == '/api/environment':
                 data = self._read_json_body()

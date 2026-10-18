@@ -19,20 +19,39 @@ export const CascadeUI = {
 
         const dom = buildCascadeLayout(container, ui, { initialBridgeFrames: currentBridgeFrames });
 
-        // Populate Sequence List
-        const trajs = ui.trajectories || [];
-        if (trajs.length === 0) {
-            const noSeq = document.createElement('div');
-            noSeq.style.fontSize = '12px';
-            noSeq.style.color = '#64748b';
-            noSeq.textContent = 'No previous trajectories found. Complete Step 4 first.';
-            dom.seqList.appendChild(noSeq);
-        } else {
-            trajs.forEach((t, i) => {
+        // Populate Sequence List with Reordering Controls
+        let currentTrajs = [...(ui.trajectories || [])];
+        let orderModified = false;
+
+        function renderSequenceList() {
+            dom.seqList.innerHTML = '';
+            if (currentTrajs.length === 0) {
+                const noSeq = document.createElement('div');
+                noSeq.style.fontSize = '12px';
+                noSeq.style.color = '#64748b';
+                noSeq.textContent = 'No previous trajectories found. Complete Step 4 first.';
+                dom.seqList.appendChild(noSeq);
+                return;
+            }
+
+            if (orderModified) {
+                const notice = document.createElement('div');
+                notice.style.fontSize = '11px';
+                notice.style.color = '#d97706';
+                notice.style.background = '#fef3c7';
+                notice.style.border = '1px solid #fde68a';
+                notice.style.borderRadius = '4px';
+                notice.style.padding = '4px 8px';
+                notice.style.marginBottom = '6px';
+                notice.textContent = 'Order changed. Click ⚡ Re-Stitch Pathway to apply.';
+                dom.seqList.appendChild(notice);
+            }
+
+            currentTrajs.forEach((t, i) => {
                 const sRow = document.createElement('div');
                 sRow.style.display = 'flex';
                 sRow.style.alignItems = 'center';
-                sRow.style.gap = '8px';
+                sRow.style.gap = '6px';
                 sRow.style.fontSize = '12px';
                 sRow.style.padding = '6px 8px';
                 sRow.style.background = '#ffffff';
@@ -54,20 +73,77 @@ export const CascadeUI = {
                 sName.style.overflow = 'hidden';
                 sName.style.textOverflow = 'ellipsis';
                 sName.style.whiteSpace = 'nowrap';
-                sName.title = t.reaction_smiles || t.filename;
-                sName.textContent = t.reaction_smiles || t.filename;
+                const label = (t.reaction_smiles || t.filename || '').replace('>>', ' ➔ ');
+                sName.title = label;
+                sName.textContent = label;
 
                 const fCount = document.createElement('span');
                 fCount.style.color = '#64748b';
                 fCount.style.fontSize = '11px';
                 fCount.textContent = `${t.n_frames}f`;
 
+                // Reorder controls
+                const btnBox = document.createElement('div');
+                btnBox.style.display = 'flex';
+                btnBox.style.gap = '2px';
+
+                const upBtn = document.createElement('button');
+                upBtn.textContent = '▲';
+                upBtn.title = 'Move step earlier';
+                upBtn.style.padding = '2px 5px';
+                upBtn.style.fontSize = '10px';
+                upBtn.style.lineHeight = '1';
+                upBtn.style.border = '1px solid #cbd5e1';
+                upBtn.style.background = '#f8fafc';
+                upBtn.style.borderRadius = '3px';
+                upBtn.style.cursor = i > 0 ? 'pointer' : 'default';
+                upBtn.style.opacity = i > 0 ? '1' : '0.3';
+                upBtn.disabled = i === 0;
+                upBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (i > 0) {
+                        const temp = currentTrajs[i];
+                        currentTrajs[i] = currentTrajs[i - 1];
+                        currentTrajs[i - 1] = temp;
+                        orderModified = true;
+                        renderSequenceList();
+                    }
+                };
+
+                const downBtn = document.createElement('button');
+                downBtn.textContent = '▼';
+                downBtn.title = 'Move step later';
+                downBtn.style.padding = '2px 5px';
+                downBtn.style.fontSize = '10px';
+                downBtn.style.lineHeight = '1';
+                downBtn.style.border = '1px solid #cbd5e1';
+                downBtn.style.background = '#f8fafc';
+                downBtn.style.borderRadius = '3px';
+                downBtn.style.cursor = i < currentTrajs.length - 1 ? 'pointer' : 'default';
+                downBtn.style.opacity = i < currentTrajs.length - 1 ? '1' : '0.3';
+                downBtn.disabled = i === currentTrajs.length - 1;
+                downBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (i < currentTrajs.length - 1) {
+                        const temp = currentTrajs[i];
+                        currentTrajs[i] = currentTrajs[i + 1];
+                        currentTrajs[i + 1] = temp;
+                        orderModified = true;
+                        renderSequenceList();
+                    }
+                };
+
+                btnBox.appendChild(upBtn);
+                btnBox.appendChild(downBtn);
+
                 sRow.appendChild(badge);
                 sRow.appendChild(sName);
                 sRow.appendChild(fCount);
+                sRow.appendChild(btnBox);
                 dom.seqList.appendChild(sRow);
             });
         }
+        renderSequenceList();
 
         // Populate Junctions
         function populateJunctions(reports) {
@@ -202,11 +278,14 @@ export const CascadeUI = {
                     body: JSON.stringify({
                         action_type: 'stitch_cascade',
                         junction_choices: currentJunctionChoices,
-                        n_bridge_frames: currentBridgeFrames
+                        n_bridge_frames: currentBridgeFrames,
+                        ordered_files: currentTrajs.map(t => t.filename || t.step_id)
                     })
                 });
                 const r = await res.json();
                 if (r.success && r.megajson) {
+                    orderModified = false;
+                    renderSequenceList();
                     loadMegajson(r.megajson);
                     if (r.stitching_report) populateJunctions(r.stitching_report);
                 } else {

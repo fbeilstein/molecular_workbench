@@ -18,11 +18,31 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <div style="display: flex; align-items: center; gap: 18px; flex-wrap: wrap;">
-                <h1 style="margin: 0;">IRC Pipeline Wizard</h1>
+        <header style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 1rem;">
+            <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+                <h1 style="margin: 0; font-size: 1.45rem;">IRC Pipeline Wizard</h1>
+                
+                <!-- Multistep Reaction Project Bar -->
+                <div id="project-step-bar" style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); padding: 4px 10px; border-radius: 8px;">
+                    <span style="font-size: 11.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Reaction:</span>
+                    <select id="reaction-step-select" style="padding: 4px 8px; font-size: 12.5px; font-weight: 600; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #f8fafc; cursor: pointer; max-width: 340px; text-overflow: ellipsis; outline: none;">
+                        <option value="step_1">Step 1: Reaction</option>
+                    </select>
+                    <button id="btn-add-step" class="secondary" style="padding: 4px 10px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 4px;" title="Add next elementary reaction step (automatically seeds product as reactant)">
+                        ➕ Add Step
+                    </button>
+                    <button id="btn-stitch-project" class="secondary" style="padding: 4px 10px; font-size: 12px; font-weight: 600; display: none;" title="Stitch all completed reaction steps into one continuous master pathway">
+                        🔗 Stitch All
+                    </button>
+                    <button id="btn-delete-step" style="padding: 4px 8px; font-size: 12px; border: 1px solid rgba(239,68,68,0.4); background: rgba(239,68,68,0.1); color: #f87171; border-radius: 6px; cursor: pointer;" title="Delete this reaction step">
+                        🗑️
+                    </button>
+                </div>
             </div>
-            <button id="btn-reset" class="danger">Reset Pipeline</button>
+            
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <button id="btn-reset" class="danger">Reset Step</button>
+            </div>
         </header>
 
         <div id="wizard-tabs" class="tabs">

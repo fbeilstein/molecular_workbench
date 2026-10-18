@@ -1,4 +1,3 @@
-
 import { KetcherUI } from './ui_plugins/ketcher_ui.js';
 import { FieldsUI } from './ui_plugins/fields_ui.js';
 import { MappingUI } from './ui_plugins/mapping_ui.js';
@@ -27,6 +26,7 @@ async function executeStepRun(stepId, userInput) {
 document.addEventListener('DOMContentLoaded', () => {
     let plugins = [];
     let state = {};
+    let project = {};
     let activeStepIndex = 0;
 
     const tabsContainer = document.getElementById('wizard-tabs');
@@ -35,18 +35,72 @@ document.addEventListener('DOMContentLoaded', () => {
     const runBtn = document.getElementById('btn-run');
     const resetBtn = document.getElementById('btn-reset');
 
-    async function loadPipeline() {
-        const [pluginsRes, stateRes] = await Promise.all([
+    const reactionStepSelect = document.getElementById('reaction-step-select');
+    const addStepBtn = document.getElementById('btn-add-step');
+    const stitchProjectBtn = document.getElementById('btn-stitch-project');
+    const deleteStepBtn = document.getElementById('btn-delete-step');
+
+    function updateProjectUI(proj) {
+        if (!proj || !reactionStepSelect) return;
+        project = proj;
+        reactionStepSelect.innerHTML = '';
+
+        const steps = proj.steps || [];
+        steps.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            
+            let statusTag = '[New]';
+            if (s.has_irc) {
+                const bFwd = s.barrier_fwd != null ? `${s.barrier_fwd.toFixed(1)}k` : '';
+                statusTag = bFwd ? `[IRC ✓ ${bFwd}]` : '[IRC ✓]';
+            } else if (s.has_ts) {
+                statusTag = '[TS ✓]';
+            } else if (s.has_mapping) {
+                statusTag = '[Mapped ✓]';
+            } else if (s.has_input) {
+                statusTag = '[Input ✓]';
+            }
+
+            const cleanTitle = s.title || `Step ${s.index}: Reaction`;
+            const shortTitle = cleanTitle.length > 34 ? cleanTitle.slice(0, 31) + '...' : cleanTitle;
+            opt.textContent = `${shortTitle} ${statusTag}`;
+            if (s.id === proj.active_step_id) {
+                opt.selected = true;
+            }
+            reactionStepSelect.appendChild(opt);
+        });
+
+        const completedIRC = steps.filter(s => s.has_irc).length;
+        if (stitchProjectBtn) {
+            if (completedIRC >= 2) {
+                stitchProjectBtn.style.display = 'inline-flex';
+                stitchProjectBtn.textContent = `🔗 Stitch (${completedIRC} Steps)`;
+            } else {
+                stitchProjectBtn.style.display = 'none';
+            }
+        }
+
+        if (deleteStepBtn) {
+            deleteStepBtn.disabled = (steps.length <= 1 && !steps[0]?.has_input);
+        }
+    }
+
+    async function loadPipeline(preferredIndex = null) {
+        const [pluginsRes, stateRes, projectRes] = await Promise.all([
             fetch('/api/plugins'),
-            fetch('/api/state')
+            fetch('/api/state'),
+            fetch('/api/project')
         ]);
-        
+
         plugins = await pluginsRes.json();
         state = await stateRes.json();
-        
+        const projData = await projectRes.json();
+        updateProjectUI(projData);
+
         const globalSolv = document.getElementById('global-solvent-select');
         if (globalSolv) {
-            globalSolv.value = state.solvent || 'water';
+            globalSolv.value = state.solvent || projData.solvent || 'water';
             globalSolv.onchange = async () => {
                 const newSolv = globalSolv.value;
                 state.solvent = newSolv;
@@ -59,16 +113,21 @@ document.addEventListener('DOMContentLoaded', () => {
             };
         }
 
-        determineActiveStep();
+        determineActiveStep(preferredIndex);
         renderTabs();
         renderActiveStep();
     }
 
-    function determineActiveStep() {
-        activeStepIndex = 0;
+    function determineActiveStep(preferredIndex = null) {
+        let maxAvailable = 0;
         for (let i = 0; i < plugins.length; i++) {
             if (!state[plugins[i].step_id]) break;
-            activeStepIndex = (i + 1 < plugins.length) ? i + 1 : i;
+            maxAvailable = (i + 1 < plugins.length) ? i + 1 : i;
+        }
+        if (preferredIndex !== null && preferredIndex >= 0 && preferredIndex <= maxAvailable) {
+            activeStepIndex = preferredIndex;
+        } else {
+            activeStepIndex = maxAvailable;
         }
     }
 
@@ -77,19 +136,19 @@ document.addEventListener('DOMContentLoaded', () => {
         plugins.forEach((plugin, index) => {
             const isCompleted = !!state[plugin.step_id];
             const isLocked = !isCompleted && index > activeStepIndex;
-            
+
             const btn = document.createElement('button');
             btn.className = `tab ${index === activeStepIndex ? 'active' : ''} ${isCompleted ? 'completed' : ''} ${isLocked ? 'locked' : ''}`;
             btn.innerText = plugin.step_name;
             btn.disabled = isLocked;
-            
+
             btn.onclick = () => {
                 if (isLocked) return;
                 activeStepIndex = index;
                 renderTabs();
                 renderActiveStep();
             };
-            
+
             tabsContainer.appendChild(btn);
         });
     }
@@ -97,10 +156,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderActiveStep() {
         errorContainer.style.display = 'none';
         schemaContainer.innerHTML = '';
-        
+
         const plugin = plugins[activeStepIndex];
         const ui = plugin.ui_schema;
-        
+
         const envBar = document.querySelector('.env-bar');
         if (envBar) {
             const isCalcStep = plugin.step_id === 'step_3_ts' || plugin.step_id === 'step_4_irc';
@@ -110,13 +169,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const msg = document.createElement('p');
         msg.innerText = ui.message || '';
         schemaContainer.appendChild(msg);
-        
-        // Use UI Plugin Registry
+
         let handlerType = ui.type;
         if (ui.fields && handlerType !== 'ketcher' && handlerType !== 'mapping_ui') {
-            handlerType = 'fields'; // fallback
+            handlerType = 'fields';
         }
-        
+
         const handler = UIRegistry[handlerType];
         if (handler) {
             handler.render(schemaContainer, ui, state, plugin.step_id);
@@ -139,18 +197,120 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Reaction Step Selector Event
+    if (reactionStepSelect) {
+        reactionStepSelect.onchange = async () => {
+            const targetId = reactionStepSelect.value;
+            const curTabIndex = activeStepIndex;
+            try {
+                const res = await fetch('/api/project/step/select', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ step_id: targetId })
+                });
+                const r = await res.json();
+                if (r.success) {
+                    await loadPipeline(curTabIndex);
+                } else {
+                    alert('Failed to switch step: ' + (r.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Request failed: ' + err.message);
+            }
+        };
+    }
+
+    // Add Step Event (seeds product of current step)
+    if (addStepBtn) {
+        addStepBtn.onclick = async () => {
+            addStepBtn.disabled = true;
+            try {
+                const res = await fetch('/api/project/step/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ seed: true })
+                });
+                const r = await res.json();
+                if (r.success) {
+                    await loadPipeline();
+                    activeStepIndex = 0; // Go to Tab 1 (Reaction Input) of the new step
+                    renderTabs();
+                    renderActiveStep();
+                } else {
+                    alert('Failed to add step: ' + (r.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Add step request failed: ' + err.message);
+            } finally {
+                addStepBtn.disabled = false;
+            }
+        };
+    }
+
+    // Delete Step Event
+    if (deleteStepBtn) {
+        deleteStepBtn.onclick = async () => {
+            const curStep = reactionStepSelect ? reactionStepSelect.value : 'step_1';
+            if (!confirm(`Are you sure you want to delete ${curStep}?`)) return;
+            deleteStepBtn.disabled = true;
+            try {
+                const res = await fetch('/api/project/step/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ step_id: curStep })
+                });
+                const r = await res.json();
+                if (r.success) {
+                    await loadPipeline();
+                } else {
+                    alert('Failed to delete step: ' + (r.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Delete step request failed: ' + err.message);
+            } finally {
+                deleteStepBtn.disabled = false;
+            }
+        };
+    }
+
+    // Stitch All Steps Shortcut Event
+    if (stitchProjectBtn) {
+        stitchProjectBtn.onclick = async () => {
+            stitchProjectBtn.disabled = true;
+            stitchProjectBtn.textContent = 'Stitching...';
+            try {
+                const res = await fetch('/api/project/stitch', { method: 'POST' });
+                const r = await res.json();
+                if (r.success && r.trajectory) {
+                    state.step_4_irc = { trajectory: r.trajectory };
+                    activeStepIndex = 3; // Switch to Step 4 (IRC Trajectory)
+                    renderTabs();
+                    renderActiveStep();
+                    alert(r.message || 'Master pathway stitched successfully!');
+                } else {
+                    alert('Stitch error: ' + (r.error || 'Failed to stitch master pathway'));
+                }
+            } catch (err) {
+                alert('Stitch request failed: ' + err.message);
+            } finally {
+                stitchProjectBtn.disabled = false;
+                stitchProjectBtn.textContent = '🔗 Stitch All';
+            }
+        };
+    }
+
     runBtn.onclick = async () => {
         errorContainer.style.display = 'none';
         runBtn.disabled = true;
-        
+
         const plugin = plugins[activeStepIndex];
         const ui = plugin.ui_schema;
-        
+
         let handlerType = ui.type;
         if (ui.fields && handlerType !== 'ketcher' && handlerType !== 'mapping_ui') {
             handlerType = 'fields';
         }
-        
+
         const handler = UIRegistry[handlerType];
         if (!handler) {
             runBtn.disabled = false;
@@ -166,7 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
             runBtn.disabled = false;
             return;
         }
-        
+
         try {
             const data = await executeStepRun(plugin.step_id, userInput);
             if (!data.success) {
@@ -182,10 +342,24 @@ document.addEventListener('DOMContentLoaded', () => {
             runBtn.disabled = false;
         }
     };
-    
+
     resetBtn.onclick = async () => {
-        if (!confirm("Reset entire pipeline?")) return;
-        await fetch('/api/reset', { method: 'POST' });
+        const totalSteps = project.steps?.length || 1;
+        let resetAll = false;
+        if (totalSteps > 1) {
+            resetAll = confirm("Click OK to reset the ENTIRE project (all reaction steps), or Cancel to reset ONLY the currently active step.");
+            if (!resetAll) {
+                if (!confirm(`Reset only the active step (${project.active_step_id})?`)) return;
+            }
+        } else {
+            if (!confirm("Reset the current reaction step?")) return;
+        }
+
+        await fetch('/api/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ all_steps: resetAll })
+        });
         await loadPipeline();
     };
 

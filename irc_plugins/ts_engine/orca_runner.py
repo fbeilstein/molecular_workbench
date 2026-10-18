@@ -5,6 +5,8 @@ import tempfile
 import numpy as np
 
 ORCA_BIN = "/data/orca/orca"
+os.environ["OMPI_MCA_rmaps_base_oversubscribe"] = "1"
+os.environ["OMPI_MCA_btl_vader_single_copy_mechanism"] = "none"
 
 def run_orca_dft_ts(atoms, model, log, method="r2SCAN-3c"):
     """Run high-accuracy DFT transition state optimization with ORCA 6.1."""
@@ -539,7 +541,28 @@ def run_orca_thermo_profile(atoms, model, solvent, log, max_steps=30, dx=0.08, n
 
     if ts_res.get("gibbs_eh") is None:
         log("  ⚠️ ORCA Freq calculation on TS did not return Gibbs free energy. Falling back to electronic DFT.")
-        return eval_orca_dft_profile(base_traj["frames"], model, solvent, log, ts_index=ts_idx, nprocs=nprocs)
+        eval_orca_dft_profile(base_traj["frames"], model, solvent, log, ts_index=ts_idx, nprocs=nprocs)
+        
+        EV_TO_KCAL = 23.060541945329334
+        e_start = base_traj["frames"][0].get("energy_ev", 0.0)
+        e_ts_val = base_traj["frames"][ts_idx].get("energy_ev", 0.0)
+        e_end = base_traj["frames"][-1].get("energy_ev", 0.0)
+        
+        fwd_kcal = (e_ts_val - e_start) * EV_TO_KCAL
+        rev_kcal = (e_ts_val - e_end) * EV_TO_KCAL
+        rxn_kcal = (e_end - e_start) * EV_TO_KCAL
+        
+        for fr in base_traj["frames"]:
+            e_k = fr.get("energy_ev", e_start)
+            fr["rel_energy_kcal"] = round((e_k - e_start) * EV_TO_KCAL, 3)
+            
+        base_traj["barriers"] = {
+            "energy_type": "electronic",
+            "forward_barrier_kcal": round(float(fwd_kcal), 2),
+            "reverse_barrier_kcal": round(float(rev_kcal), 2),
+            "reaction_energy_kcal": round(float(rxn_kcal), 2)
+        }
+        return base_traj
 
     g_ts = ts_res["gibbs_eh"]
     imag_freqs = ts_res.get("imaginary_freqs", [])
@@ -577,16 +600,16 @@ def run_orca_thermo_profile(atoms, model, solvent, log, max_steps=30, dx=0.08, n
         else:
             r_res = _run_orca_calc(model.symbols, pos_r, model.charge, model.multiplicity, solvent,
                                    "Freq", log=log, name="reactant_freq", nprocs=nprocs)
-            g_reac = r_res.get("gibbs_eh", g_ts - 0.03)
+            g_reac = r_res.get("gibbs_eh") or r_res.get("energy_eh") or (g_ts - 0.03)
     else:
         r_res = _run_orca_calc(model.symbols, pos_r, model.charge, model.multiplicity, solvent,
                                "Freq", log=log, name="reactant_freq", nprocs=nprocs)
-        g_reac = r_res.get("gibbs_eh", g_ts - 0.03)
+        g_reac = r_res.get("gibbs_eh") or r_res.get("energy_eh") or (g_ts - 0.03)
 
     log("  Step 4: Calculating ORCA Freq on Product Endpoint...")
     p_res = _run_orca_calc(model.symbols, pos_p, model.charge, model.multiplicity, solvent,
                            "Freq", log=log, name="product_freq", nprocs=nprocs)
-    g_prod = p_res.get("gibbs_eh", g_reac - 0.01)
+    g_prod = p_res.get("gibbs_eh") or p_res.get("energy_eh") or (g_reac - 0.01)
     log(f"  Product Free Energy: {g_prod:.6f} Eh")
 
     barrier_fwd_kcal = (g_ts - g_reac) * HARTREE_TO_KCAL

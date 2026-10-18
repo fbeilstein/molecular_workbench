@@ -319,3 +319,53 @@ export function updateGlobalMetrics(megajson) {
     }
 }
 
+export function updateTrimmerControls(j, idx) {
+    if (!j) return;
+    const badgeTrim = document.getElementById('trim-active-badge');
+    if (badgeTrim) badgeTrim.innerText = `Junction ${idx + 1}`;
+
+    const pSlider = document.getElementById('trim-prev-slider');
+    const pVal = document.getElementById('trim-prev-val');
+    const pMin = document.getElementById('trim-prev-min');
+    const pMax = document.getElementById('trim-prev-max');
+
+    const nSlider = document.getElementById('trim-next-slider');
+    const nVal = document.getElementById('trim-next-val');
+    const nMin = document.getElementById('trim-next-min');
+    const nMax = document.getElementById('trim-next-max');
+
+    const recLabel = document.getElementById('trim-recommended-label');
+
+    const pTot = j.prev_total_frames || 1;
+    const nTot = j.next_total_frames || 1;
+    const pCut = (j.prev_cut !== undefined) ? j.prev_cut : pTot - 1;
+    const nCut = (j.next_cut !== undefined) ? j.next_cut : 0;
+
+    if (pSlider) {
+        pSlider.min = 0;
+        pSlider.max = Math.max(0, pTot - 1);
+        pSlider.value = pCut;
+    }
+    if (pMin) pMin.innerText = '0';
+    if (pMax) pMax.innerText = String(Math.max(0, pTot - 1));
+    if (pVal) pVal.innerText = `Frame ${pCut} / ${Math.max(0, pTot - 1)}`;
+
+    if (nSlider) {
+        nSlider.min = 0;
+        nSlider.max = Math.max(0, nTot - 1);
+        nSlider.value = nCut;
+    }
+    if (nMin) nMin.innerText = '0';
+    if (nMax) nMax.innerText = String(Math.max(0, nTot - 1));
+    if (nVal) nVal.innerText = `Frame ${nCut} / ${Math.max(0, nTot - 1)}`;
+
+    if (recLabel) {
+        if (j.recommended_prev_cut !== undefined && j.recommended_next_cut !== undefined) {
+            const imp = (j.rmsd_improvement || 0).toFixed(3);
+            recLabel.innerText = `Frame ${j.recommended_prev_cut} ➔ ${j.recommended_next_cut} (RMSD: ${(j.recommended_rmsd || 0).toFixed(3)} Å, Δ: -${imp} Å)`;
+        } else {
+            recLabel.innerText = 'Optimal Overlap Analysis Ready';
+        }
+    }
+}
+

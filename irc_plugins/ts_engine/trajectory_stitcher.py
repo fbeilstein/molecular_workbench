@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 from rdkit import Chem
 from scipy.optimize import linear_sum_assignment
@@ -262,18 +262,140 @@ def generate_bridge_frames(
     return frames
 
 
+def get_canonical_smiles_set(smiles_str: str) -> Set[str]:
+    """Extract canonical SMILES for individual molecules in a dot-separated SMILES string."""
+    if not smiles_str:
+        return set()
+    res = set()
+    for part in smiles_str.split("."):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            m = Chem.MolFromSmiles(part)
+            if m:
+                res.add(Chem.MolToSmiles(Chem.RemoveHs(m)))
+            else:
+                res.add(Chem.CanonSmiles(part))
+        except Exception:
+            res.add(part)
+    return res
+
+
+def get_traj_reactants_products(traj: Dict[str, Any]) -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
+    """Extract (r_smiles, p_smiles, r_formulas, p_formulas) from trajectory metadata and fragment info."""
+    from rdkit.Chem.rdMolDescriptors import CalcMolFormula
+    r_smiles, p_smiles = set(), set()
+    r_formulas, p_formulas = set(), set()
+
+    rxn_smi = traj.get("reaction_smiles", "")
+    if ">>" in rxn_smi:
+        parts = rxn_smi.split(">>")
+        r_smiles = get_canonical_smiles_set(parts[0])
+        p_smiles = get_canonical_smiles_set(parts[1])
+        for s in r_smiles:
+            try:
+                m = Chem.MolFromSmiles(s)
+                if m:
+                    r_formulas.add(CalcMolFormula(m))
+            except Exception:
+                pass
+        for s in p_smiles:
+            try:
+                m = Chem.MolFromSmiles(s)
+                if m:
+                    p_formulas.add(CalcMolFormula(m))
+            except Exception:
+                pass
+
+    frags = traj.get("fragments", {})
+    if frags.get("reactants"):
+        for f in frags["reactants"]:
+            if f.get("smiles"):
+                r_smiles.update(get_canonical_smiles_set(f["smiles"]))
+            if f.get("formula"):
+                r_formulas.add(f["formula"])
+    if frags.get("products"):
+        for f in frags["products"]:
+            if f.get("smiles"):
+                p_smiles.update(get_canonical_smiles_set(f["smiles"]))
+            if f.get("formula"):
+                p_formulas.add(f["formula"])
+
+    return r_smiles, p_smiles, r_formulas, p_formulas
+
+
+def sort_trajectories_chemically(trajectories: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Topologically sort reaction trajectories in forward causality order:
+    Step 1 (Reactants -> Intermediate) -> Step 2 (Intermediate -> Products) -> ...
+    Matches products of step i with reactants of step j via canonical SMILES and formula overlap.
+    """
+    if len(trajectories) <= 1:
+        return list(trajectories)
+
+    from collections import defaultdict, deque
+    n = len(trajectories)
+    meta = [get_traj_reactants_products(t) for t in trajectories]
+    adj = defaultdict(list)
+    in_degree = [0] * n
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            r_smi_i, p_smi_i, r_f_i, p_f_i = meta[i]
+            r_smi_j, p_smi_j, r_f_j, p_f_j = meta[j]
+
+            # Check if trajectory i feeds trajectory j
+            smi_feed = bool(p_smi_i & r_smi_j)
+            smi_rev_feed = bool(p_smi_j & r_smi_i)
+            # Only consider non-trivial formulas (>2 chars, not just H2 or simple spectators unless SMILES match)
+            f_feed = bool({f for f in (p_f_i & r_f_j) if len(f) > 2 and f not in ('H2O', 'H+', 'OH-')})
+            f_rev_feed = bool({f for f in (p_f_j & r_f_i) if len(f) > 2 and f not in ('H2O', 'H+', 'OH-')})
+
+            i_feeds_j = smi_feed or (f_feed and not smi_rev_feed)
+            j_feeds_i = smi_rev_feed or (f_rev_feed and not smi_feed)
+
+            if i_feeds_j and not j_feeds_i:
+                adj[i].append(j)
+                in_degree[j] += 1
+
+    # Kahn's algorithm for topological sorting
+    queue = deque([i for i in range(n) if in_degree[i] == 0])
+    ordered_indices = []
+    while queue:
+        curr = queue.popleft()
+        ordered_indices.append(curr)
+        for neighbor in adj[curr]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    if len(ordered_indices) == n:
+        return [trajectories[i] for i in ordered_indices]
+
+    # If cycle or disconnected graph, return original list
+    return list(trajectories)
+
+
 def stitch_multistep_trajectories(
     trajectories: List[Dict[str, Any]],
     junction_choices: Optional[Dict[str, str]] = None,
     n_bridge_frames: int = 8,
     junction_trims: Optional[Dict[str, Dict[str, int]]] = None,
-    auto_trim: bool = False
+    auto_trim: bool = False,
+    auto_sort: bool = True
 ) -> Dict[str, Any]:
     """Stitch IRC trajectories with optimal element alignment, monotonic s_arc, step-aware bond orders, and sliding-window frame trimming."""
     if not trajectories:
         return {}
     if len(trajectories) == 1:
         return trajectories[0]
+
+    # Chemically verify / enforce forward reaction cascade sequence:
+    if auto_sort:
+        trajectories = sort_trajectories_chemically(trajectories)
 
     choices = junction_choices or {}
     trims = junction_trims or {}
