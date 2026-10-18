@@ -52,14 +52,16 @@ class Step2Mapping(PipelineStep):
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
         if "step_1_input" not in current_state:
-            return {"message": "Please complete Step 1 first."}
+            return {"type": "empty", "message": "Please complete Step 1 (Reaction Input) first."}
             
-        smiles = current_state["step_1_input"]["raw_smiles"]
-        
+        smiles = current_state["step_1_input"].get("raw_smiles", "")
+        if not smiles or ">>" not in smiles:
+            return {"type": "empty", "message": "Please draw or enter a reaction in Step 1 (Reaction Input) first."}
+
         try:
             r_smi, p_smi = parse_reaction_smiles(smiles)
         except Exception as e:
-            return {"message": f"Error parsing reaction: {e}"}
+            return {"type": "empty", "message": f"Reaction incomplete: {e}. Please complete Step 1 (Reaction Input) first."}
             
         Chem, _, _, _ = _get_rdkit()
         r_mols = [Chem.MolFromSmiles(s) for s in r_smi]

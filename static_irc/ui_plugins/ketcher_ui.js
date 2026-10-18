@@ -1,9 +1,12 @@
-function loadPreviousKetcherData(iframe, rawRxnfile) {
-    if (!rawRxnfile) return;
+function loadPreviousKetcherData(iframe, rawRxnfile, rawSmiles) {
+    if (!rawRxnfile && !rawSmiles) return;
     iframe.onload = () => {
         setTimeout(() => {
             const ketcher = iframe.contentWindow?.ketcher;
-            if (ketcher) ketcher.setMolecule(rawRxnfile);
+            if (ketcher) {
+                if (rawRxnfile) ketcher.setMolecule(rawRxnfile);
+                else if (rawSmiles) ketcher.setMolecule(rawSmiles);
+            }
         }, 500);
     };
 }
@@ -24,7 +27,7 @@ function renderKetcherUI(schemaContainer, ui, state, step_id) {
     schemaContainer.appendChild(wrapper);
 
     const prevData = state[step_id];
-    loadPreviousKetcherData(iframe, prevData?.raw_rxnfile);
+    loadPreviousKetcherData(iframe, prevData?.raw_rxnfile, prevData?.raw_smiles);
 }
 
 async function getKetcherData() {

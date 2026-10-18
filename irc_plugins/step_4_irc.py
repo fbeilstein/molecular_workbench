@@ -161,11 +161,64 @@ class Step4IRC(PipelineStep):
         except Exception as e:
             return {"error": f"Failed to prolong trajectory: {e}"}
 
+    def _handle_prolong_reaction(self, user_input: Dict[str, Any], global_state: Dict[str, Any]) -> Dict[str, Any]:
+        """Take product of this reaction and seed it as reactant for next elementary reaction."""
+        import glob
+        from .ts_engine.trajectory_stitcher import extract_fragment_molblock
+        current_traj = user_input.get("trajectory") or global_state.get("step_4_irc", {}).get("trajectory")
+        if not current_traj and os.path.exists(TRAJECTORY_FILE):
+            try:
+                with open(TRAJECTORY_FILE, "r") as f:
+                    current_traj = json.load(f)
+            except Exception:
+                pass
+        if not current_traj:
+            return {"error": "Current IRC trajectory missing."}
+
+        t_dir = os.path.join(os.path.dirname(OUT_DIR), "trajectories")
+        os.makedirs(t_dir, exist_ok=True)
+        existing_steps = [p for p in sorted(glob.glob(os.path.join(t_dir, "*.json"))) if not p.endswith("prolonged_pathway.json")]
+        step_num = len(existing_steps) + 1
+        step_path = os.path.join(t_dir, f"irc_trajectory{step_num}.json")
+        try:
+            with open(step_path, "w") as f:
+                json.dump(current_traj, f, indent=2)
+        except Exception:
+            pass
+
+        prods = current_traj.get("fragments", {}).get("products", [])
+        if not prods:
+            return {"error": "No products identified in current trajectory."}
+
+        prod_smiles = [p.get("smiles") for p in prods if p.get("smiles")]
+        seeded_blocks = [extract_fragment_molblock(current_traj, p) for p in prods]
+        next_smiles = ".".join(prod_smiles) + ">>"
+
+        global_state["step_1_input"] = {"raw_smiles": next_smiles, "raw_rxnfile": ""}
+        global_state.pop("step_2_mapping", None)
+        global_state["step_3_ts"] = {"docked_reactants": seeded_blocks}
+        global_state.pop("step_4_irc", None)
+
+        state_file = os.path.join(OUT_DIR, "reaction_state.json")
+        try:
+            with open(state_file, "w") as f:
+                json.dump(global_state, f, indent=2)
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "next_reactant_smiles": ".".join(prod_smiles),
+            "message": f"Step {step_num} archived! Seeded product ({'.'.join(prod_smiles)}) for next reaction."
+        }
+
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
         action_type = user_input.get("action_type")
         if action_type == "calculate_irc":
             return self._calculate_irc(user_input, global_state)
+        if action_type in ("prolong_to_next", "prolong_reaction"):
+            return self._handle_prolong_reaction(user_input, global_state)
         if action_type == "prolong_trajectory":
             return self._handle_prolong_trajectory(user_input, global_state)
         return {"error": f"Unknown custom action: {action_type}"}

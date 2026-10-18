@@ -4,13 +4,15 @@ import { FieldsUI } from './ui_plugins/fields_ui.js';
 import { MappingUI } from './ui_plugins/mapping_ui.js';
 import { TSEditorUI } from './ui_plugins/ts_editor_ui.js';
 import { IRCViewerUI } from './ui_plugins/irc_viewer_ui.js';
+import { CascadeUI } from './ui_plugins/cascade_ui.js';
 
 const UIRegistry = {
     'ketcher': KetcherUI,
     'mapping_ui': MappingUI,
     'fields': FieldsUI,
     'ts_editor_ui': TSEditorUI,
-    'irc_viewer_ui': IRCViewerUI
+    'irc_viewer_ui': IRCViewerUI,
+    'cascade_ui': CascadeUI
 };
 
 async function executeStepRun(stepId, userInput) {
@@ -118,14 +120,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const handler = UIRegistry[handlerType];
         if (handler) {
             handler.render(schemaContainer, ui, state, plugin.step_id);
+            if (activeStepIndex < plugins.length - 1) {
+                runBtn.style.display = 'inline-block';
+                runBtn.innerText = "Next";
+            } else {
+                runBtn.style.display = 'none';
+            }
         } else {
-            schemaContainer.innerText = "Unknown UI schema type: " + handlerType;
-        }
-        
-        if (activeStepIndex < plugins.length - 1) {
-            runBtn.style.display = 'inline-block';
-            runBtn.innerText = "Next";
-        } else {
+            const infoMsg = ui.message || (handlerType ? `Unknown UI schema type: ${handlerType}` : 'Prerequisite step required. Please complete previous steps.');
+            schemaContainer.innerHTML = `
+                <div style="padding: 40px 24px; text-align: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; margin: 24px 0;">
+                    <div style="font-size: 2.2rem; margin-bottom: 12px;">ℹ️</div>
+                    <div style="font-size: 1.15rem; font-weight: 600; color: var(--text-main, #fff); margin-bottom: 8px;">Action Required</div>
+                    <p style="color: var(--text-dim, #999); font-size: 0.95rem; max-width: 520px; margin: 0 auto; line-height: 1.5;">${infoMsg}</p>
+                </div>
+            `;
             runBtn.style.display = 'none';
         }
     }
@@ -142,13 +151,15 @@ document.addEventListener('DOMContentLoaded', () => {
             handlerType = 'fields';
         }
         
-        let userInput = {};
         const handler = UIRegistry[handlerType];
-        
+        if (!handler) {
+            runBtn.disabled = false;
+            return;
+        }
+
+        let userInput = {};
         try {
-            if (handler) {
-                userInput = await handler.getData(ui);
-            }
+            userInput = await handler.getData(ui);
         } catch(e) {
             errorContainer.innerText = e.message;
             errorContainer.style.display = 'block';

@@ -208,25 +208,31 @@ def stitch_multistep_trajectories(
             "end_frame": curr_idx + len(s_frames) - 1, "ts_frame": curr_idx + ts_idx
         })
         for f_i, fr in enumerate(s_frames):
-            fr["coords"] = fr.get("coords", fr.get("positions", []))
-            fr.pop("positions", None)
+            c = fr.get("coords", fr.get("positions", []))
+            fr["coords"] = c
+            fr["positions"] = c
             fr["step_index"] = k + 1
             fr["is_ts"] = (f_i == ts_idx)
             e_k = fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0))
             fr["energy_kcal"] = round(float(e_k), 2)
+            fr["rel_energy_kcal"] = round(float(e_k), 2)
+            fr["s_arc"] = float(fr.get("s_arc", curr_idx * 0.1))
             max_energy, final_energy = max(max_energy, e_k), e_k
             master_frames.append(fr)
-        curr_idx += len(s_frames)
+            curr_idx += 1
 
         if k < len(all_bridges):
             for b_fr in all_bridges[k]:
-                b_fr["coords"] = b_fr.get("coords", b_fr.get("positions", []))
-                b_fr.pop("positions", None)
+                c = b_fr.get("coords", b_fr.get("positions", []))
+                b_fr["coords"] = c
+                b_fr["positions"] = c
                 b_fr["step_index"] = f"Bridge {k + 1}➔{k + 2}"
                 b_fr["is_ts"] = False
+                b_fr["rel_energy_kcal"] = b_fr["energy_kcal"]
+                b_fr["s_arc"] = curr_idx * 0.1
                 max_energy = max(max_energy, b_fr["energy_kcal"])
                 master_frames.append(b_fr)
-            curr_idx += len(all_bridges[k])
+                curr_idx += 1
 
     return {
         "title": "Master Multistep IRC Trajectory", "n_steps": len(aligned_steps), "total_frames": len(master_frames),
@@ -238,7 +244,7 @@ def stitch_multistep_trajectories(
     }
 
 
-def extract_fragment_molblock(traj: Dict[str, Any], frag_meta: Dict[str, Any], frame_idx: int = -1) -> str:
+def extract_fragment_molblock(traj: Dict[str, Any], frag_meta: Dict[str, Any], frame_idx: int = -1, target_mol: Any = None) -> str:
     """Extract a 3D MolBlock corresponding to a fragment in a trajectory frame with exact coordinates and bonds."""
     idxs = frag_meta.get("atom_indices", [])
     idx_map = {old: new for new, old in enumerate(idxs)}
@@ -266,4 +272,30 @@ def extract_fragment_molblock(traj: Dict[str, Any], frag_meta: Dict[str, Any], f
     for u, v, o in sub_bonds:
         lines.append(f"{u+1:>3}{v+1:>3}{o:>3}  0  0  0  0")
     lines.append("M  END")
-    return "\n".join(lines)
+    raw_mb = "\n".join(lines)
+
+    if target_mol is None and frag_meta.get("smiles"):
+        try:
+            target_mol = Chem.AddHs(Chem.MolFromSmiles(frag_meta["smiles"]))
+        except Exception:
+            target_mol = None
+
+    if target_mol is not None:
+        try:
+            raw_m = Chem.MolFromMolBlock(raw_mb, removeHs=False)
+            if raw_m is not None:
+                match = target_mol.GetSubstructMatch(raw_m)
+                if match and len(match) == target_mol.GetNumAtoms():
+                    inv = {ref_i: traj_i for traj_i, ref_i in enumerate(match)}
+                    conf = Chem.Conformer(target_mol.GetNumAtoms())
+                    t_conf = raw_m.GetConformer()
+                    for ref_i in range(target_mol.GetNumAtoms()):
+                        conf.SetAtomPosition(ref_i, t_conf.GetAtomPosition(inv[ref_i]))
+                    out_m = Chem.Mol(target_mol)
+                    out_m.RemoveAllConformers()
+                    out_m.AddConformer(conf)
+                    return Chem.MolToMolBlock(out_m)
+        except Exception:
+            pass
+
+    return raw_mb

@@ -13,9 +13,11 @@ from .step_1_input import Step1Input
 from .step_2_mapping import Step2Mapping
 from .step_3_ts import Step3TS
 from .step_4_irc import Step4IRC
+from .step_5_cascade import Step5Cascade
 
 register_plugin(Step1Input())
 register_plugin(Step2Mapping())
 register_plugin(Step3TS())
 register_plugin(Step4IRC())
+register_plugin(Step5Cascade())
 

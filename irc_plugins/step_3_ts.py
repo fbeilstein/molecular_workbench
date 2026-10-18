@@ -30,6 +30,7 @@ def _format_frequency_verdict(ts_report):
 
 class Step3TS(PipelineStep):
     _dock_cache: Dict[Any, Any] = {}
+    _mb_cache: Dict[str, str] = {}
 
     @property
     def step_id(self) -> str:
@@ -40,8 +41,10 @@ class Step3TS(PipelineStep):
         return "3. 3D Editor & TS Guess"
 
     def _generate_3d_molblock(self, smiles: str) -> str:
-        from .ts_engine.docking import generate_lowest_energy_molblock
-        return generate_lowest_energy_molblock(smiles)
+        if smiles not in self._mb_cache:
+            from .ts_engine.docking import generate_lowest_energy_molblock
+            self._mb_cache[smiles] = generate_lowest_energy_molblock(smiles)
+        return self._mb_cache[smiles]
 
     @staticmethod
     def _model(state: Dict[str, Any]):
@@ -58,11 +61,11 @@ class Step3TS(PipelineStep):
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
         mapping_data = current_state.get("step_2_mapping")
         if not mapping_data:
-            return {"message": "Please complete Step 2 (Mapping) first."}
+            return {"type": "empty", "message": "Please complete Step 2 (Mapping) first."}
 
         raw_smiles = current_state.get("step_1_input", {}).get("raw_smiles", "")
         if ">>" not in raw_smiles:
-            return {"message": "Invalid reaction smiles."}
+            return {"type": "empty", "message": "Invalid reaction smiles. Please complete Step 1 first."}
 
         r_part, p_part = raw_smiles.split(">>")
         r_smiles_list = r_part.split(".") if r_part else []
@@ -70,27 +73,26 @@ class Step3TS(PipelineStep):
         p_blocks = [self._generate_3d_molblock(s) for s in p_smiles_list]
         r_clean_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
 
-        # Automatic docking from the mapping (cached: /api/plugins is polled often)
-        mapping = mapping_data.get("final_mapping", {})
-        if not mapping:
-            from .step_2_mapping import Step2Mapping
-            mapping = Step2Mapping().get_ui_schema(current_state).get("initial_mapping", {})
-        key = (raw_smiles, tuple(sorted(mapping.items())))
-        try:
-            if key not in self._dock_cache:
-                from .ts_builder import auto_dock_molblocks
-                model = self._model(current_state)
-                blocks, n_var, _ = auto_dock_molblocks(model, variant=0)
-                self._dock_cache.clear()
-                self._dock_cache[key] = (blocks, n_var, model.reaction_info())
-            r_blocks, n_var, info = self._dock_cache[key]
-            msg = ("Reactants docked from atom mapping. "
-                   "Choose an optimization strategy or refine fragments if needed.")
-        except Exception as e:
-            r_blocks = r_clean_blocks
-            n_var, info = 1, {"forming": [], "breaking": [], "order_changed": [], "summary": [f"Auto-dock note: {e}"]}
-            msg = ("Auto-dock could not align fragments automatically. "
-                   "Position them in 3D and select an optimization strategy.")
+        existing_docked = current_state.get("step_3_ts", {}).get("docked_reactants", [])
+        if existing_docked:
+            r_blocks, n_var, info = existing_docked, 1, {"forming": [], "breaking": [], "order_changed": [], "summary": []}
+            msg = "Using existing docked reactants."
+        else:
+            mapping = mapping_data.get("final_mapping") or Step2Mapping().get_ui_schema(current_state).get("initial_mapping", {})
+            key = (raw_smiles, tuple(sorted(mapping.items())))
+            try:
+                if key not in self._dock_cache:
+                    from .ts_builder import auto_dock_molblocks
+                    model = self._model(current_state)
+                    blocks, n_var, _ = auto_dock_molblocks(model, variant=0)
+                    self._dock_cache.clear()
+                    self._dock_cache[key] = (blocks, n_var, model.reaction_info())
+                r_blocks, n_var, info = self._dock_cache[key]
+                msg = "Reactants docked from atom mapping. Choose an optimization strategy."
+            except Exception as e:
+                r_blocks, n_var = r_clean_blocks, 1
+                info = {"forming": [], "breaking": [], "order_changed": [], "summary": [f"Auto-dock note: {e}"]}
+                msg = "Position fragments in 3D and select an optimization strategy."
 
         return {
             "type": "ts_editor_ui",
@@ -156,17 +158,12 @@ class Step3TS(PipelineStep):
     def _handle_reset_clean(self, global_state, user_input):
         try:
             from .ts_builder import auto_dock_molblocks
-            model = self._model(global_state)
-            blocks, _, _ = auto_dock_molblocks(model, variant=0)
-            return {"success": True, "molblocks": blocks,
-                    "message": "Reset scene to clean reactant conformers."}
+            blocks, _, _ = auto_dock_molblocks(self._model(global_state), variant=0)
+            return {"success": True, "molblocks": blocks, "message": "Reset scene to clean reactant conformers."}
         except Exception:
-            raw_smiles = global_state.get("step_1_input", {}).get("raw_smiles", "")
-            r_part = raw_smiles.split(">>")[0]
-            r_smiles_list = r_part.split(".") if r_part else []
-            clean_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
-            return {"success": True, "molblocks": clean_blocks,
-                    "message": "Reset scene to clean reactant conformers."}
+            r_part = global_state.get("step_1_input", {}).get("raw_smiles", "").split(">>")[0]
+            clean = self._side_by_side([self._generate_3d_molblock(s) for s in (r_part.split(".") if r_part else [])])
+            return {"success": True, "molblocks": clean, "message": "Reset scene to clean reactant conformers."}
 
     def _handle_seed_from_previous(self, global_state, user_input):
         import glob, json
@@ -195,7 +192,10 @@ class Step3TS(PipelineStep):
                         for fp in prods:
                             can_p = Chem.CanonSmiles(fp.get("smiles", "")) if fp.get("smiles") else ""
                             if can_r and can_r == can_p:
-                                mb = extract_fragment_molblock(traj, fp)
+                                target_m = None
+                                try: target_m = self._model(global_state).r_mols[r_idx]
+                                except Exception: target_m = Chem.AddHs(Chem.MolFromSmiles(r_smi)) if r_smi else None
+                                mb = extract_fragment_molblock(traj, fp, target_mol=target_m)
                                 if r_idx < len(current_blocks):
                                     current_blocks[r_idx] = mb
                                 else:
@@ -232,21 +232,14 @@ class Step3TS(PipelineStep):
             run_dimer_ts, run_drive_sella_ts, run_seeded_sella_ts, run_neb_ts,
             run_rits_ts, run_lego_ts, run_guided_manual_ts, run_genetic_swarm_ts, run_orca_dft_ts
         )
-        dispatch = {
-            "rits": lambda: (run_rits_ts(atoms, model, log), None),
-            "lego": lambda: (run_lego_ts(atoms, model, log), None),
-            "genetic_swarm": lambda: (run_genetic_swarm_ts(atoms, model, log), None),
-            "manual_valley": lambda: (run_guided_manual_ts(atoms, model, log), None),
-            "auto_dock": lambda: (run_drive_sella_ts(atoms, model, log), None),
-            "orca_dft": lambda: (run_orca_dft_ts(atoms, model, log), None),
-            "dimer": lambda: ([], run_dimer_ts(atoms, model, log)),
-            "drive": lambda: (run_drive_sella_ts(atoms, model, log), None),
-            "sella": lambda: (run_seeded_sella_ts(atoms, model, log), None),
-            "neb": lambda: (run_neb_ts(atoms, model, log), None),
+        d = {
+            "rits": run_rits_ts, "lego": run_lego_ts, "genetic_swarm": run_genetic_swarm_ts,
+            "manual_valley": run_guided_manual_ts, "auto_dock": run_drive_sella_ts,
+            "orca_dft": run_orca_dft_ts, "drive": run_drive_sella_ts,
+            "sella": run_seeded_sella_ts, "neb": run_neb_ts, "dimer": run_dimer_ts
         }
-        runner = dispatch.get(strategy, dispatch["rits"])
-        profile, _ = runner()
-        return profile or []
+        res = d.get(strategy, run_rits_ts)(atoms, model, log)
+        return (res[0] if isinstance(res, tuple) else res) or []
 
     def _optimize_ts(self, user_input, global_state):
         import numpy as np
@@ -279,6 +272,18 @@ class Step3TS(PipelineStep):
             mols, pos_list = molblocks_to_positions(docked)
             positions = np.vstack(pos_list)
             symbols = [a.GetSymbol() for m in mols for a in m.GetAtoms()]
+            if symbols != model.symbols and sorted(symbols) == sorted(model.symbols) and len(mols) == len(model.r_mols):
+                try:
+                    reordered = []
+                    for r_idx, ref_m in enumerate(model.r_mols):
+                        mt = ref_m.GetSubstructMatch(mols[r_idx])
+                        if mt and len(mt) == ref_m.GetNumAtoms():
+                            inv = {ref_i: tr_i for tr_i, ref_i in enumerate(mt)}
+                            reordered.append(pos_list[r_idx][[inv[k] for k in range(len(ref_m.GetAtoms()))]])
+                    if len(reordered) == len(model.r_mols):
+                        positions, symbols, mols = np.vstack(reordered), list(model.symbols), list(model.r_mols)
+                except Exception:
+                    pass
             if len(symbols) != model.n_atoms or symbols != model.symbols:
                 return {"error": "3D atoms do not match the mapped reaction (re-run Step 3)."}
             atoms = Atoms(symbols=symbols, positions=positions)
@@ -306,17 +311,13 @@ class Step3TS(PipelineStep):
             if atoms.calc is None:
                 from .ts_engine.calculators import make_xtb
                 atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=getattr(model, "solvent", "water"))
-            try:
-                e_ts = atoms.get_potential_energy()
-            except Exception:
-                e_ts = 0.0
+            try: e_ts = atoms.get_potential_energy()
+            except Exception: e_ts = 0.0
             log(f"\nFinal geometry energy: E = {e_ts:.4f} eV")
             for i, j in model.formed + model.broken:
-                d = np.linalg.norm(atoms.positions[i] - atoms.positions[j])
-                log(f"  {model.label(i)}-{model.label(j)}: {d:.3f} A")
+                log(f"  {model.label(i)}-{model.label(j)}: {np.linalg.norm(atoms.positions[i] - atoms.positions[j]):.3f} A")
             for i, j, ro, po in model.order_changed:
-                d = np.linalg.norm(atoms.positions[i] - atoms.positions[j])
-                log(f"  Order changed {model.label(i)}-{model.label(j)} ({ro:.1f}->{po:.1f}): {d:.3f} A")
+                log(f"  Order changed {model.label(i)}-{model.label(j)} ({ro:.1f}->{po:.1f}): {np.linalg.norm(atoms.positions[i] - atoms.positions[j]):.3f} A")
 
             log("\n=== Frequency check ===")
             ts_report = _evaluate_frequency_mode(atoms, model, log)

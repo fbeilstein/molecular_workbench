@@ -278,8 +278,8 @@ export function buildIRCLayout(container) {
     prolongBtn.style.padding = '8px 12px';
     prolongBtn.style.fontSize = '13px';
     prolongBtn.disabled = true;
-    prolongBtn.title = 'Append current trajectory to previous trajectory and stitch energies';
-    prolongBtn.textContent = '🔗 Prolong Pathway';
+    prolongBtn.title = 'Use product of this reaction as starting seed for the next reaction step';
+    prolongBtn.textContent = '🌱 Prolong to Next Step';
 
     actionRow.appendChild(calcBtn);
     actionRow.appendChild(downloadBtn);
