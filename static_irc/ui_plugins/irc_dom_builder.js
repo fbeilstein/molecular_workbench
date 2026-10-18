@@ -274,8 +274,16 @@ export function buildIRCLayout(container) {
     downloadBtn.disabled = true;
     downloadBtn.textContent = '💾 Export JSON';
 
+    const prolongBtn = document.createElement('button');
+    prolongBtn.style.padding = '8px 12px';
+    prolongBtn.style.fontSize = '13px';
+    prolongBtn.disabled = true;
+    prolongBtn.title = 'Append current trajectory to previous trajectory and stitch energies';
+    prolongBtn.textContent = '🔗 Prolong Pathway';
+
     actionRow.appendChild(calcBtn);
     actionRow.appendChild(downloadBtn);
+    actionRow.appendChild(prolongBtn);
     playerCard.appendChild(actionRow);
     sidePanel.appendChild(playerCard);
 
@@ -303,6 +311,6 @@ export function buildIRCLayout(container) {
         energyCanvas, frameSlider, frameCountLabel,
         playBtn, prevBtn, nextBtn, loopCheckbox,
         engineSelect, solventSelect, relaxCheckbox,
-        calcBtn, downloadBtn, logBox
+        calcBtn, downloadBtn, prolongBtn, logBox
     };
 }

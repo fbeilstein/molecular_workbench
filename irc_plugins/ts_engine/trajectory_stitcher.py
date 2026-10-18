@@ -72,10 +72,22 @@ def find_all_hero_overlaps(step_prev: Dict[str, Any], step_next: Dict[str, Any])
                 p_m, n_m = [ip[i] for i in r_sub], [ir[i] for i in c_sub]
                 form = fp.get("formula") or fr.get("formula") or can_p
                 candidates.append({
-                    "id": f"mol_{p_idx}_{r_idx}", "label": f"{form} ({len(p_m)} atoms, RMSD: {rmsd:.4f} Å)",
+                    "id": f"mol_{p_idx}_{r_idx}", "label": f"{form} (Rigid All-Atom, {len(p_m)} atoms, RMSD: {rmsd:.4f} Å)",
                     "formula": form, "smiles": can_p, "prev_indices": p_m, "next_indices": n_m,
                     "num_atoms": len(p_m), "rmsd": round(rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": False
                 })
+
+                heavy_p = [i for i in p_m if sym_p[i] != "H"]
+                heavy_n = [n_m[p_m.index(i)] for i in heavy_p]
+                if len(heavy_p) >= 3 and len(heavy_p) < len(p_m):
+                    R_h, t_h = kabsch_fit(p_last[heavy_p], p_first[heavy_n])
+                    rmsd_h = float(np.sqrt(np.mean((p_last[heavy_p] - (p_first[heavy_n] @ R_h.T + t_h)) ** 2)))
+                    candidates.append({
+                        "id": f"mol_{p_idx}_{r_idx}_scaffold",
+                        "label": f"{form} (Rotamer-Aware Scaffold, {len(heavy_p)} atoms, RMSD: {rmsd_h:.4f} Å)",
+                        "formula": f"{form} [Scaffold]", "smiles": can_p, "prev_indices": p_m, "next_indices": n_m,
+                        "num_atoms": len(heavy_p), "rmsd": round(rmsd_h, 4), "R": R_h.tolist(), "t": t_h.tolist(), "is_joint": False
+                    })
                 used_next.add(r_idx)
                 break
 
@@ -218,8 +230,40 @@ def stitch_multistep_trajectories(
 
     return {
         "title": "Master Multistep IRC Trajectory", "n_steps": len(aligned_steps), "total_frames": len(master_frames),
-        "symbols": symbols, "step_boundaries": step_boundaries, "stitching_alignment_report": step_reports,
-        "junction_previews": junction_previews, "overall_barrier_kcal": round(float(max_energy), 2),
+        "symbols": symbols, "bonds": aligned_steps[0].get("bonds", []), "step_boundaries": step_boundaries,
+        "stitching_alignment_report": step_reports, "junction_previews": junction_previews,
+        "overall_barrier_kcal": round(float(max_energy), 2),
         "overall_reaction_energy_kcal": round(float(final_energy), 2),
         "frames": master_frames
     }
+
+
+def extract_fragment_molblock(traj: Dict[str, Any], frag_meta: Dict[str, Any], frame_idx: int = -1) -> str:
+    """Extract a 3D MolBlock corresponding to a fragment in a trajectory frame with exact coordinates and bonds."""
+    idxs = frag_meta.get("atom_indices", [])
+    idx_map = {old: new for new, old in enumerate(idxs)}
+    frames = traj.get("frames", [])
+    frame = frames[frame_idx] if frames else {}
+    pos = frame.get("positions", frame.get("coords", []))
+    symbols = [traj.get("symbols", [])[i] for i in idxs]
+    sub_pos = [pos[i] for i in idxs] if len(pos) >= max(idxs, default=0) + 1 else []
+
+    sub_bonds = []
+    for b in traj.get("bonds", []):
+        u = b.get("from", b[0] if isinstance(b, list) else 0)
+        v = b.get("to", b[1] if isinstance(b, list) else 0)
+        if u in idx_map and v in idx_map:
+            ord_val = b.get("p_order", b.get("order", 1))
+            if ord_val > 0:
+                sub_bonds.append((idx_map[u], idx_map[v], ord_val))
+
+    na, nb = len(symbols), len(sub_bonds)
+    form = frag_meta.get("formula", "")
+    lines = [f"Seeded Product {form}", "  Molecular Workbench", ""]
+    lines.append(f"{na:>3}{nb:>3}  0  0  0  0  0  0  0  0999 V2000")
+    for s, p in zip(symbols, sub_pos):
+        lines.append(f"{p[0]:>10.4f}{p[1]:>10.4f}{p[2]:>10.4f} {s:<3} 0  0  0  0  0  0  0  0  0  0  0  0")
+    for u, v, o in sub_bonds:
+        lines.append(f"{u+1:>3}{v+1:>3}{o:>3}  0  0  0  0")
+    lines.append("M  END")
+    return "\n".join(lines)

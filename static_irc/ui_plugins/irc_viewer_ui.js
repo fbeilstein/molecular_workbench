@@ -44,6 +44,7 @@ export const IRCViewerUI = {
             dom.prevBtn.disabled = false;
             dom.nextBtn.disabled = false;
             dom.downloadBtn.disabled = false;
+            if (dom.prolongBtn) dom.prolongBtn.disabled = false;
 
             const b = traj.barriers || {};
             dom.fwdBadge.textContent = `ΔE‡ fwd: ${b.forward_barrier_kcal != null ? b.forward_barrier_kcal.toFixed(1) : '--'} kcal`;
@@ -96,6 +97,33 @@ export const IRCViewerUI = {
             a.click();
             a.remove();
         };
+
+        if (dom.prolongBtn) {
+            dom.prolongBtn.onclick = async () => {
+                if (!confirm('Prolong trajectory: Stitch previous reaction trajectory with this current IRC trajectory?')) return;
+                dom.prolongBtn.disabled = true;
+                dom.prolongBtn.textContent = 'Stitching...';
+                try {
+                    const res = await fetch('/api/step/step_4_irc/custom', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action_type: 'prolong_trajectory' })
+                    });
+                    const r = await res.json();
+                    if (r.success && r.trajectory) {
+                        loadTrajectory(r.trajectory);
+                        dom.logBox.value += `\n✓ ${r.message}`;
+                    } else {
+                        alert('Prolong Error: ' + (r.error || 'Failed to prolong trajectory'));
+                    }
+                } catch (err) {
+                    alert('Prolong Request failed: ' + err.message);
+                } finally {
+                    dom.prolongBtn.disabled = false;
+                    dom.prolongBtn.textContent = '🔗 Prolong Pathway';
+                }
+            };
+        }
 
         const curSolv = state.solvent || ui.solvent || 'water';
         if (dom.solventSelect) {

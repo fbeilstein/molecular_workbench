@@ -62,7 +62,7 @@ export function createReactionCard({ rxnBonds, getPicked, onBondsChanged, el, st
     return { card: rxnCard, refreshBondList };
 }
 
-export function createRefinementCard({ numReactants, onSelect, onRefine, onGizmoMode, onUndo, onReset, el, styledButton, card }) {
+export function createRefinementCard({ numReactants, onSelect, onRefine, onGizmoMode, onUndo, onReset, onSeed, el, styledButton, card }) {
     const tuneCard = card('Positioning & Shape Refinement');
 
     for (let idx = 0; idx < numReactants; idx++) {
@@ -102,14 +102,19 @@ export function createRefinementCard({ numReactants, onSelect, onRefine, onGizmo
     undoBtn.disabled = true;
     undoBtn.onclick = () => onUndo();
 
-    const resetCleanBtn = styledButton('↺ Reset to Clean Reactants', false, true);
+    const resetCleanBtn = styledButton('↺ Reset Clean', false, true);
     resetCleanBtn.onclick = () => onReset();
+
+    const seedBtn = styledButton('🌱 Seed from Prev Product', false, true);
+    seedBtn.title = 'Seed exact 3D geometry of reactants from previous IRC product';
+    seedBtn.onclick = () => onSeed && onSeed();
 
     recoveryRow.appendChild(undoBtn);
     recoveryRow.appendChild(resetCleanBtn);
+    recoveryRow.appendChild(seedBtn);
     tuneCard.appendChild(recoveryRow);
 
-    return { card: tuneCard, undoBtn, resetCleanBtn };
+    return { card: tuneCard, undoBtn, resetCleanBtn, seedBtn };
 }
 
 export function createOptimizationCard({ strats, currentSolvent, onSolventChange, onRun, el, styledButton, card }) {

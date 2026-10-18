@@ -167,4 +167,36 @@ export class TSEditorActions {
         }
         this.setStatus('❌ Error: ' + (result.error || 'Optimization failed'), '#e0245e');
     }
+
+    async seedFromPrevious() {
+        this.pushHistory();
+        this.setStatus('Checking previous reaction product geometry...', '#4f6ef7');
+        try {
+            const currentData = this.state.molblocks.map((mb, fi) => {
+                const g = this.viewer.moleculeGroups[fi];
+                return g ? updateMolBlockPositions(mb, g) : mb;
+            });
+            const res = await fetch('/api/step/step_3_ts/custom', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action_type: 'seed_from_previous',
+                    molblocks: currentData
+                })
+            });
+            const data = await res.json();
+            if (data.success && data.molblocks) {
+                this.state.molblocks = data.molblocks;
+                this.viewer.buildMolecules(this.state.molblocks);
+                this.viewer.updateDynamicBonds(this.state.rxnBonds);
+                this.viewer.flashAtoms(0x10b981);
+                this.setStatus('✓ ' + data.message, '#18a558');
+                if (this.onGeometryUpdated) this.onGeometryUpdated();
+            } else {
+                this.setStatus('⚠️ ' + (data.error || 'Failed to seed from previous product'), '#d97706');
+            }
+        } catch (e) {
+            this.setStatus('Error: ' + e.message, '#e0245e');
+        }
+    }
 }

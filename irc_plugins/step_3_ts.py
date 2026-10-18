@@ -168,6 +168,49 @@ class Step3TS(PipelineStep):
             return {"success": True, "molblocks": clean_blocks,
                     "message": "Reset scene to clean reactant conformers."}
 
+    def _handle_seed_from_previous(self, global_state, user_input):
+        import glob, json
+        from .ts_engine.trajectory_stitcher import extract_fragment_molblock
+        cand_files = [p for p in [os.path.join(OUT_DIR, "irc_trajectory_prev.json"), os.path.join(OUT_DIR, "irc_trajectory.json")] if os.path.exists(p)]
+        t_dir = os.path.join(os.path.dirname(OUT_DIR), "trajectories")
+        if os.path.exists(t_dir):
+            cand_files.extend(sorted(glob.glob(os.path.join(t_dir, "*.json")), reverse=True))
+        if not cand_files:
+            return {"error": "No previous IRC trajectory found in out/ or trajectories/."}
+        try:
+            raw_smiles = global_state.get("step_1_input", {}).get("raw_smiles", "")
+            r_smiles = raw_smiles.split(">>")[0].split(".") if ">>" in raw_smiles else []
+            current_blocks = list(user_input.get("molblocks", []))
+            if not current_blocks:
+                from .ts_builder import auto_dock_molblocks
+                current_blocks, _, _ = auto_dock_molblocks(self._model(global_state), variant=0)
+            for c_path in cand_files:
+                try:
+                    with open(c_path, "r") as f:
+                        traj = json.load(f)
+                    prods = traj.get("fragments", {}).get("products", [])
+                    seeded = 0
+                    for r_idx, r_smi in enumerate(r_smiles):
+                        can_r = Chem.CanonSmiles(r_smi) if r_smi else ""
+                        for fp in prods:
+                            can_p = Chem.CanonSmiles(fp.get("smiles", "")) if fp.get("smiles") else ""
+                            if can_r and can_r == can_p:
+                                mb = extract_fragment_molblock(traj, fp)
+                                if r_idx < len(current_blocks):
+                                    current_blocks[r_idx] = mb
+                                else:
+                                    current_blocks.append(mb)
+                                seeded += 1
+                                break
+                    if seeded > 0:
+                        src = os.path.basename(c_path)
+                        return {"success": True, "molblocks": current_blocks, "message": f"Seeded {seeded} reactant(s) from {src}!"}
+                except Exception:
+                    continue
+            return {"error": "None of the current reactants match products in previous trajectories."}
+        except Exception as e:
+            return {"error": f"Seeding failed: {e}"}
+
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
         action_type = user_input.get("action_type")
@@ -175,6 +218,7 @@ class Step3TS(PipelineStep):
             "auto_dock": self._handle_auto_dock,
             "refine_fragment": self._handle_refine_fragment,
             "reset_clean": self._handle_reset_clean,
+            "seed_from_previous": self._handle_seed_from_previous,
             "optimize_ts": lambda gs, ui: self._optimize_ts(ui, gs),
         }
         handler = handlers.get(action_type)

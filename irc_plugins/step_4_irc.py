@@ -93,8 +93,11 @@ class Step4IRC(PipelineStep):
 
             traj = run_irc_path(atoms, model, log, max_steps=max_steps, dx=dx, relax_fragments=relax_fragments, engine=engine)
 
-            # Persist trajectory JSON to root
+            # Persist trajectory JSON with previous backup
             try:
+                import shutil
+                if os.path.exists(TRAJECTORY_FILE):
+                    shutil.copy2(TRAJECTORY_FILE, os.path.join(OUT_DIR, "irc_trajectory_prev.json"))
                 with open(TRAJECTORY_FILE, 'w') as f:
                     json.dump(traj, f, indent=2)
             except Exception as err:
@@ -112,11 +115,59 @@ class Step4IRC(PipelineStep):
         finally:
             log_fh.close()
 
+    def _handle_prolong_trajectory(self, user_input: Dict[str, Any], global_state: Dict[str, Any]) -> Dict[str, Any]:
+        import glob
+        from .ts_engine.trajectory_stitcher import stitch_multistep_trajectories
+        current_traj = user_input.get("trajectory") or global_state.get("step_4_irc", {}).get("trajectory")
+        if not current_traj and os.path.exists(TRAJECTORY_FILE):
+            with open(TRAJECTORY_FILE, "r") as f:
+                current_traj = json.load(f)
+        if not current_traj:
+            return {"error": "Current IRC trajectory missing."}
+
+        cand_files = [p for p in [os.path.join(OUT_DIR, "irc_trajectory_prev.json")] if os.path.exists(p)]
+        t_dir = os.path.join(os.path.dirname(OUT_DIR), "trajectories")
+        if os.path.exists(t_dir):
+            cand_files.extend(sorted(glob.glob(os.path.join(t_dir, "*.json"))))
+
+        prev_traj = None
+        cur_smiles = current_traj.get("reaction_smiles")
+        for c_path in cand_files:
+            try:
+                with open(c_path, "r") as f:
+                    tj = json.load(f)
+                if tj.get("reaction_smiles") != cur_smiles and "frames" in tj:
+                    prev_traj = tj
+                    break
+            except Exception:
+                continue
+        if not prev_traj:
+            return {"error": "No previous IRC trajectory found to prolong onto."}
+        try:
+            mega = stitch_multistep_trajectories([prev_traj, current_traj], n_bridge_frames=8)
+            with open(TRAJECTORY_FILE, "w") as f:
+                json.dump(mega, f, indent=2)
+            prolong_p = os.path.join(os.path.dirname(OUT_DIR), "trajectories", "prolonged_pathway.json")
+            try:
+                with open(prolong_p, "w") as f:
+                    json.dump(mega, f, indent=2)
+            except Exception:
+                pass
+            return {
+                "success": True,
+                "trajectory": mega,
+                "message": f"Pathway prolonged! Master trajectory now has {mega.get('total_frames', len(mega['frames']))} frames across {mega.get('n_steps', 2)} steps."
+            }
+        except Exception as e:
+            return {"error": f"Failed to prolong trajectory: {e}"}
+
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
         action_type = user_input.get("action_type")
         if action_type == "calculate_irc":
             return self._calculate_irc(user_input, global_state)
+        if action_type == "prolong_trajectory":
+            return self._handle_prolong_trajectory(user_input, global_state)
         return {"error": f"Unknown custom action: {action_type}"}
 
     def run(self, global_state: Dict[str, Any], user_input: Dict[str, Any]) -> StepResult:

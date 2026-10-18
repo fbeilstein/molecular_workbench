@@ -135,6 +135,7 @@ export function renderTSEditor(arg1, arg2) {
         onGizmoMode: m => activeViewer.setGizmoMode(m),
         onUndo: () => activeActions.popHistory(() => rxnCard.refreshBondList()),
         onReset: () => activeActions.resetToClean(ui.clean_reactants_3d),
+        onSeed: () => activeActions.seedFromPrevious(),
         el, styledButton, card
     });
     controlsContainer.appendChild(refineCard.card);
