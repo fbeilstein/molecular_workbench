@@ -62,6 +62,57 @@ export function buildStitchAlignHTML(state) {
                     </div>
                 </div>
 
+                <!-- Boundary Scissors & Frame Trimmer Card -->
+                <div class="catalog-card" style="flex: 0 0 auto;">
+                    <div class="section-title">
+                        <span>✂️ Boundary Scissors & Trimmer</span>
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                            <span class="chip purple" id="trim-active-badge" style="font-size: 0.7rem;">Junction 1</span>
+                            <button id="btn-auto-trim" class="btn btn-xs btn-primary" title="Snap to minimal RMSD overlap" style="font-size: 0.7rem; padding: 0.15rem 0.5rem; font-weight: 600;">
+                                ⚡ Best Overlap
+                            </button>
+                            <button id="btn-reset-trim" class="btn btn-xs btn-secondary" title="Reset cuts to full trajectory" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;">
+                                ↺ Reset
+                            </button>
+                        </div>
+                    </div>
+                    <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                        Cut overshooting product tail or reactant head frames to stitch at the exact minimal-strain intermediate conformer.
+                    </p>
+
+                    <!-- Step K Product Tail Cut -->
+                    <div style="margin-bottom: 0.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.725rem; margin-bottom: 0.2rem;">
+                            <span style="color: #93c5fd; font-weight: 600;">Step K Product Tail Cut:</span>
+                            <span class="chip blue" id="trim-prev-val" style="font-size: 0.7rem; padding: 0.1rem 0.35rem;">Frame -</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);" id="trim-prev-min">0</span>
+                            <input type="range" id="trim-prev-slider" class="scrub-slider" min="0" max="10" value="10" style="flex: 1;">
+                            <span style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);" id="trim-prev-max">10</span>
+                        </div>
+                    </div>
+
+                    <!-- Step K+1 Reactant Head Cut -->
+                    <div style="margin-bottom: 0.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.725rem; margin-bottom: 0.2rem;">
+                            <span style="color: #f43f5e; font-weight: 600;">Step K+1 Reactant Head Cut:</span>
+                            <span class="chip rose" id="trim-next-val" style="font-size: 0.7rem; padding: 0.1rem 0.35rem;">Frame -</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);" id="trim-next-min">0</span>
+                            <input type="range" id="trim-next-slider" class="scrub-slider" min="0" max="10" value="0" style="flex: 1;">
+                            <span style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);" id="trim-next-max">10</span>
+                        </div>
+                    </div>
+
+                    <!-- Overlap Metrics Bar -->
+                    <div id="trim-stats-box" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.725rem; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: var(--text-muted);">Optimal Window Match:</span>
+                        <span id="trim-recommended-label" style="font-weight: 600; color: #6ee7b7; font-family: var(--font-mono);">-</span>
+                    </div>
+                </div>
+
                 <!-- Global Metrics Summary -->
                 <div class="catalog-card" style="flex: 0 0 auto;">
                     <div class="section-title">Global Master Pathway Metrics</div>
@@ -191,6 +242,10 @@ export function renderJunctionsQueue(containerEl, badgeEl, state, callbacks) {
     containerEl.innerHTML = previews.map((j, idx) => {
         const isSelected = idx === state.activeJunctionIdx;
         const currentChoice = state.junctionChoices[idx] || 'kabsch_bridge';
+        const isTrimmed = j.is_trimmed;
+        const pCut = j.prev_cut !== undefined ? j.prev_cut : (j.prev_total_frames ? j.prev_total_frames - 1 : '-');
+        const nCut = j.next_cut !== undefined ? j.next_cut : 0;
+        const hasRec = (!isTrimmed && j.rmsd_improvement > 0.02);
 
         return `
             <div class="queue-item ${isSelected ? 'selected-for-preview' : ''}" style="flex-direction: column; align-items: stretch; gap: 0.4rem; padding: 0.6rem 0.75rem;" data-j-idx="${idx}">
@@ -201,14 +256,23 @@ export function renderJunctionsQueue(containerEl, badgeEl, state, callbacks) {
                             Step ${j.step_prev_index} ➔ Step ${j.step_next_index}
                         </span>
                     </div>
-                    <span class="chip ${j.rmsd < 0.25 ? 'emerald' : 'amber'}" style="font-family: var(--font-mono); font-size: 0.7rem;">
-                        RMSD: ${(j.rmsd || 0).toFixed(3)} Å
-                    </span>
+                    <div style="display: flex; align-items: center; gap: 0.35rem;">
+                        ${isTrimmed ? '<span class="chip purple" style="font-family: var(--font-mono); font-size: 0.65rem; padding: 0.1rem 0.35rem;">✂️ Trimmed</span>' : ''}
+                        ${hasRec ? `<span class="chip emerald" style="font-family: var(--font-mono); font-size: 0.65rem; padding: 0.1rem 0.35rem;" title="Optimal window overlap improves RMSD by ${j.rmsd_improvement.toFixed(3)} Å">⚡ +${j.rmsd_improvement.toFixed(2)} Å</span>` : ''}
+                        <span class="chip ${j.rmsd < 0.25 ? 'emerald' : 'amber'}" style="font-family: var(--font-mono); font-size: 0.7rem;">
+                            RMSD: ${(j.rmsd || 0).toFixed(3)} Å
+                        </span>
+                    </div>
                 </div>
 
                 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.725rem; color: var(--text-muted);">
                     <span>${j.hero_formula || 'Matched Core'}: ${j.n_matched_atoms} atoms</span>
                     <span style="color: #c084fc;">${(j.bridge_frames || []).length} Bridge Frames</span>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; color: #94a3b8;">
+                    <span>Active Frames: [0..${pCut}] ➔ [${nCut}..${(j.next_total_frames || 1) - 1}]</span>
+                    <span style="color: #64748b;">Tot: ${j.prev_total_frames || '-'} | ${j.next_total_frames || '-'}</span>
                 </div>
 
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.2rem; font-size: 0.725rem;">

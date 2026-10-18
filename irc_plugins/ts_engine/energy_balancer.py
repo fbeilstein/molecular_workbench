@@ -123,23 +123,59 @@ def analyze_pathway_stoichiometry(
     return {"steps": step_info, "all_external_reactants": all_external_reactants, "all_external_byproducts": all_external_byproducts}
 
 
-def compute_isolated_fragment_energies(fragments: List[Dict[str, Any]], solvent: str = "water") -> Dict[str, float]:
-    """Compute isolated electronic energy (eV) for fragments in chosen solvent using xTB."""
+def compute_isolated_fragment_energies(
+    fragments: List[Dict[str, Any]], solvent: str = "water", relax: bool = True
+) -> Dict[str, float]:
+    """Compute isolated electronic energy (eV) for fully relaxed ground-state fragments in chosen solvent using xTB."""
+    from ase.optimize import BFGS
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
     cache = {}
     for fr in fragments:
-        smi = fr["smiles"]
-        if smi in cache:
+        smi = fr.get("smiles", "")
+        if not smi:
             continue
-        syms, pos, chg = fr.get("symbols", []), fr.get("positions", []), fr.get("charge", 0)
+        clean_s = _clean_smiles(smi)
+        if clean_s in cache:
+            continue
+
+        syms = list(fr.get("symbols", []))
+        pos = list(fr.get("positions", []))
+        chg = fr.get("charge", 0)
+
+        # If 3D coordinates are missing, embed a clean 3D conformer with RDKit
+        if (not syms or not pos or len(syms) != len(pos)) and clean_s:
+            try:
+                mol = Chem.AddHs(Chem.MolFromSmiles(clean_s))
+                AllChem.EmbedMolecule(mol, AllChem.ETKDGv3())
+                syms = [a.GetSymbol() for a in mol.GetAtoms()]
+                pos = mol.GetConformer().GetPositions().tolist()
+                chg = Chem.GetFormalCharge(mol)
+            except Exception:
+                pass
+
         if not syms or not pos or len(syms) != len(pos):
-            cache[smi] = 0.0
+            cache[clean_s] = 0.0
             continue
+
         try:
-            atoms = Atoms(symbols=syms, positions=pos)
+            atoms = Atoms(symbols=syms, positions=np.array(pos, dtype=float))
             atoms.calc = make_xtb(charge=chg, multiplicity=1, solvent=solvent)
-            cache[smi] = float(atoms.get_potential_energy())
+            if relax and len(syms) > 1:
+                try:
+                    opt = BFGS(atoms, logfile=None)
+                    opt.run(fmax=0.03, steps=40)
+                except Exception:
+                    pass
+            cache[clean_s] = float(atoms.get_potential_energy())
         except Exception:
-            cache[smi] = 0.0
+            try:
+                atoms = Atoms(symbols=syms, positions=np.array(pos, dtype=float))
+                atoms.calc = make_xtb(charge=chg, multiplicity=1, solvent=solvent)
+                cache[clean_s] = float(atoms.get_potential_energy())
+            except Exception:
+                cache[clean_s] = 0.0
     return cache
 
 
@@ -166,8 +202,9 @@ def balance_pathway_energies(
 ) -> Dict[str, Any]:
     """Calculate Hess's Law balanced Free Energy (G) profile with dynamic association entropy and leaving group exclusion."""
     stoich = analyze_pathway_stoichiometry(trajectories, fragment_roles)
-    all_ext = stoich["all_external_reactants"] + stoich["all_external_byproducts"]
-    frag_energies = compute_isolated_fragment_energies(all_ext, solvent=solvent)
+    init_reactants = stoich["steps"][0]["reactants"] if stoich["steps"] else []
+    all_ext = stoich["all_external_reactants"] + stoich["all_external_byproducts"] + init_reactants
+    frag_energies = compute_isolated_fragment_energies(all_ext, solvent=solvent, relax=True)
 
     boundaries = megajson.get("step_boundaries", [])
     master_frames = megajson.get("frames", [])
@@ -176,9 +213,22 @@ def balance_pathway_energies(
     if n_frames == 0:
         return megajson
 
+    # Combined translational/rotational entropy loss + 1M solution standard-state correction (~13.76 kcal/mol)
+    delta_g_assoc = 13.76 / 23.0605
+
     if not recalculate_with_xtb:
         rel_kcal = np.array([float(fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0))) for fr in master_frames])
         balanced_ev = rel_kcal / 23.0605
+        # Apply Hess offsets and association penalty even if using pre-computed energies
+        for k, b in enumerate(boundaries):
+            s_info = stoich["steps"][k]
+            start, end = b["start_frame"], b["end_frame"]
+            s_offset = sum(frag_energies.get(_clean_smiles(r["smiles"]), 0.0) for r in s_info["waiting_reagents"])
+            s_offset += sum(frag_energies.get(_clean_smiles(p["smiles"]), 0.0) for p in s_info["departed_byproducts"])
+            balanced_ev[start : end + 1] += s_offset
+            if s_info.get("incoming_external"):
+                ts_f = b.get("ts_frame", (start + end) // 2)
+                balanced_ev[ts_f] += delta_g_assoc
     else:
         # 1. Base electronic energy in chosen solvent
         active_e = np.zeros(n_frames)
@@ -194,7 +244,6 @@ def balance_pathway_energies(
             for i, fr in enumerate(master_frames):
                 active_e[i] = float(fr.get("energy_ev", fr.get("energy_kcal", 0.0) / 23.0605))
 
-        delta_g_assoc = 11.87 / 23.0605  # Bimolecular association entropy penalty (~11.87 kcal/mol in eV)
         balanced_ev = np.copy(active_e)
 
         # 2. Process each elementary reaction step with dynamic free energy & fragment isolation
@@ -205,8 +254,8 @@ def balance_pathway_energies(
             bonds = traj.get("bonds", [])
 
             # Hess's Law offset for waiting reagents and past departed byproducts
-            s_offset = sum(frag_energies.get(r["smiles"], 0.0) for r in s_info["waiting_reagents"])
-            s_offset += sum(frag_energies.get(p["smiles"], 0.0) for p in s_info["departed_byproducts"])
+            s_offset = sum(frag_energies.get(_clean_smiles(r["smiles"]), 0.0) for r in s_info["waiting_reagents"])
+            s_offset += sum(frag_energies.get(_clean_smiles(p["smiles"]), 0.0) for p in s_info["departed_byproducts"])
 
             # Check for incoming fragment in this step
             inc_frags = s_info.get("incoming_external", [])
@@ -219,12 +268,41 @@ def balance_pathway_energies(
             if inc_frags and forming_bonds:
                 bi, bj = forming_bonds[0]["from"], forming_bonds[0]["to"]
                 d0_form = rcov(symbols[bi]) + rcov(symbols[bj])
-                d_contact, d_cov = d0_form + 1.25, d0_form * 1.15
+                d_contact, d_cov = d0_form + 1.35, d0_form * 1.15
+
+                inc_atom_set = set(inc_frags[0].get("atom_indices", []))
+                if not inc_atom_set:
+                    inc_atom_set = {bj}
+                core_idxs = [i for i in range(len(symbols)) if i not in inc_atom_set]
+
+                q_inc = inc_frags[0].get("charge", 0)
+                tot_step_chg = sum(r.get("charge", 0) for r in s_info["reactants"])
+                q_core = tot_step_chg - q_inc
+
+                core_atoms = Atoms(symbols=[symbols[i] for i in core_idxs])
+                core_calc = make_xtb(charge=q_core, multiplicity=1, solvent=solvent)
+                core_atoms.calc = core_calc
+                e_inc_iso = frag_energies.get(_clean_smiles(inc_frags[0]["smiles"]), 0.0)
+
                 for idx in range(start, end + 1):
                     pos = np.array(master_frames[idx].get("coords", master_frames[idx].get("positions", [])))
                     d_val = float(np.linalg.norm(pos[bi] - pos[bj]))
-                    assoc_w = _smoothstep((d_contact - d_val) / max(0.2, (d_contact - d_cov)))
-                    balanced_ev[idx] = active_e[idx] + delta_g_assoc * assoc_w + s_offset
+                    e_bound = active_e[idx] + delta_g_assoc
+
+                    try:
+                        core_atoms.set_positions(pos[core_idxs])
+                        e_core = float(core_atoms.get_potential_energy())
+                    except Exception:
+                        e_core = active_e[idx] - e_inc_iso
+                    e_decoupled = e_core + e_inc_iso
+
+                    if d_val >= d_contact:
+                        balanced_ev[idx] = e_decoupled + s_offset
+                    elif d_val <= d_cov:
+                        balanced_ev[idx] = e_bound + s_offset
+                    else:
+                        assoc_w = _smoothstep((d_contact - d_val) / max(0.1, (d_contact - d_cov)))
+                        balanced_ev[idx] = ((1.0 - assoc_w) * e_decoupled + assoc_w * e_bound) + s_offset
 
             # Case B: Dissociative Step (leaving group departs)
             elif leaving_frags and breaking_bonds:

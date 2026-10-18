@@ -75,9 +75,14 @@ export function buildIRCLayout(container) {
     const rxnBadge = makeBadge('#ecfdf5', '#059669');
     rxnBadge.textContent = 'ΔE rxn: --';
 
+    const freqBadge = makeBadge('#f5f3ff', '#7c3aed');
+    freqBadge.style.display = 'none';
+    freqBadge.textContent = 'ν‡: --';
+
     badgesRow.appendChild(fwdBadge);
     badgesRow.appendChild(revBadge);
     badgesRow.appendChild(rxnBadge);
+    badgesRow.appendChild(freqBadge);
     metricsCard.appendChild(badgesRow);
     sidePanel.appendChild(metricsCard);
 
@@ -255,6 +260,62 @@ export function buildIRCLayout(container) {
     optRow.appendChild(relaxLabel);
     playerCard.appendChild(optRow);
 
+    // ORCA Accuracy Mode Container (active when Engine is ORCA)
+    const orcaModeRow = document.createElement('div');
+    orcaModeRow.style.display = 'none';
+    orcaModeRow.style.flexDirection = 'column';
+    orcaModeRow.style.gap = '6px';
+    orcaModeRow.style.padding = '8px 10px';
+    orcaModeRow.style.background = '#f8fafc';
+    orcaModeRow.style.border = '1px solid #cbd5e1';
+    orcaModeRow.style.borderRadius = '6px';
+    orcaModeRow.style.marginTop = '2px';
+
+    const orcaHeaderRow = document.createElement('div');
+    orcaHeaderRow.style.display = 'flex';
+    orcaHeaderRow.style.alignItems = 'center';
+    orcaHeaderRow.style.gap = '8px';
+
+    const orcaModeLabel = document.createElement('span');
+    orcaModeLabel.style.color = '#334155';
+    orcaModeLabel.style.fontWeight = '600';
+    orcaModeLabel.style.fontSize = '12px';
+    orcaModeLabel.style.whiteSpace = 'nowrap';
+    orcaModeLabel.textContent = 'Accuracy Mode:';
+
+    const orcaModeSelect = document.createElement('select');
+    orcaModeSelect.style.flex = '1';
+    orcaModeSelect.style.padding = '3px 6px';
+    orcaModeSelect.style.fontSize = '12px';
+    orcaModeSelect.style.borderRadius = '4px';
+    orcaModeSelect.style.border = '1px solid #cbd5e1';
+    orcaModeSelect.style.background = '#ffffff';
+
+    const orcaModes = [
+        { val: 'sp', label: '⚡ Fast DFT Preview (SP, ~2 min)' },
+        { val: 'thermo', label: '🌡️ Thermochemical ΔG (Freq / OptTS, ~10 min)' },
+        { val: 'irc', label: '🎯 Native ORCA IRC (~30-45 min)' },
+        { val: 'neb', label: '🌙 Overnight NEB-CI (2–6 hrs, Exact MEP)' }
+    ];
+    for (const m of orcaModes) {
+        const el = document.createElement('option');
+        el.value = m.val;
+        el.textContent = m.label;
+        orcaModeSelect.appendChild(el);
+    }
+    orcaHeaderRow.appendChild(orcaModeLabel);
+    orcaHeaderRow.appendChild(orcaModeSelect);
+    orcaModeRow.appendChild(orcaHeaderRow);
+
+    const orcaDescBox = document.createElement('div');
+    orcaDescBox.style.fontSize = '11.5px';
+    orcaDescBox.style.color = '#64748b';
+    orcaDescBox.style.fontStyle = 'italic';
+    orcaDescBox.style.lineHeight = '1.35';
+    orcaDescBox.textContent = 'Calculates r2SCAN-3c single points across trajectory anchors with monotonic PCHIP interpolation (~2 min).';
+    orcaModeRow.appendChild(orcaDescBox);
+    playerCard.appendChild(orcaModeRow);
+
     const actionRow = document.createElement('div');
     actionRow.style.display = 'flex';
     actionRow.style.gap = '8px';
@@ -307,10 +368,11 @@ export function buildIRCLayout(container) {
 
     return {
         viewerBox, hudOverlay,
-        fwdBadge, revBadge, rxnBadge,
-        energyCanvas, frameSlider, frameCountLabel,
+        fwdBadge, revBadge, rxnBadge, freqBadge,
+        chartTitle, energyCanvas, frameSlider, frameCountLabel,
         playBtn, prevBtn, nextBtn, loopCheckbox,
         engineSelect, solventSelect, relaxCheckbox,
+        orcaModeRow, orcaModeSelect, orcaDescBox,
         calcBtn, downloadBtn, prolongBtn, logBox
     };
 }

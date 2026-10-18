@@ -34,7 +34,7 @@ class Step3EnergyStitch(PipelineStep):
 
         if not balanced_megajson or "energy_profile" not in balanced_megajson:
             balanced_megajson = balance_pathway_energies(
-                megajson, trajectories, recalculate_with_xtb=False, solvent=saved_solvent, fragment_roles=saved_roles
+                megajson, trajectories, recalculate_with_xtb=True, solvent=saved_solvent, fragment_roles=saved_roles
             )
 
         return {
@@ -51,7 +51,7 @@ class Step3EnergyStitch(PipelineStep):
 
     def _handle_recalculate(self, global_state: Dict[str, Any], user_input: Dict[str, Any] = None) -> Dict[str, Any]:
         user_input = user_input or {}
-        use_xtb = bool(user_input.get("recalculate_with_xtb", False))
+        use_xtb = bool(user_input.get("recalculate_with_xtb", True))
         solvent = user_input.get("solvent", "water")
         fragment_roles = user_input.get("fragment_roles", {})
 
@@ -97,7 +97,7 @@ class Step3EnergyStitch(PipelineStep):
         if not megajson:
             return StepResult(success=False, error_message="Step 2 trajectory missing.")
 
-        use_xtb = bool(user_input.get("recalculate_with_xtb", False))
+        use_xtb = bool(user_input.get("recalculate_with_xtb", True))
         solvent = user_input.get("solvent", "water")
         fragment_roles = user_input.get("fragment_roles", {})
 

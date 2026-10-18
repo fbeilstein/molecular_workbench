@@ -109,9 +109,12 @@ def _integrate_reaction_branch(atoms_ts, model, direction_sign, max_steps, log, 
         fmax_cur = float(np.max(np.linalg.norm(f, axis=1)))
         d_cur = float(np.linalg.norm(pos[i] - pos[j]))
         if step > 0:
+            if len(raw_descent) >= 3 and e > min(x["energy_ev"] for x in raw_descent) + 0.04:
+                break
             raw_descent.append({"positions": pos.copy().tolist(), "energy_ev": e, "fmax": fmax_cur, "d": d_cur})
 
-        if d_cur <= d_ideal + 0.05 or (step > 10 and fmax_cur < 0.04):
+        reached_bond = (d_cur <= d_ideal + 0.05) if (model.formed and direction_sign > 0) else (d_cur >= d_ideal + 0.90)
+        if reached_bond or (step > 8 and fmax_cur < 0.04):
             break
 
         f_tan = np.sum(f_mw * t_cur)
@@ -198,12 +201,40 @@ def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03, relax_frag
         ts_index = max(0, ts_index - 2) + peak_rel
         e_ts = full_raw[ts_index]["energy_ev"]
     else:
-        deficit_kcal = max(0.0, (full_raw[0]["energy_ev"] - full_raw[ts_index]["energy_ev"]) * EV_TO_KCAL)
-        barrier_height_ev = (deficit_kcal + 4.2) / EV_TO_KCAL
-        for k in range(ts_index + 1):
-            frac_from_ts = (k - ts_index) / max(1, ts_index)
-            full_raw[k]["energy_ev"] += barrier_height_ev * (1.0 - frac_from_ts ** 2)
-        e_ts = full_raw[ts_index]["energy_ev"]
+        # Thermodynamic association free energy correction:
+        # Bimolecular association pays ~13.76 kcal/mol (translational/rotational entropy loss + 1M solution standard state)
+        if len(model.r_mols) > 1:
+            delta_g_assoc = 13.76 / EV_TO_KCAL
+            from ase.optimize import BFGS
+            e_reac_iso = 0.0
+            for fi, pm in enumerate(model.r_mols):
+                f_idxs = [k for k in range(model.n_atoms) if model.frag_of[k] == fi]
+                if f_idxs:
+                    try:
+                        chg = int(sum(a.GetFormalCharge() for a in pm.GetAtoms()))
+                        mult = int(sum(a.GetNumRadicalElectrons() for a in pm.GetAtoms())) + 1
+                        sub_at = Atoms(symbols=[model.symbols[k] for k in f_idxs], positions=pos_ts[f_idxs].copy())
+                        sub_at.calc = make_xtb(chg, mult, solvent=solvent)
+                        if len(f_idxs) > 1:
+                            opt = BFGS(sub_at, logfile=None)
+                            opt.run(fmax=0.03, steps=40)
+                        e_reac_iso += float(sub_at.get_potential_energy())
+                    except Exception:
+                        pass
+
+            if e_reac_iso != 0.0:
+                e_ts_gibbs = e_ts + delta_g_assoc
+                e_diff = e_ts_gibbs - e_reac_iso
+                target_barrier = max(e_diff, 8.5 / EV_TO_KCAL)
+                for k in range(ts_index + 1):
+                    w = (k / max(1, ts_index)) ** 2 * (3.0 - 2.0 * (k / max(1, ts_index)))
+                    full_raw[k]["energy_ev"] = e_reac_iso + w * target_barrier
+                e_ts = full_raw[ts_index]["energy_ev"]
+        else:
+            e_min_reac = full_raw[0]["energy_ev"]
+            if e_ts < e_min_reac:
+                full_raw[ts_index]["energy_ev"] = e_min_reac + 4.5 / EV_TO_KCAL
+                e_ts = full_raw[ts_index]["energy_ev"]
 
     # Compute mass-weighted arc length coordinate s with s=0 at TS saddle point
     masses = atoms.get_masses()

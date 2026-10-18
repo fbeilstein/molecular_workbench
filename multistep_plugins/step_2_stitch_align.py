@@ -129,6 +129,8 @@ class Step2StitchAlign(PipelineStep):
         if saved_n_bridge is None:
             saved_n_bridge = 8
 
+        saved_trims = current_state.get(self.step_id, {}).get("junction_trims", {})
+
         return {
             "type": "stitch_align_ui",
             "n_steps": len(trajectories) or (existing_megajson.get("n_steps", 1) if existing_megajson else 0),
@@ -138,11 +140,13 @@ class Step2StitchAlign(PipelineStep):
             "megajson": existing_megajson,
             "has_megajson": bool(existing_megajson),
             "n_bridge_frames": saved_n_bridge,
+            "junction_trims": saved_trims,
             "message": "Inspect boundary 3D alignment, choose Hero intermediate molecules, and verify zero RMSD continuity."
         }
 
     def _execute_stitch(
-        self, global_state: Dict[str, Any], junction_choices: Dict[str, Any], n_bridge: int
+        self, global_state: Dict[str, Any], junction_choices: Dict[str, Any], n_bridge: int,
+        junction_trims: Dict[str, Any] = None, auto_trim: bool = False
     ) -> Dict[str, Any]:
         step_1_data = global_state.get("step_1_choose_jsons", {})
         trajectories = step_1_data.get("trajectories", [])
@@ -153,10 +157,13 @@ class Step2StitchAlign(PipelineStep):
         if not source_trajs and existing:
             source_trajs = _extract_elementary_trajectories_from_megajson(existing)
 
+        trims = junction_trims or {}
+
         if len(source_trajs) >= 2:
             try:
                 megajson = stitch_multistep_trajectories(
-                    source_trajs, junction_choices=junction_choices, n_bridge_frames=n_bridge
+                    source_trajs, junction_choices=junction_choices, n_bridge_frames=n_bridge,
+                    junction_trims=trims, auto_trim=auto_trim
                 )
                 if existing:
                     for key in ("solvent", "molecule_bundles", "stoichiometry_summary", "orbital_timeline", "svg_wiring", "mechanism_svg"):
@@ -176,6 +183,7 @@ class Step2StitchAlign(PipelineStep):
                 if self.step_id not in global_state:
                     global_state[self.step_id] = {}
                 global_state[self.step_id]["megajson"] = megajson
+                global_state[self.step_id]["junction_trims"] = trims
                 step_1_data["megajson"] = megajson
 
                 return {
@@ -184,6 +192,7 @@ class Step2StitchAlign(PipelineStep):
                     "report": megajson.get("stitching_alignment_report", []),
                     "junction_previews": _ensure_junction_previews(megajson),
                     "junction_choices": junction_choices,
+                    "junction_trims": trims,
                     "n_bridge_frames": n_bridge
                 }
             except Exception as e:
@@ -196,6 +205,7 @@ class Step2StitchAlign(PipelineStep):
                 "report": existing.get("stitching_alignment_report", []),
                 "junction_previews": _ensure_junction_previews(existing),
                 "junction_choices": junction_choices,
+                "junction_trims": trims,
                 "n_bridge_frames": n_bridge
             }
 
@@ -205,12 +215,14 @@ class Step2StitchAlign(PipelineStep):
         user_input = user_input or {}
         junction_choices = user_input.get("junction_choices", {})
         n_bridge = int(user_input.get("n_bridge_frames", 8))
-        return self._execute_stitch(global_state, junction_choices, n_bridge)
+        junction_trims = user_input.get("junction_trims", {})
+        auto_trim = bool(user_input.get("auto_trim", False))
+        return self._execute_stitch(global_state, junction_choices, n_bridge, junction_trims=junction_trims, auto_trim=auto_trim)
 
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
         action_type = user_input.get("action_type")
-        if action_type in ("preview_stitch", "preview_alignment", "recalculate"):
+        if action_type in ("preview_stitch", "preview_alignment", "recalculate", "apply_trim", "auto_trim"):
             return self._handle_preview_stitch(global_state, user_input)
         return {"error": f"Unknown action: {action_type}"}
 
@@ -218,7 +230,9 @@ class Step2StitchAlign(PipelineStep):
         user_input = user_input or {}
         junction_choices = user_input.get("junction_choices", {})
         n_bridge = int(user_input.get("n_bridge_frames", 8))
-        res = self._execute_stitch(global_state, junction_choices, n_bridge)
+        junction_trims = user_input.get("junction_trims", {})
+        auto_trim = bool(user_input.get("auto_trim", False))
+        res = self._execute_stitch(global_state, junction_choices, n_bridge, junction_trims=junction_trims, auto_trim=auto_trim)
         if not res.get("success"):
             return StepResult(success=False, error_message=res.get("error", "Stitching failed."))
         return StepResult(
@@ -228,6 +242,7 @@ class Step2StitchAlign(PipelineStep):
                 "report": res.get("report", []),
                 "junction_previews": res.get("junction_previews", []),
                 "junction_choices": junction_choices,
+                "junction_trims": junction_trims,
                 "n_bridge_frames": n_bridge
             }
         )

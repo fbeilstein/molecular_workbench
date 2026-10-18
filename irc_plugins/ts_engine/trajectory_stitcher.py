@@ -50,11 +50,26 @@ def solve_optimal_element_alignment(
     return best_rmsd, best_R, best_t, best_row, best_col
 
 
-def find_all_hero_overlaps(step_prev: Dict[str, Any], step_next: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Identify ALL common molecules/fragments and compute exact element-matched mappings."""
+def find_all_hero_overlaps(
+    step_prev: Dict[str, Any],
+    step_next: Dict[str, Any],
+    prev_frame_idx: int = -1,
+    next_frame_idx: int = 0
+) -> List[Dict[str, Any]]:
+    """Identify ALL common molecules/fragments and compute exact element-matched mappings at specified boundary frames."""
     prods, reacs = step_prev.get("fragments", {}).get("products", []), step_next.get("fragments", {}).get("reactants", [])
-    p_last = np.array(step_prev["frames"][-1].get("coords", step_prev["frames"][-1].get("positions", [])))
-    p_first = np.array(step_next["frames"][0].get("coords", step_next["frames"][0].get("positions", [])))
+    p_frames = step_prev.get("frames", [])
+    n_frames = step_next.get("frames", [])
+    if not p_frames or not n_frames:
+        return []
+
+    f_p_idx = prev_frame_idx if prev_frame_idx >= 0 else len(p_frames) + prev_frame_idx
+    f_n_idx = next_frame_idx if next_frame_idx >= 0 else len(n_frames) + next_frame_idx
+    f_p_idx = max(0, min(len(p_frames) - 1, f_p_idx))
+    f_n_idx = max(0, min(len(n_frames) - 1, f_n_idx))
+
+    p_last = np.array(p_frames[f_p_idx].get("coords", p_frames[f_p_idx].get("positions", [])))
+    p_first = np.array(n_frames[f_n_idx].get("coords", n_frames[f_n_idx].get("positions", [])))
     sym_p, sym_n = step_prev.get("symbols", []), step_next.get("symbols", [])
     candidates, used_next = [], set()
 
@@ -78,7 +93,8 @@ def find_all_hero_overlaps(step_prev: Dict[str, Any], step_next: Dict[str, Any])
                 candidates.append({
                     "id": f"mol_{p_idx}_{r_idx}", "label": f"{form}{tag} (Rigid All-Atom, {len(p_m)} atoms, RMSD: {rmsd:.4f} Å)",
                     "formula": f"{form}{tag}", "smiles": can_p, "prev_indices": p_m, "next_indices": n_m,
-                    "num_atoms": len(p_m), "rmsd": round(rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": False, "is_reflected": use_m
+                    "num_atoms": len(p_m), "rmsd": round(rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": False, "is_reflected": use_m,
+                    "prev_frame": f_p_idx, "next_frame": f_n_idx
                 })
 
                 heavy_p = [i for i in p_m if sym_p[i] != "H"]
@@ -91,7 +107,8 @@ def find_all_hero_overlaps(step_prev: Dict[str, Any], step_next: Dict[str, Any])
                         "id": f"mol_{p_idx}_{r_idx}_scaffold",
                         "label": f"{form}{tag} (Rotamer-Aware Scaffold, {len(heavy_p)} atoms, RMSD: {rmsd_h:.4f} Å)",
                         "formula": f"{form} [Scaffold]{tag}", "smiles": can_p, "prev_indices": p_m, "next_indices": n_m,
-                        "num_atoms": len(heavy_p), "rmsd": round(rmsd_h, 4), "R": R_h.tolist(), "t": t_h.tolist(), "is_joint": False, "is_reflected": use_m
+                        "num_atoms": len(heavy_p), "rmsd": round(rmsd_h, 4), "R": R_h.tolist(), "t": t_h.tolist(), "is_joint": False, "is_reflected": use_m,
+                        "prev_frame": f_p_idx, "next_frame": f_n_idx
                     })
                 used_next.add(r_idx)
                 break
@@ -106,7 +123,8 @@ def find_all_hero_overlaps(step_prev: Dict[str, Any], step_next: Dict[str, Any])
         candidates.append({
             "id": "full_system", "label": f"Full System{tag} ({len(sym_p)} atoms, RMSD: {rmsd:.4f} Å)",
             "formula": f"Full Scaffold{tag}", "smiles": step_prev.get("reaction_smiles", ""), "prev_indices": r_sub,
-            "next_indices": c_sub, "num_atoms": len(sym_p), "rmsd": round(rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": False, "is_reflected": use_m
+            "next_indices": c_sub, "num_atoms": len(sym_p), "rmsd": round(rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": False, "is_reflected": use_m,
+            "prev_frame": f_p_idx, "next_frame": f_n_idx
         })
     else:
         distinct = [c for c in candidates if not c["id"].endswith("_scaffold")]
@@ -120,9 +138,83 @@ def find_all_hero_overlaps(step_prev: Dict[str, Any], step_next: Dict[str, Any])
             candidates.insert(0, {
                 "id": "joint_all", "label": f"All {len(distinct)} Coinciding Molecules ({len(jp)} atoms, RMSD: {j_rmsd:.4f} Å)",
                 "formula": "Joint Complex", "smiles": " + ".join(c["smiles"] for c in distinct), "prev_indices": jp,
-                "next_indices": jn, "num_atoms": len(jp), "rmsd": round(j_rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": True, "is_reflected": has_ref
+                "next_indices": jn, "num_atoms": len(jp), "rmsd": round(j_rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": True, "is_reflected": has_ref,
+                "prev_frame": f_p_idx, "next_frame": f_n_idx
             })
     return candidates
+
+
+def find_optimal_overlap_window(
+    step_prev: Dict[str, Any],
+    step_next: Dict[str, Any],
+    max_window: int = 8
+) -> Dict[str, Any]:
+    """Scan candidate boundary frames across the junction window to find the frame pair with minimal Kabsch RMSD."""
+    frames_p = step_prev.get("frames", [])
+    frames_n = step_next.get("frames", [])
+    if not frames_p or not frames_n:
+        return {
+            "best_prev_idx": -1, "best_next_idx": 0, "min_rmsd": 0.0, "default_rmsd": 0.0,
+            "improvement": 0.0, "candidate_p_range": [0, 0], "candidate_n_range": [0, 0], "scan_results": []
+        }
+
+    n_p = len(frames_p)
+    n_n = len(frames_n)
+    ts_p = step_prev.get("ts_frame_index", 0)
+    ts_n = step_next.get("ts_frame_index", n_n - 1)
+
+    # Post-TS frames for previous step
+    p_min_idx = max(ts_p + 1, n_p - max_window) if n_p > ts_p + 1 else max(0, n_p - max_window)
+    candidate_p = list(range(p_min_idx, n_p))
+    if not candidate_p:
+        candidate_p = [n_p - 1]
+
+    # Pre-TS frames for next step
+    n_max_idx = min(ts_n, max_window - 1) if ts_n > 0 else min(n_n - 1, max_window - 1)
+    candidate_n = list(range(0, n_max_idx + 1))
+    if not candidate_n:
+        candidate_n = [0]
+
+    best_p = n_p - 1
+    best_n = 0
+    best_rmsd = 999.0
+    default_rmsd = 999.0
+    scan_results = []
+
+    for fp in candidate_p:
+        for fn in candidate_n:
+            cands = find_all_hero_overlaps(step_prev, step_next, prev_frame_idx=fp, next_frame_idx=fn)
+            rmsd_val = cands[0]["rmsd"] if cands else 999.0
+
+            if fp == n_p - 1 and fn == 0:
+                default_rmsd = rmsd_val
+
+            scan_results.append({
+                "prev_frame": fp,
+                "next_frame": fn,
+                "rmsd": round(float(rmsd_val), 4)
+            })
+
+            if rmsd_val < best_rmsd:
+                best_rmsd = rmsd_val
+                best_p = fp
+                best_n = fn
+
+    if default_rmsd >= 900.0:
+        default_rmsd = best_rmsd
+
+    improvement = max(0.0, default_rmsd - best_rmsd)
+
+    return {
+        "best_prev_idx": best_p,
+        "best_next_idx": best_n,
+        "min_rmsd": round(float(best_rmsd), 4),
+        "default_rmsd": round(float(default_rmsd), 4),
+        "improvement": round(float(improvement), 4),
+        "candidate_p_range": [min(candidate_p), max(candidate_p)],
+        "candidate_n_range": [min(candidate_n), max(candidate_n)],
+        "scan_results": scan_results
+    }
 
 
 def generate_bridge_frames(
@@ -131,26 +223,30 @@ def generate_bridge_frames(
 ) -> List[Dict[str, Any]]:
     """Generate intermittent transition frames with zero atom clashes via IDPP geodesic interpolation."""
     frames = []
-    try:
-        from ase import Atoms
-        from ase.mep import idpp_interpolate
-        syms = symbols if symbols and len(symbols) == len(p_start) else ["C"] * len(p_start)
-        images = [Atoms(symbols=syms, positions=p_start)]
-        for i in range(1, n_frames + 1):
-            s = (i / (n_frames + 1)) ** 2 * (3.0 - 2.0 * (i / (n_frames + 1)))
-            images.append(Atoms(symbols=syms, positions=(1.0 - s) * p_start + s * p_end))
-        images.append(Atoms(symbols=syms, positions=p_end))
-        idpp_interpolate(images, traj=None, log=None, fmax=0.05, steps=50)
-        for i, img in enumerate(images[1:-1]):
-            s = ((i + 1) / (n_frames + 1)) ** 2 * (3.0 - 2.0 * ((i + 1) / (n_frames + 1)))
-            frames.append({
-                "coords": img.get_positions().round(4).tolist(),
-                "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2),
-                "is_bridge": True
-            })
-        return frames
-    except Exception:
-        pass
+    if len(p_start) == len(p_end) and len(p_start) >= 2:
+        try:
+            import warnings
+            from ase import Atoms
+            from ase.mep import idpp_interpolate
+            syms = symbols if symbols and len(symbols) == len(p_start) else ["C"] * len(p_start)
+            images = [Atoms(symbols=syms, positions=p_start)]
+            for i in range(1, n_frames + 1):
+                s = (i / (n_frames + 1)) ** 2 * (3.0 - 2.0 * (i / (n_frames + 1)))
+                images.append(Atoms(symbols=syms, positions=(1.0 - s) * p_start + s * p_end))
+            images.append(Atoms(symbols=syms, positions=p_end))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                idpp_interpolate(images, traj=None, log=None, fmax=0.05, steps=50)
+            for i, img in enumerate(images[1:-1]):
+                s = ((i + 1) / (n_frames + 1)) ** 2 * (3.0 - 2.0 * ((i + 1) / (n_frames + 1)))
+                frames.append({
+                    "coords": img.get_positions().round(4).tolist(),
+                    "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2),
+                    "is_bridge": True
+                })
+            return frames
+        except Exception:
+            pass
 
     for i in range(1, n_frames + 1):
         s = (i / (n_frames + 1)) ** 2 * (3.0 - 2.0 * (i / (n_frames + 1)))
@@ -167,26 +263,51 @@ def generate_bridge_frames(
 
 
 def stitch_multistep_trajectories(
-    trajectories: List[Dict[str, Any]], junction_choices: Optional[Dict[str, str]] = None, n_bridge_frames: int = 8
+    trajectories: List[Dict[str, Any]],
+    junction_choices: Optional[Dict[str, str]] = None,
+    n_bridge_frames: int = 8,
+    junction_trims: Optional[Dict[str, Dict[str, int]]] = None,
+    auto_trim: bool = False
 ) -> Dict[str, Any]:
-    """Stitch IRC trajectories with optimal element alignment, monotonic s_arc, and step-aware bond orders."""
+    """Stitch IRC trajectories with optimal element alignment, monotonic s_arc, step-aware bond orders, and sliding-window frame trimming."""
     if not trajectories:
         return {}
     if len(trajectories) == 1:
         return trajectories[0]
 
     choices = junction_choices or {}
-    aligned_steps = [json.loads(json.dumps(trajectories[0]))]
+    trims = junction_trims or {}
+    aligned_steps = [json.loads(json.dumps(t)) for t in trajectories]
     step_reports, junction_previews, all_bridges = [], [], []
 
-    for k in range(1, len(trajectories)):
-        prev_step, next_step = aligned_steps[k - 1], trajectories[k]
-        all_cands = find_all_hero_overlaps(prev_step, next_step)
+    for k in range(1, len(aligned_steps)):
+        prev_step, next_step = aligned_steps[k - 1], aligned_steps[k]
+        orig_p_len = len(trajectories[k - 1].get("frames", []))
+        orig_n_len = len(trajectories[k].get("frames", []))
+
+        # 1. Evaluate sliding window overlap to find best matching boundary frames
+        win_report = find_optimal_overlap_window(prev_step, next_step, max_window=8)
+
+        # 2. Determine frame cuts (from manual trim, auto_trim, or default)
+        j_trim = trims.get(str(k), {})
+        p_cut = j_trim.get("prev_cut")
+        n_cut = j_trim.get("next_cut")
+
+        if p_cut is None and auto_trim:
+            p_cut = win_report["best_prev_idx"]
+        if n_cut is None and auto_trim:
+            n_cut = win_report["best_next_idx"]
+
+        p_cut = len(prev_step["frames"]) - 1 if p_cut is None else max(0, min(len(prev_step["frames"]) - 1, int(p_cut)))
+        n_cut = 0 if n_cut is None else max(0, min(len(next_step["frames"]) - 1, int(n_cut)))
+
+        # 3. Find candidates at the chosen boundary cut points
+        all_cands = find_all_hero_overlaps(prev_step, next_step, prev_frame_idx=p_cut, next_frame_idx=n_cut)
         cand = next((c for c in all_cands if c["id"] == choices.get(str(k))), None) if all_cands and choices.get(str(k)) else None
         if not cand and all_cands:
             cand = next((c for c in all_cands if not c.get("is_joint")), all_cands[0])
 
-        out_next = json.loads(json.dumps(next_step))
+        out_next = aligned_steps[k]
         if cand:
             R, t = np.array(cand["R"]), np.array(cand["t"])
             b_rmsd, idxs_p, idxs_n = cand["rmsd"], cand["prev_indices"], cand["next_indices"]
@@ -228,11 +349,27 @@ def stitch_multistep_trajectories(
         else:
             b_rmsd, idxs_p, idxs_n = 0.0, [], []
 
-        prev_pos = np.array(prev_step["frames"][-1].get("coords", prev_step["frames"][-1].get("positions", [])))
-        unalign_pos = np.array(next_step["frames"][0].get("coords", next_step["frames"][0].get("positions", [])))
+        # 4. Apply trimming to step frames if requested
+        if p_cut < len(prev_step["frames"]) - 1:
+            prev_step["frames"] = prev_step["frames"][:p_cut + 1]
+
+        unalign_pos = np.array(next_step["frames"][n_cut].get("coords", next_step["frames"][n_cut].get("positions", [])))
         if cand and cand.get("is_reflected"): unalign_pos[:, 0] = -unalign_pos[:, 0]
+
+        if n_cut > 0:
+            out_next["frames"] = out_next["frames"][n_cut:]
+            out_next["ts_frame_index"] = max(0, out_next.get("ts_frame_index", 0) - n_cut)
+
+        prev_pos = np.array(prev_step["frames"][-1].get("coords", prev_step["frames"][-1].get("positions", [])))
         align_pos = np.array(out_next["frames"][0].get("coords", out_next["frames"][0].get("positions", [])))
-        bridge = generate_bridge_frames(prev_pos, align_pos, prev_step["frames"][-1].get("rel_energy_kcal", 0.0), out_next["frames"][0].get("rel_energy_kcal", 0.0), n_bridge_frames, bonds=prev_step.get("bonds", []), symbols=prev_step.get("symbols", []))
+        bridge = generate_bridge_frames(
+            prev_pos, align_pos,
+            prev_step["frames"][-1].get("rel_energy_kcal", 0.0),
+            out_next["frames"][0].get("rel_energy_kcal", 0.0),
+            n_bridge_frames, bonds=prev_step.get("bonds", []), symbols=prev_step.get("symbols", [])
+        )
+
+        is_trimmed = (p_cut < orig_p_len - 1 or n_cut > 0)
         j_info = {
             "junction_index": k, "step_prev_index": k, "step_next_index": k + 1,
             "step_prev_name": prev_step.get("reaction_smiles", f"Step {k}"), "step_next_name": next_step.get("reaction_smiles", f"Step {k + 1}"),
@@ -242,9 +379,21 @@ def stitch_multistep_trajectories(
             "prev_symbols": prev_step.get("symbols", []), "prev_coords": prev_pos.round(4).tolist(),
             "next_symbols": out_next.get("symbols", []), "next_coords_unaligned": unalign_pos.round(4).tolist(),
             "next_coords_aligned": align_pos.round(4).tolist(), "bridge_frames": bridge, "n_bridge_frames": n_bridge_frames,
-            "matched_prev_indices": idxs_p, "matched_next_indices": idxs_n
+            "matched_prev_indices": idxs_p, "matched_next_indices": idxs_n,
+            # Trimming & sliding window parameters:
+            "prev_total_frames": orig_p_len, "next_total_frames": orig_n_len,
+            "prev_ts_frame": trajectories[k - 1].get("ts_frame_index", 0),
+            "next_ts_frame": trajectories[k].get("ts_frame_index", 0),
+            "prev_cut": p_cut, "next_cut": n_cut,
+            "recommended_prev_cut": win_report["best_prev_idx"],
+            "recommended_next_cut": win_report["best_next_idx"],
+            "recommended_rmsd": win_report["min_rmsd"],
+            "default_rmsd": win_report["default_rmsd"],
+            "rmsd_improvement": win_report["improvement"],
+            "is_trimmed": is_trimmed,
+            "window_scan": win_report.get("scan_results", [])
         }
-        step_reports.append(j_info); junction_previews.append(j_info); all_bridges.append(bridge); aligned_steps.append(out_next)
+        step_reports.append(j_info); junction_previews.append(j_info); all_bridges.append(bridge)
 
     master_frames, step_boundaries, curr_idx, accum_s = [], [], 0, 0.0
     symbols, max_energy, final_energy = aligned_steps[0].get("symbols", []), 0.0, 0.0

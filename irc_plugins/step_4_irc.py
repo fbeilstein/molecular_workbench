@@ -70,7 +70,8 @@ class Step4IRC(PipelineStep):
         max_steps = int(user_input.get("max_steps", 30))
         dx = float(user_input.get("step_size", 0.08))
         solvent = user_input.get("solvent") or global_state.get("solvent", "water")
-        engine = user_input.get("engine") or "xtb"
+        engine = str(user_input.get("engine") or "xtb").lower()
+        orca_mode = str(user_input.get("orca_mode") or "sp").lower()
         relax_fragments = bool(user_input.get("relax_fragments", True))
 
         log_fh = open(LOG_PATH, 'w', buffering=1)
@@ -89,9 +90,28 @@ class Step4IRC(PipelineStep):
             atoms = Atoms(symbols=symbols, positions=positions)
             log(f"=== Starting IRC Calculation for {raw_smiles} ===")
             log(f"  System: {len(symbols)} atoms, charge = {model.charge}, multiplicity = {model.multiplicity}")
-            log(f"  Engine: {engine.upper()} | Environment: {solvent.upper() if solvent else 'GAS PHASE'}")
+            log(f"  Engine: {engine.upper()} | Mode: {orca_mode.upper() if engine == 'orca' else 'Standard'} | Solvent: {solvent.upper() if solvent else 'GAS PHASE'}")
 
-            traj = run_irc_path(atoms, model, log, max_steps=max_steps, dx=dx, relax_fragments=relax_fragments, engine=engine)
+            if engine == "orca":
+                from .ts_engine.orca_runner import (
+                    run_orca_thermo_profile,
+                    run_orca_native_irc,
+                    run_orca_neb_ci
+                )
+                nprocs = min(6, os.cpu_count() or 4)
+                if orca_mode == "thermo":
+                    traj = run_orca_thermo_profile(atoms, model, solvent, log, max_steps=max_steps, dx=dx, nprocs=nprocs)
+                elif orca_mode == "irc":
+                    traj = run_orca_native_irc(atoms, model, solvent, log, max_points=max_steps, nprocs=nprocs)
+                elif orca_mode == "neb":
+                    traj = run_orca_neb_ci(atoms, model, solvent, log, n_images=16, nprocs=nprocs)
+                else: # "sp"
+                    traj = run_irc_path(atoms, model, log, max_steps=max_steps, dx=dx, relax_fragments=relax_fragments, engine="orca")
+            else:
+                traj = run_irc_path(atoms, model, log, max_steps=max_steps, dx=dx, relax_fragments=relax_fragments, engine="xtb")
+
+            if not traj or not traj.get("frames"):
+                return {"error": "Failed to calculate IRC trajectory. Check log for details."}
 
             # Persist trajectory JSON with previous backup
             try:
@@ -103,10 +123,16 @@ class Step4IRC(PipelineStep):
             except Exception as err:
                 log(f"  Note: Failed to write {TRAJECTORY_FILE}: {err}")
 
+            is_gibbs = traj.get("barriers", {}).get("energy_type") == "gibbs"
+            prefix = "Thermochemical ΔG" if is_gibbs else "IRC"
+            b_unit = "ΔG‡" if is_gibbs else "ΔE‡"
+            fwd_b = traj.get('barriers', {}).get('forward_barrier_kcal', 0.0)
+            rev_b = traj.get('barriers', {}).get('reverse_barrier_kcal', 0.0)
+
             return {
                 "success": True,
                 "trajectory": traj,
-                "message": f"IRC path generated: {len(traj['frames'])} frames (Forward barrier: {traj['barriers']['forward_barrier_kcal']:.1f} kcal/mol, Reverse barrier: {traj['barriers']['reverse_barrier_kcal']:.1f} kcal/mol)"
+                "message": f"{prefix} path generated: {len(traj['frames'])} frames ({b_unit} fwd: {fwd_b:.1f} kcal/mol, {b_unit} rev: {rev_b:.1f} kcal/mol)"
             }
         except Exception as e:
             import traceback
