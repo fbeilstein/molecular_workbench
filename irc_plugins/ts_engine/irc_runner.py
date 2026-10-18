@@ -37,9 +37,30 @@ def _integrate_reaction_branch(atoms_ts, model, direction_sign, max_steps, log, 
 
         log(f"  [{branch_name}] Translating separated {target_name} (d: {d_ts:.2f} -> {d_end:.2f} A, 0° rotation)...")
         calc = make_xtb(model.charge, model.multiplicity, solvent=solvent)
+
+        endpoint_mols = model.r_mols if direction_sign < 0 else model.p_mols
+        from .fragment_relax import _rigid_align
+        from ase.optimize import BFGS
+        frag_shifts = np.zeros_like(pos_ts)
+        for fi, pm in enumerate(endpoint_mols):
+            f_idxs = [k for k in range(model.n_atoms) if (model.frag_of[k] if direction_sign < 0 else model.r2p.get(k, (-1, -1))[0]) == fi]
+            if len(f_idxs) > 1:
+                try:
+                    chg = int(sum(a.GetFormalCharge() for a in pm.GetAtoms()))
+                    mult = int(sum(a.GetNumRadicalElectrons() for a in pm.GetAtoms())) + 1
+                    sub_at = Atoms(symbols=[model.symbols[k] for k in f_idxs], positions=pos_ts[f_idxs].copy())
+                    sub_at.calc = make_xtb(chg, mult, solvent=solvent)
+                    opt = BFGS(sub_at, logfile=None)
+                    opt.run(fmax=0.03, steps=25)
+                    opt_pos = _rigid_align(sub_at.get_positions(), pos_ts[f_idxs])
+                    frag_shifts[f_idxs] = opt_pos - pos_ts[f_idxs]
+                except Exception:
+                    pass
+
         for step in range(1, n_steps + 1):
-            d = d_ts + (step / n_steps) * (d_end - d_ts)
-            pos_step = pos_ts.copy()
+            frac = step / n_steps
+            d = d_ts + frac * (d_end - d_ts)
+            pos_step = pos_ts + frac * frag_shifts
             shift = (d - d_ts) * u_sep
             for k in moving_atoms:
                 pos_step[k] += shift

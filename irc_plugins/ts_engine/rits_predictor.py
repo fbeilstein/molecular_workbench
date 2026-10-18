@@ -50,28 +50,34 @@ def _get_rits_model(ckpt_path):
     return _CACHED_RITS_MODEL
 
 
-def _score_ts_candidate(pos, model):
+def _score_ts_candidate(pos, model, pos_R=None):
     score = 0.0
     for i, j in model.formed:
-        d = np.linalg.norm(pos[i] - pos[j])
-        score -= abs(d - (model.d0(i, j) + 0.65)) * 2.0
+        score -= abs(np.linalg.norm(pos[i] - pos[j]) - (model.d0(i, j) + 0.65)) * 2.0
     for i, j in model.broken:
-        d = np.linalg.norm(pos[i] - pos[j])
-        score -= abs(d - (model.d0(i, j) + 0.35)) * 2.0
+        score -= abs(np.linalg.norm(pos[i] - pos[j]) - (model.d0(i, j) + 0.35)) * 2.0
 
     # Inversion / backside attack collinearity (180 deg) across reacting centers
     for f1, f2 in model.formed:
         for b1, b2 in model.broken:
-            shared = None
-            if f1 == b1: shared, a, b = f1, f2, b2
-            elif f1 == b2: shared, a, b = f1, f2, b1
-            elif f2 == b1: shared, a, b = f2, f1, b2
-            elif f2 == b2: shared, a, b = f2, f1, b1
+            shared = f1 if f1 in (b1, b2) else (f2 if f2 in (b1, b2) else None)
             if shared is not None:
+                a, b = (f2 if shared == f1 else f1), (b2 if shared == b1 else b1)
                 va = pos[a] - pos[shared]
                 vb = pos[b] - pos[shared]
                 cos_ang = np.dot(va, vb) / (np.linalg.norm(va) * np.linalg.norm(vb) + 1e-9)
                 score += (1.0 - cos_ang) * 5.0
+
+    if pos_R is not None:
+        reacting = {a for pair in (model.formed + model.broken) for a in pair}
+        spec = [k for k in range(model.n_atoms) if k not in reacting]
+        if spec:
+            score -= float(np.mean((pos[spec] - pos_R[spec]) ** 2)) * 12.0
+        for i, j in model.spectator_bonds:
+            d_pred = float(np.linalg.norm(pos[i] - pos[j]))
+            d_ref = float(np.linalg.norm(pos_R[i] - pos_R[j]))
+            score -= abs(d_pred - d_ref) * 6.0
+
     return score
 
 
@@ -106,10 +112,13 @@ def _sample_best_rits_coords(model_net, device, numbers, charges, r_coord, p_coo
     if not coords_list:
         raise RuntimeError("RitS flow matching produced empty coordinates.")
 
-    scores = [_score_ts_candidate(c, model) for c in coords_list]
+    from .fragment_relax import _rigid_align
+    pos_R_np = r_coord.cpu().numpy()
+    aligned_list = [_rigid_align(c, pos_R_np) for c in coords_list]
+    scores = [_score_ts_candidate(c, model, pos_R=pos_R_np) for c in aligned_list]
     best_idx = int(np.argmax(scores))
-    log(f"  ✓ Optimal candidate #{best_idx + 1}/{n_samples} selected by reaction collinearity (score: {scores[best_idx]:.2f}).")
-    return coords_list[best_idx]
+    log(f"  ✓ Optimal candidate #{best_idx + 1}/{n_samples} selected by scaffold/reaction fidelity (score: {scores[best_idx]:.2f}).")
+    return aligned_list[best_idx]
 
 
 def run_rits_ts(atoms, model, log):
@@ -193,7 +202,7 @@ def run_rits_ts(atoms, model, log):
     # Step 3: Gentle Valley Relaxation
     log("  Step 3: Quantum valley relaxation of internal coordinates...")
     base = atoms.copy()
-    base.calc = make_xtb(model.charge, model.multiplicity)
+    base.calc = make_xtb(model.charge, model.multiplicity, solvent=getattr(model, "solvent", "water"))
     targets = []
     for i, j in model.formed:
         d_pred = float(np.linalg.norm(pos_ts[i] - pos_ts[j]))

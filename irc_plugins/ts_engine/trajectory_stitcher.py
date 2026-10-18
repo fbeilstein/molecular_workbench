@@ -110,24 +110,51 @@ def find_all_hero_overlaps(step_prev: Dict[str, Any], step_next: Dict[str, Any])
     return candidates
 
 
-def generate_bridge_frames(p_start: np.ndarray, p_end: np.ndarray, e_start: float, e_end: float, n_frames: int = 8) -> List[Dict[str, Any]]:
-    """Generate intermittent transition frames between Step K end and Step K+1 start."""
+def generate_bridge_frames(
+    p_start: np.ndarray, p_end: np.ndarray, e_start: float, e_end: float, n_frames: int = 8,
+    bonds: Optional[List[Any]] = None, symbols: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """Generate intermittent transition frames with zero atom clashes via IDPP geodesic interpolation."""
     frames = []
+    try:
+        from ase import Atoms
+        from ase.mep import idpp_interpolate
+        syms = symbols if symbols and len(symbols) == len(p_start) else ["C"] * len(p_start)
+        images = [Atoms(symbols=syms, positions=p_start)]
+        for i in range(1, n_frames + 1):
+            s = (i / (n_frames + 1)) ** 2 * (3.0 - 2.0 * (i / (n_frames + 1)))
+            images.append(Atoms(symbols=syms, positions=(1.0 - s) * p_start + s * p_end))
+        images.append(Atoms(symbols=syms, positions=p_end))
+        idpp_interpolate(images, traj=None, log=None, fmax=0.05, steps=50)
+        for i, img in enumerate(images[1:-1]):
+            s = ((i + 1) / (n_frames + 1)) ** 2 * (3.0 - 2.0 * ((i + 1) / (n_frames + 1)))
+            frames.append({
+                "coords": img.get_positions().round(4).tolist(),
+                "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2),
+                "is_bridge": True
+            })
+        return frames
+    except Exception:
+        pass
+
     for i in range(1, n_frames + 1):
-        tau = i / (n_frames + 1)
-        s = tau * tau * (3.0 - 2.0 * tau)
-        frames.append({
-            "coords": ((1.0 - s) * p_start + s * p_end).round(4).tolist(),
-            "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2),
-            "is_bridge": True
-        })
+        s = (i / (n_frames + 1)) ** 2 * (3.0 - 2.0 * (i / (n_frames + 1)))
+        coords = (1.0 - s) * p_start + s * p_end
+        for _ in range(5):
+            D = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=2)
+            np.fill_diagonal(D, 99.0)
+            for a, b in zip(*np.where(D < 1.15)):
+                if a < b and (dist := float(np.linalg.norm(coords[b] - coords[a]))) > 1e-4:
+                    shift = 0.5 * (1.15 - dist) * ((coords[b] - coords[a]) / dist)
+                    coords[b] += shift; coords[a] -= shift
+        frames.append({"coords": coords.round(4).tolist(), "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2), "is_bridge": True})
     return frames
 
 
 def stitch_multistep_trajectories(
     trajectories: List[Dict[str, Any]], junction_choices: Optional[Dict[str, str]] = None, n_bridge_frames: int = 8
 ) -> Dict[str, Any]:
-    """Stitch IRC trajectories with optimal element alignment and intermittent bridge frames."""
+    """Stitch IRC trajectories with optimal element alignment, monotonic s_arc, and step-aware bond orders."""
     if not trajectories:
         return {}
     if len(trajectories) == 1:
@@ -153,8 +180,7 @@ def stitch_multistep_trajectories(
             if len(prev_syms) == len(next_syms) and len(idxs_p) == len(prev_syms):
                 order = [c_for_r[r] for r in range(len(prev_syms))]
             elif len(idxs_p) > 0 and len(prev_syms) == len(next_syms):
-                used_c = set()
-                order = []
+                used_c, order = set(), []
                 for r in range(len(prev_syms)):
                     if r in c_for_r:
                         c = c_for_r[r]
@@ -168,6 +194,17 @@ def stitch_multistep_trajectories(
                 order = list(range(len(next_syms)))
 
             out_next["symbols"] = [next_syms[c] for c in order]
+            inv_order = {c: r for r, c in enumerate(order)}
+            remapped_bonds = []
+            for b in next_step.get("bonds", []):
+                u = b.get("from", b[0] if isinstance(b, (list, tuple)) else 0)
+                v = b.get("to", b[1] if isinstance(b, (list, tuple)) else 0)
+                if u in inv_order and v in inv_order:
+                    nb = dict(b)
+                    nb["from"], nb["to"] = inv_order[u], inv_order[v]
+                    remapped_bonds.append(nb)
+            out_next["bonds"] = remapped_bonds
+
             for fr in out_next["frames"]:
                 raw_pos = np.array(fr.get("coords", fr.get("positions", [])))
                 fr["coords"] = ((raw_pos @ R.T + t)[order]).round(4).tolist()
@@ -178,8 +215,7 @@ def stitch_multistep_trajectories(
         prev_pos = np.array(prev_step["frames"][-1].get("coords", prev_step["frames"][-1].get("positions", [])))
         unalign_pos = np.array(next_step["frames"][0].get("coords", next_step["frames"][0].get("positions", [])))
         align_pos = np.array(out_next["frames"][0].get("coords", out_next["frames"][0].get("positions", [])))
-        bridge = generate_bridge_frames(prev_pos, align_pos, prev_step["frames"][-1].get("rel_energy_kcal", 0.0), out_next["frames"][0].get("rel_energy_kcal", 0.0), n_bridge_frames)
-
+        bridge = generate_bridge_frames(prev_pos, align_pos, prev_step["frames"][-1].get("rel_energy_kcal", 0.0), out_next["frames"][0].get("rel_energy_kcal", 0.0), n_bridge_frames, bonds=prev_step.get("bonds", []), symbols=prev_step.get("symbols", []))
         j_info = {
             "junction_index": k, "step_prev_index": k, "step_next_index": k + 1,
             "step_prev_name": prev_step.get("reaction_smiles", f"Step {k}"), "step_next_name": next_step.get("reaction_smiles", f"Step {k + 1}"),
@@ -191,13 +227,20 @@ def stitch_multistep_trajectories(
             "next_coords_aligned": align_pos.round(4).tolist(), "bridge_frames": bridge, "n_bridge_frames": n_bridge_frames,
             "matched_prev_indices": idxs_p, "matched_next_indices": idxs_n
         }
-        step_reports.append(j_info)
-        junction_previews.append(j_info)
-        all_bridges.append(bridge)
-        aligned_steps.append(out_next)
+        step_reports.append(j_info); junction_previews.append(j_info); all_bridges.append(bridge); aligned_steps.append(out_next)
 
-    master_frames, step_boundaries, curr_idx = [], [], 0
+    master_frames, step_boundaries, curr_idx, accum_s = [], [], 0, 0.0
     symbols, max_energy, final_energy = aligned_steps[0].get("symbols", []), 0.0, 0.0
+
+    master_bonds_dict = {}
+    for st_i, step in enumerate(aligned_steps):
+        for b in step.get("bonds", []):
+            u, v = b.get("from", 0), b.get("to", 0)
+            p = (min(u, v), max(u, v))
+            if p not in master_bonds_dict:
+                master_bonds_dict[p] = dict(b)
+            else:
+                master_bonds_dict[p]["p_order"] = b.get("p_order", master_bonds_dict[p].get("p_order", 1))
 
     for k, step in enumerate(aligned_steps):
         s_frames = step.get("frames", [])
@@ -207,36 +250,41 @@ def stitch_multistep_trajectories(
             "reaction_smiles": step.get("reaction_smiles", ""), "start_frame": curr_idx,
             "end_frame": curr_idx + len(s_frames) - 1, "ts_frame": curr_idx + ts_idx
         })
+
+        k_bonds = step.get("bonds", [])
+        raw_s = [float(fr.get("s_arc", idx * 0.1)) for idx, fr in enumerate(s_frames)]
+        s_base = raw_s[0]
+        step_start_s = 0.0 if k == 0 else accum_s + 0.15
+
         for f_i, fr in enumerate(s_frames):
             c = fr.get("coords", fr.get("positions", []))
-            fr["coords"] = c
-            fr["positions"] = c
-            fr["step_index"] = k + 1
-            fr["is_ts"] = (f_i == ts_idx)
+            fr["coords"], fr["positions"] = c, c
+            fr["step_index"], fr["is_ts"] = k + 1, (f_i == ts_idx)
             e_k = fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0))
-            fr["energy_kcal"] = round(float(e_k), 2)
-            fr["rel_energy_kcal"] = round(float(e_k), 2)
-            fr["s_arc"] = float(fr.get("s_arc", curr_idx * 0.1))
+            fr["energy_kcal"], fr["rel_energy_kcal"] = round(float(e_k), 2), round(float(e_k), 2)
+            fr["s_arc"] = round(step_start_s + (raw_s[f_i] - s_base), 3)
+            accum_s = fr["s_arc"]
             max_energy, final_energy = max(max_energy, e_k), e_k
+
+            fr["bonds"] = [{"from": b.get("from", 0), "to": b.get("to", 0), "order": b.get("r_order", 1) if f_i <= ts_idx else b.get("p_order", 1), "type": b.get("type", "spectator")} for b in k_bonds if (b.get("r_order", 1) if f_i <= ts_idx else b.get("p_order", 1)) > 0]
             master_frames.append(fr)
             curr_idx += 1
 
         if k < len(all_bridges):
+            bridge_b = [{"from": b.get("from", 0), "to": b.get("to", 0), "order": b.get("p_order", 1), "type": b.get("type", "spectator")} for b in k_bonds if b.get("p_order", 1) > 0]
             for b_fr in all_bridges[k]:
                 c = b_fr.get("coords", b_fr.get("positions", []))
-                b_fr["coords"] = c
-                b_fr["positions"] = c
-                b_fr["step_index"] = f"Bridge {k + 1}➔{k + 2}"
-                b_fr["is_ts"] = False
-                b_fr["rel_energy_kcal"] = b_fr["energy_kcal"]
-                b_fr["s_arc"] = curr_idx * 0.1
+                b_fr["coords"], b_fr["positions"], b_fr["step_index"], b_fr["is_ts"] = c, c, f"Bridge {k + 1}➔{k + 2}", False
+                b_fr["rel_energy_kcal"], b_fr["bonds"] = b_fr["energy_kcal"], bridge_b
+                accum_s += 0.15
+                b_fr["s_arc"] = round(float(accum_s), 3)
                 max_energy = max(max_energy, b_fr["energy_kcal"])
                 master_frames.append(b_fr)
                 curr_idx += 1
 
     return {
         "title": "Master Multistep IRC Trajectory", "n_steps": len(aligned_steps), "total_frames": len(master_frames),
-        "symbols": symbols, "bonds": aligned_steps[0].get("bonds", []), "step_boundaries": step_boundaries,
+        "symbols": symbols, "bonds": list(master_bonds_dict.values()), "step_boundaries": step_boundaries,
         "stitching_alignment_report": step_reports, "junction_previews": junction_previews,
         "overall_barrier_kcal": round(float(max_energy), 2),
         "overall_reaction_energy_kcal": round(float(final_energy), 2),

@@ -75,11 +75,17 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     });
     ctx.stroke();
 
+    const tsIndices = new Set(
+        trajectory.step_boundaries && trajectory.step_boundaries.length > 0
+            ? trajectory.step_boundaries.map(b => b.ts_frame)
+            : [trajectory.ts_frame_index]
+    );
+
     // Points on curve
     frames.forEach((f, idx) => {
         const x = toX(f.s_arc);
         const y = toY(f.rel_energy_kcal);
-        if (idx === trajectory.ts_frame_index) {
+        if (tsIndices.has(idx)) {
             ctx.fillStyle = '#e11d48';
         } else if (idx < asympCount) {
             ctx.fillStyle = '#93c5fd';
@@ -87,7 +93,7 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
             ctx.fillStyle = '#3b82f6';
         }
         ctx.beginPath();
-        ctx.arc(x, y, idx === trajectory.ts_frame_index ? 4.5 : 2.5, 0, Math.PI * 2);
+        ctx.arc(x, y, tsIndices.has(idx) ? 4.5 : 2.5, 0, Math.PI * 2);
         ctx.fill();
     });
 
@@ -124,12 +130,19 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     ctx.fillText(`${minE.toFixed(1)} kcal`, 4, padTop + plotH);
     ctx.fillText(`s: ${minS.toFixed(1)}`, padLeft, h - 8);
 
-    const tsX = toX(0);
     const endX = padLeft + plotW;
-    if (endX - tsX > 60) {
-        ctx.fillText(`s: 0 (TS)`, tsX - 22, h - 8);
-        ctx.fillText(`s: +${maxS.toFixed(1)}`, endX - 45, h - 8);
+    ctx.fillText(`s: +${maxS.toFixed(1)}`, endX - 45, h - 8);
+
+    if (trajectory.step_boundaries && trajectory.step_boundaries.length > 1) {
+        trajectory.step_boundaries.forEach(sb => {
+            const tsF = frames[sb.ts_frame];
+            if (tsF) {
+                const tsX = toX(tsF.s_arc);
+                ctx.fillText(`TS ${sb.step_index}`, tsX - 14, h - 8);
+            }
+        });
     } else {
+        const tsX = toX(0);
         ctx.fillText(`s: 0 (TS)`, Math.min(tsX - 22, endX - 55), h - 8);
     }
 

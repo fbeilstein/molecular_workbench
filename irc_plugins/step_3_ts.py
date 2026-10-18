@@ -204,6 +204,7 @@ class Step3TS(PipelineStep):
                                 break
                     if seeded > 0:
                         src = os.path.basename(c_path)
+                        global_state.setdefault("step_3_ts", {})["docked_reactants"] = current_blocks
                         return {"success": True, "molblocks": current_blocks, "message": f"Seeded {seeded} reactant(s) from {src}!"}
                 except Exception:
                     continue

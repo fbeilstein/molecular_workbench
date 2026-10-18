@@ -22,12 +22,14 @@ function filterBondsByDistance(symbols, positions, bonds, frameIdx = 0, tsIdx = 
         const maxDist = r1 + r2 + 0.45;
         if (dist <= maxDist) {
             let ord = 1;
-            if (b.r_order !== undefined && b.p_order !== undefined) {
-                ord = frameIdx <= tsIdx ? b.r_order : b.p_order;
-            } else if (b.order !== undefined) {
+            if (b.order !== undefined) {
                 ord = b.order;
+            } else if (b.r_order !== undefined && b.p_order !== undefined) {
+                ord = frameIdx <= tsIdx ? b.r_order : b.p_order;
             }
-            active.push({ from: u, to: v, order: Math.max(1, Math.min(3, Math.round(ord))) });
+            if (ord > 0) {
+                active.push({ from: u, to: v, order: Math.max(1, Math.min(3, Math.round(ord))) });
+            }
         }
     });
     return active;
@@ -133,10 +135,11 @@ export class IRC3DViewer {
             if (hasBonds) {
                 let multiSdf = '';
                 traj.frames.forEach((frame, idx) => {
+                    const frameBonds = frame.bonds || traj.bonds;
                     const activeBonds = filterBondsByDistance(
                         traj.symbols,
                         frame.positions,
-                        traj.bonds,
+                        frameBonds,
                         idx,
                         tsIdx
                     );

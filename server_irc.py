@@ -135,7 +135,8 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
             plugins = get_plugins()
         plugin_idx = next((i for i, p in enumerate(plugins) if p.step_id == plugin.step_id), -1)
 
-        # Invalidate downstream steps before running this one
+        # Invalidate downstream steps before running this one, preserving seeded docked reactants if compatible
+        saved_docked = pipeline_state.get("step_3_ts", {}).get("docked_reactants")
         if plugin_idx >= 0:
             for downstream in plugins[plugin_idx + 1:]:
                 if downstream.step_id in pipeline_state:
@@ -144,6 +145,19 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         result = plugin.run(pipeline_state, user_input)
         if result.success:
             pipeline_state[plugin.step_id] = result.data
+            if saved_docked and "step_3_ts" not in pipeline_state:
+                raw = pipeline_state.get("step_1_input", {}).get("raw_smiles", "")
+                r_part = raw.split(">>")[0] if ">>" in raw else ""
+                r_smiles = [s.strip() for s in r_part.split(".") if s.strip()]
+                try:
+                    from rdkit import Chem
+                    mols = [Chem.MolFromMolBlock(b, removeHs=False) for b in saved_docked]
+                    can_docked = [Chem.CanonSmiles(Chem.MolToSmiles(Chem.RemoveHs(m))) for m in mols if m]
+                    can_reac = [Chem.CanonSmiles(s) for s in r_smiles]
+                    if sorted(can_docked) == sorted(can_reac):
+                        pipeline_state["step_3_ts"] = {"docked_reactants": saved_docked}
+                except Exception:
+                    pass
             save_current_state()
 
         self._send_json({
@@ -155,6 +169,9 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_step_custom(self, plugin, user_input):
         result_data = plugin.custom_action(user_input, pipeline_state) if hasattr(plugin, 'custom_action') else {}
+        if result_data.get("success") and "molblocks" in result_data:
+            pipeline_state.setdefault(plugin.step_id, {})["docked_reactants"] = result_data["molblocks"]
+            save_current_state()
         self._send_json(result_data)
 
     def _handle_post_step(self, path):

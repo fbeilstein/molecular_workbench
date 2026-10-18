@@ -24,40 +24,51 @@ def _kabsch_align(P_pts, R_pts, indices):
 
 
 def _embed_aligned_products(model, pos_R):
-    """Generate 3D conformers for product molecules and align fragments to reactants."""
-    p_coords = []
-    from .docking import generate_lowest_energy_molblock
-    for s in getattr(model, "p_smiles", []):
-        mb = generate_lowest_energy_molblock(s, seed=42)
-        m = Chem.MolFromMolBlock(mb, removeHs=False) if mb else None
-        if m is not None:
-            p_coords.append(m.GetConformer().GetPositions())
-    if not p_coords:
-        for pmol in model.p_mols:
-            m = Chem.Mol(pmol)
-            AllChem.EmbedMolecule(m, randomSeed=42)
-            p_coords.append(m.GetConformer().GetPositions())
+    """Generate aligned, fully relaxed product 3D geometry preserving reactant scaffold & dihedrals."""
+    from ase import Atoms
+    from ase.optimize import BFGS
+    from .fragment_relax import _rigid_align
 
-    pos_P = np.zeros((model.n_atoms, 3))
-    for pfi in range(len(model.p_mols)):
-        r_atoms = [ci for ci in range(model.n_atoms) if model.r2p[ci][0] == pfi]
-        p_atoms = [model.r2p[ci][1] for ci in r_atoms]
-        coords_sub = p_coords[pfi][p_atoms]
+    pos_P = pos_R.copy()
+    if getattr(model, "broken", None):
+        for bi, bj in model.broken:
+            pfi_i = model.r2p.get(bi, (-1, -1))[0]
+            pfi_j = model.r2p.get(bj, (-1, -1))[0]
+            if pfi_i >= 0 and pfi_j >= 0 and pfi_i != pfi_j:
+                vec = pos_R[bj] - pos_R[bi]
+                u = vec / (np.linalg.norm(vec) + 1e-6)
+                j_atoms = [k for k in range(model.n_atoms) if model.r2p.get(k, (-1, -1))[0] == pfi_j]
+                pos_P[j_atoms] += u * 4.0
 
-        # If r_atoms span multiple reactant fragments, align using only the largest reactant fragment
-        frags = {}
-        for ci in r_atoms:
-            frags.setdefault(model.frag_of[ci], []).append(ci)
-        best_frag = max(frags.values(), key=len)
+    if getattr(model, "formed", None):
+        for fi, fj in model.formed:
+            rfi_i = model.frag_of[fi]
+            rfi_j = model.frag_of[fj]
+            if rfi_i != rfi_j:
+                vec = pos_P[fj] - pos_P[fi]
+                dist = float(np.linalg.norm(vec))
+                target_d = model.d0(fi, fj)
+                if dist > target_d:
+                    shift = (dist - target_d) * (vec / (dist + 1e-6))
+                    j_atoms = [k for k in range(model.n_atoms) if model.frag_of[k] == rfi_j]
+                    pos_P[j_atoms] -= shift
 
-        if len(best_frag) >= 3:
-            align_sub_indices = [r_atoms.index(ci) for ci in best_frag]
-            aligned = _kabsch_align(coords_sub, pos_R[best_frag], align_sub_indices)
-        else:
-            aligned = coords_sub - np.mean(coords_sub, axis=0) + np.mean(pos_R[r_atoms], axis=0)
+    solvent = getattr(model, "solvent", "water")
+    for pfi, pmol in enumerate(getattr(model, "p_mols", [])):
+        r_atoms = [ci for ci in range(model.n_atoms) if model.r2p.get(ci, (-1, -1))[0] == pfi]
+        if len(r_atoms) > 1:
+            try:
+                chg = int(sum(a.GetFormalCharge() for a in pmol.GetAtoms()))
+                mult = int(sum(a.GetNumRadicalElectrons() for a in pmol.GetAtoms())) + 1
+                sub_syms = [model.symbols[ci] for ci in r_atoms]
+                at = Atoms(symbols=sub_syms, positions=pos_P[r_atoms].copy())
+                at.calc = make_xtb(chg, mult, solvent=solvent)
+                opt = BFGS(at, logfile=None)
+                opt.run(fmax=0.05, steps=30)
+                pos_P[r_atoms] = _rigid_align(at.get_positions(), pos_P[r_atoms])
+            except Exception:
+                pass
 
-        for idx, ci in enumerate(r_atoms):
-            pos_P[ci] = aligned[idx]
     return pos_P
 
 
