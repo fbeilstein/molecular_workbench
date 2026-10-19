@@ -89,48 +89,74 @@ def compute_frame_ibos(
                 if ovlp_core[k, cc[k]] < 0.0:
                     core_mo[:, k] = -core_mo[:, k]
 
+        # 2. Valence matching via 3D absolute cross-overlap (retains 3D spatial & nodal symmetry)
         prev_val = prev_data["ibo_coeff"][:, n_prev_core:]
-        prev_pops = prev_data.get("val_pops")
-        if prev_pops is None and "ibo_pops" in prev_data:
-            prev_pops = prev_data["ibo_pops"][n_prev_core:]
-
-        if prev_pops is not None and prev_pops.shape == val_pops.shape:
-            pop_cost = np.sum((prev_pops[:, None, :] - val_pops[None, :, :]) ** 2, axis=2)
-            r, c = linear_sum_assignment(pop_cost)
-        else:
-            ovlp_mat = prev_val.T @ s_cross @ ibo_val
-            r, c = linear_sum_assignment(-np.abs(ovlp_mat))
-
+        ovlp_val = prev_val.T @ s_cross @ ibo_val
+        r, c = linear_sum_assignment(-np.abs(ovlp_val))
         ibo_val = ibo_val[:, c]
         val_pops = val_pops[c]
+
+        # Phase alignment along the diagonal
         for k in range(n_val):
             s_val = float(prev_val[:, k].T @ s_cross @ ibo_val[:, k])
             if s_val < 0.0:
                 ibo_val[:, k] = -ibo_val[:, k]
 
-        # Intra-atom / near-degenerate orbital subspace SVD rotation to eliminate sudden orientation jumps
-        primary_atom = np.argmax(val_pops, axis=1)
-        for a in range(mol.natm):
-            orbs_on_a = [k for k in range(n_val) if primary_atom[k] == a and val_pops[k, a] > 1.2]
-            if len(orbs_on_a) >= 2:
-                sub_prev = prev_val[:, orbs_on_a]
-                sub_curr = ibo_val[:, orbs_on_a]
-                M_sub = sub_prev.T @ s_cross @ sub_curr
-                V, s, Wt = np.linalg.svd(M_sub)
-                U = Wt.T @ V.T
-                ibo_val[:, orbs_on_a] = sub_curr @ U
-                for idx in orbs_on_a:
-                    v = ibo_val[:, idx]
-                    ps = np.outer(v, v) @ ovlp
-                    val_pops[idx] = 0.0
-                    for mu in range(mol.nao):
-                        val_pops[idx, ao_atom[mu]] += ps[mu, mu]
-                    val_pops[idx] *= 2.0
+        # 3. Generalized Subspace Procrustes SVD Alignment
+        # Only allow unitary rotation within near-degenerate manifolds (|Delta eps| < 1.5 eV).
+        # Mixing non-degenerate orbitals (e.g. sigma-bond at -25 eV with LP at -6 eV) is unphysical
+        # and creates artificial chimeric orbitals due to geometry translation cross-overlap.
+        F = mf.get_fock()
+        eps_val = np.array([float(ibo_val[:, k].T @ F @ ibo_val[:, k]) * 27.2114 for k in range(n_val)])
+
+        O_val = prev_val.T @ s_cross @ ibo_val
+        adj = {i: set() for i in range(n_val)}
+        for i in range(n_val):
+            for j in range(i + 1, n_val):
+                if max(abs(O_val[i, j]), abs(O_val[j, i])) > 0.20 and abs(eps_val[i] - eps_val[j]) < 1.5:
+                    adj[i].add(j)
+                    adj[j].add(i)
+
+        visited = set()
+        for i in range(n_val):
+            if i not in visited and adj[i]:
+                comp = []
+                q = [i]
+                visited.add(i)
+                while q:
+                    curr = q.pop(0)
+                    comp.append(curr)
+                    for nb in adj[curr]:
+                        if nb not in visited:
+                            visited.add(nb)
+                            q.append(nb)
+
+                if len(comp) >= 2:
+                    sub_prev = prev_val[:, comp]
+                    sub_curr = ibo_val[:, comp]
+                    M_sub = sub_prev.T @ s_cross @ sub_curr
+                    V, s, Wt = np.linalg.svd(M_sub)
+                    U = Wt.T @ V.T
+                    if np.linalg.det(U) < 0:
+                        Wt_fixed = Wt.copy()
+                        Wt_fixed[-1, :] *= -1
+                        U = Wt_fixed.T @ V.T
+
+                    ibo_val[:, comp] = sub_curr @ U
 
         for k in range(n_val):
             s_val = float(prev_val[:, k].T @ s_cross @ ibo_val[:, k])
             if s_val < 0.0:
                 ibo_val[:, k] = -ibo_val[:, k]
+
+        # Recalculate atomic populations from final rotated coefficients
+        for idx in range(n_val):
+            v = ibo_val[:, idx]
+            ps = np.outer(v, v) @ ovlp
+            val_pops[idx] = 0.0
+            for mu in range(mol.nao):
+                val_pops[idx, ao_atom[mu]] += ps[mu, mu]
+            val_pops[idx] *= 2.0
 
     ibo_coeff = np.hstack([core_mo, ibo_val])
 
