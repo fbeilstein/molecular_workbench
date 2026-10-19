@@ -1,4 +1,4 @@
-import { IRC3DViewer } from './irc_viewer_3d.js';
+import { MoleculeViewer3D } from './common/molecule_viewer_3d.js';
 import { renderEnergyProfile } from './irc_profile_plot.js';
 import { buildIRCLayout } from './irc_dom_builder.js';
 
@@ -14,7 +14,10 @@ export const IRCViewerUI = {
         currentTrajectory = ui.trajectory || null;
 
         const dom = buildIRCLayout(container);
-        activeViewer = new IRC3DViewer(dom.viewerBox);
+        activeViewer = new MoleculeViewer3D(dom.viewerBox, {
+            statusEl: dom.hudOverlay
+        });
+        activeViewer.init();
 
         function setFrame(idx) {
             if (!currentTrajectory || !currentTrajectory.frames || currentTrajectory.frames.length === 0) return;

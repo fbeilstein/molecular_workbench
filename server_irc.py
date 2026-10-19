@@ -69,6 +69,15 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         post_data = self.rfile.read(content_length)
         return json.loads(post_data.decode()) if post_data else {}
 
+    def translate_path(self, path):
+        clean_path = path.split('?', 1)[0].split('#', 1)[0]
+        if clean_path.startswith('/ketcher/'):
+            subpath = clean_path[len('/ketcher/'):]
+            return os.path.join(ROOT_DIR, '.ketcher', *[p for p in subpath.split('/') if p])
+        if clean_path == '/':
+            return os.path.join(ROOT_DIR, 'templates_irc', 'index.html')
+        return super().translate_path(path)
+
     # -----------------------------------------------------------------------
     # GET Handlers
     # -----------------------------------------------------------------------
@@ -99,15 +108,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        if path == '/':
-            self.path = '/templates_irc/index.html'
-            return super().do_GET()
-
-        if path.startswith('/static_irc/') or path.startswith('/out/'):
-            return super().do_GET()
-
-        if path.startswith('/ketcher/'):
-            self.path = '/.ketcher/' + path[len('/ketcher/'):]
+        if path == '/' or path.startswith(('/ketcher/', '/static_irc/', '/static_viewer/', '/out/', '/bundles/')) or path.endswith('.html'):
             return super().do_GET()
 
         if path == '/api/log':
@@ -300,6 +301,12 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
+    import sys
+    if len(sys.argv) > 1:
+        try:
+            PORT = int(sys.argv[1])
+        except ValueError:
+            pass
     load_saved_state()
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     socketserver.ThreadingTCPServer.daemon_threads = True

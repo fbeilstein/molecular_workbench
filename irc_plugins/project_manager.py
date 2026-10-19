@@ -113,6 +113,48 @@ def init_project() -> Dict[str, Any]:
             except Exception:
                 pass
 
+    # Auto-discover and register any existing step directories present in STEPS_DIR
+    if os.path.exists(STEPS_DIR):
+        existing_step_dirs = [
+            d for d in os.listdir(STEPS_DIR)
+            if os.path.isdir(os.path.join(STEPS_DIR, d)) and d.startswith("step_")
+        ]
+        def _step_key(name):
+            try:
+                return int(name.split("_")[1])
+            except Exception:
+                return 999
+        existing_step_dirs.sort(key=_step_key)
+
+        known_ids = {s["id"] for s in proj.get("steps", [])}
+        for d in existing_step_dirs:
+            if d not in known_ids:
+                s_idx = _step_key(d)
+                s_state_f = _step_state_path(d)
+                s_traj_f = _step_traj_path(d)
+                smi = ""
+                if os.path.exists(s_traj_f):
+                    try:
+                        with open(s_traj_f, 'r') as f:
+                            tj = json.load(f)
+                            smi = tj.get("reaction_smiles", "")
+                    except Exception:
+                        pass
+                if not smi and os.path.exists(s_state_f):
+                    try:
+                        with open(s_state_f, 'r') as f:
+                            st = json.load(f)
+                            smi = st.get("step_1_input", {}).get("raw_smiles", "")
+                    except Exception:
+                        pass
+                proj.setdefault("steps", []).append({
+                    "id": d,
+                    "index": s_idx,
+                    "title": f"Step {s_idx}: {smi}" if smi else f"Step {s_idx}: Reaction",
+                    "smiles": smi
+                })
+        proj["steps"].sort(key=lambda s: s.get("index", 1))
+
     save_project_meta(proj)
     return proj
 

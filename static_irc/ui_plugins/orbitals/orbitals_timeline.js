@@ -143,7 +143,8 @@ export class OrbitalsTimeline {
         const iboMap = new Map();
         if (frameData.all_ibos) {
             for (const ibo of frameData.all_ibos) {
-                iboMap.set(ibo.name || ibo.key, ibo);
+                if (ibo.key) iboMap.set(ibo.key, ibo);
+                if (ibo.name) iboMap.set(ibo.name, ibo);
                 if (ibo.chem_key) iboMap.set(ibo.chem_key, ibo);
             }
         }
@@ -152,22 +153,22 @@ export class OrbitalsTimeline {
             const el = this.containerEl.querySelector(`#pop-readout-${trk.orbital_key}`);
             if (!el) continue;
             if (trk.orbital_key === 'track_esp_charge') {
-                el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx}:</span> <strong style="color: #38bdf8;">Electrostatic Surface mapped with partial charges</strong>`;
+                el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <strong style="color: #0284c7;">Electrostatic Surface mapped with partial charges</strong>`;
                 continue;
             }
-            const ibo = trk.chem_key ? iboMap.get(trk.chem_key) : iboMap.get(trk.orbital_key);
+            // Prioritize orbital_key lookup for continuous quantum electron tracking across all frames
+            const ibo = (trk.orbital_key && iboMap.get(trk.orbital_key)) || (trk.chem_key && iboMap.get(trk.chem_key));
             if (ibo && ibo.pop && this.symbols.length) {
                 const major = [];
                 for (let i = 0; i < this.symbols.length; i++) {
                     const p = ibo.pop[i] || 0;
                     if (p > 0.15) major.push(`${this.symbols[i]}${i}: ${(p * 50).toFixed(0)}%`);
                 }
-                const curLabel = ibo.label || trk.title;
-                el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx} [${curLabel}]:</span> <strong style="color: #e2e8f0;">${major.join(' · ') || 'delocalized'}</strong>`;
+                el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> <strong style="color: #0f172a;">${major.join(' · ') || 'delocalized'}</strong>`;
             } else if (trk.orbital_key.includes('HOMO') || trk.orbital_key.includes('LUMO') || trk.orbital_key.includes('STAR')) {
-                el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx}:</span> <span style="color: #cbd5e1;">Active across reaction</span>`;
+                el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #334155; font-weight: 500;">Active across reaction</span>`;
             } else {
-                el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx}:</span> <span style="color: #64748b; font-style: italic;">Bond not formed at this frame</span>`;
+                el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #64748b; font-style: italic;">Bond not formed at this frame</span>`;
             }
         }
     }
@@ -199,26 +200,26 @@ export class OrbitalsTimeline {
                     </div>
                 ` : `
                     <div style="display: flex; align-items: center; gap: 2px; font-size: 0.65rem; font-weight: 700; flex-shrink: 0;" title="${isAnti ? 'Anti-Bonding: Orange (+) / Magenta (-)' : 'Bonding: Cyan (+) / Royal Blue (-)'}">
-                        <span style="background: ${pc.pos}; color: #000; padding: 1px 4px; border-radius: 3px 0 0 3px; font-weight: 800;">+</span>
-                        <span style="background: ${pc.neg}; color: #fff; padding: 1px 4px; border-radius: 0 3px 3px 0; font-weight: 800;">−</span>
+                        <span style="background: ${isAnti ? '#ea580c' : '#0284c7'}; color: #fff; padding: 1px 4px; border-radius: 3px 0 0 3px; font-weight: 800;">+</span>
+                        <span style="background: ${isAnti ? '#db2777' : '#1d4ed8'}; color: #fff; padding: 1px 4px; border-radius: 0 3px 3px 0; font-weight: 800;">−</span>
                     </div>
                 `;
 
-                const borderCol = isChecked ? (isEsp ? '#38bdf8' : (isAnti ? '#fb923c' : '#38bdf8')) : 'rgba(255,255,255,0.06)';
-                const bgCol = isChecked ? (isEsp ? 'rgba(56,189,248,0.12)' : (isAnti ? 'rgba(251,146,60,0.12)' : 'rgba(56,189,248,0.08)')) : 'rgba(15,23,42,0.4)';
+                const borderCol = isChecked ? (isEsp ? '#9333ea' : (isAnti ? '#ea580c' : '#0284c7')) : '#e2e8f0';
+                const bgCol = isChecked ? (isEsp ? '#faf5ff' : (isAnti ? '#fff7ed' : '#f0f9ff')) : '#ffffff';
                 const subtitle = isEsp ? 'Electrostatic Surface mapped with atomic charges' : (isAnti ? 'Tracking empty/antibonding acceptor orbital...' : 'Tracking bonding electron pair across pathway...');
 
                 cardsHtml += `
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.65rem; background: ${bgCol}; border: 1px solid ${borderCol}; border-radius: 6px; transition: border-color 0.15s ease;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.65rem; background: ${bgCol}; border: 1px solid ${borderCol}; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); transition: all 0.15s ease;">
                         <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0;">
-                            <input type="checkbox" class="track-vis-checkbox" data-id="${trk.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; accent-color: ${isAnti ? '#fb923c' : '#38bdf8'}; margin: 0;">
+                            <input type="checkbox" class="track-vis-checkbox" data-id="${trk.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; accent-color: ${isAnti ? '#ea580c' : '#0284c7'}; margin: 0;">
                             ${badgeIndicator}
                             <div style="display: flex; flex-direction: column; min-width: 0; flex: 1;">
                                 <div style="display: flex; align-items: center; gap: 0.35rem;">
-                                    <span style="font-weight: 700; font-size: 0.82rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${trk.title}</span>
+                                    <span style="font-weight: 700; font-size: 0.82rem; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${trk.title}</span>
                                     <span style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; ${badgeInfo.style}">${badgeInfo.label}</span>
                                 </div>
-                                <div id="pop-readout-${trk.orbital_key}" style="font-size: 0.72rem; color: ${isAnti ? '#fb923c' : '#38bdf8'}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                <div id="pop-readout-${trk.orbital_key}" style="font-size: 0.72rem; color: ${isAnti ? '#c2410c' : '#0284c7'}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                     ${subtitle}
                                 </div>
                             </div>
@@ -234,10 +235,10 @@ export class OrbitalsTimeline {
             <div style="display: flex; flex-direction: column; gap: 0.4rem; padding: 0.5rem 0.75rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span style="font-weight: 700; font-size: 0.85rem; color: #38bdf8;">Selected Reaction Orbitals</span>
-                        <span class="badge" style="font-size: 0.7rem; background: rgba(56,189,248,0.15); color: #38bdf8;">${activeCount} Active</span>
+                        <span style="font-weight: 700; font-size: 0.85rem; color: #0f172a;">Selected Reaction Orbitals</span>
+                        <span class="badge" style="font-size: 0.7rem; background: #e0f2fe; color: #0284c7;">${activeCount} Active</span>
                     </div>
-                    <span style="font-size: 0.72rem; color: #94a3b8;">Turn ON/OFF with checkbox · Live electron tracking across reaction</span>
+                    <span style="font-size: 0.72rem; color: #64748b;">Turn ON/OFF with checkbox · Live electron tracking across reaction</span>
                 </div>
                 ${cardsHtml}
             </div>

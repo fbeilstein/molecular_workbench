@@ -127,8 +127,8 @@ class Step5Cascade(PipelineStep):
                 if cand_mj and cand_mj.get("step_boundaries") and len(available) >= 1:
                     boundaries = cand_mj.get("step_boundaries", [])
                     b_smiles = [b.get("reaction_smiles") for b in boundaries]
-                    a_smiles = [a.get("reaction_smiles") for a in available[:len(boundaries)]]
-                    if b_smiles == a_smiles and b_smiles:
+                    a_smiles = [a.get("reaction_smiles") for a in available]
+                    if len(boundaries) == len(available) and b_smiles == a_smiles and b_smiles:
                         megajson = cand_mj
             except Exception:
                 pass

@@ -27,7 +27,13 @@ _CACHE_LOCK = threading.Lock()
 
 
 def _get_system_charge(megajson: Dict[str, Any]) -> int:
-    """Infer molecular system net formal charge from reaction SMILES."""
+    """Infer molecular system net formal charge from reaction SMILES or megajson."""
+    for ck in ("charge", "net_charge", "formal_charge"):
+        if ck in megajson:
+            try:
+                return int(megajson[ck])
+            except (ValueError, TypeError):
+                pass
     boundaries = megajson.get("step_boundaries", [])
     if boundaries and ">>" in boundaries[0].get("reaction_smiles", ""):
         reactants = boundaries[0]["reaction_smiles"].split(">>")[0].split(".")
@@ -56,7 +62,7 @@ def _resolve_orbital_key(d: Dict[str, Any], orb_name: str, chem_key: str = None)
         if not target:
             continue
         for k, meta in all_metas.items():
-            if (meta.get("name") == target or meta.get("chem_key") == target or meta.get("label") == target) and k in d.get("vecs", {}):
+            if (meta.get("key") == target or meta.get("name") == target or meta.get("chem_key") == target or meta.get("label") == target) and k in d.get("vecs", {}):
                 return k
     return None
 
@@ -101,23 +107,16 @@ class Step6Orbitals(PipelineStep):
             f.get("rel_energy_kcal", 0.0) for f in megajson["frames"]
         ]
         timeline = megajson.get("orbital_timeline")
-        if not timeline or not timeline.get("tracks"):
-            total_f = len(megajson["frames"])
+        if not isinstance(timeline, dict):
             timeline = {
                 "default_isovalue": 0.03,
-                "tracks": [
-                    {
-                        "id": "trk_homo_default",
-                        "orbital_key": "HOMO",
-                        "chem_key": "HOMO",
-                        "orbital_class": "bonding",
-                        "title": "HOMO (Frontier Donor)",
-                        "color": "#38bdf8",
-                        "default_on": True,
-                        "clips": [{"id": "c_homo", "start": 0, "end": max(0, total_f - 1), "title": "HOMO"}]
-                    }
-                ]
+                "tracks": []
             }
+        else:
+            if "tracks" not in timeline or not isinstance(timeline["tracks"], list):
+                timeline["tracks"] = []
+            if "default_isovalue" not in timeline:
+                timeline["default_isovalue"] = 0.03
 
         return {
             "type": "orbitals_ui",
@@ -191,8 +190,15 @@ class Step6Orbitals(PipelineStep):
             f_meta, c_meta, f_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, None, None, ibos_m, star_m, ibos_v)
             n_c = len([k for k, v in ibos_m.items() if v.get("type") == "core"])
         else:
-            n_c = prev_data.get("n_core", 11)
-            ref_dict = {"mol": prev_data["mol"], "ibo_coeff": prev_data["ibo_coeff"], "n_core": n_c}
+            n_c = prev_data.get("n_core")
+            if n_c is None:
+                n_c = len([k for k, v in prev_data.get("ibos_meta", {}).items() if v.get("type") == "core"])
+            ref_dict = {
+                "mol": prev_data["mol"],
+                "ibo_coeff": prev_data["ibo_coeff"],
+                "n_core": n_c,
+                "val_pops": prev_data.get("val_pops") if prev_data.get("val_pops") is not None else prev_data["ibo_pops"][n_c:]
+            }
             ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols, ref_dict)
             f_meta, c_meta, f_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, prev_data["mol"], prev_data["vecs"], ibos_m, star_m, ibos_v)
 
@@ -201,7 +207,7 @@ class Step6Orbitals(PipelineStep):
         frame_dict = {
             "mol": mol, "mf": mf, "meta": f_meta, "ibos_meta": ibos_m,
             "antibonds_meta": star_m, "canonical_pi_meta": c_meta,
-            "ibo_pops": pops, "ibo_coeff": ibo_c, "vecs": {**ibos_v, **f_vecs},
+            "ibo_pops": pops, "val_pops": pops[n_c:], "ibo_coeff": ibo_c, "vecs": {**ibos_v, **f_vecs},
             "charges": mull, "n_core": n_c
         }
         _SCF_CACHE[fi] = frame_dict

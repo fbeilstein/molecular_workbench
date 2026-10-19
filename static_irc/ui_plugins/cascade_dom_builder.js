@@ -111,13 +111,7 @@ export function buildCascadeLayout(container, ui, options = {}) {
     restitchBtn.style.fontWeight = '600';
     restitchBtn.textContent = '⚡ Re-Stitch Pathway';
 
-    const exportBtn = document.createElement('button');
-    exportBtn.style.padding = '8px 12px';
-    exportBtn.style.fontWeight = '600';
-    exportBtn.textContent = '💾 Export Master JSON';
-
     actionRow.appendChild(restitchBtn);
-    actionRow.appendChild(exportBtn);
     leftPanel.appendChild(actionRow);
 
     // 5. Metrics Box
@@ -165,10 +159,84 @@ export function buildCascadeLayout(container, ui, options = {}) {
     rightPanel.style.flexDirection = 'column';
     rightPanel.style.gap = '8px';
 
+    // Top View Mode Bar
+    const viewModeBar = document.createElement('div');
+    viewModeBar.style.display = 'flex';
+    viewModeBar.style.justifyContent = 'space-between';
+    viewModeBar.style.alignItems = 'center';
+    viewModeBar.style.background = '#ffffff';
+    viewModeBar.style.padding = '6px 10px';
+    viewModeBar.style.border = '1px solid #e2e8f0';
+    viewModeBar.style.borderRadius = '8px';
+
+    const modeToggleBox = document.createElement('div');
+    modeToggleBox.style.display = 'flex';
+    modeToggleBox.style.gap = '6px';
+
+    const btnModeCascade = document.createElement('button');
+    btnModeCascade.style.padding = '5px 12px';
+    btnModeCascade.style.fontSize = '12px';
+    btnModeCascade.style.fontWeight = '600';
+    btnModeCascade.style.borderRadius = '5px';
+    btnModeCascade.style.background = '#0284c7';
+    btnModeCascade.style.color = '#ffffff';
+    btnModeCascade.style.border = 'none';
+    btnModeCascade.textContent = '🎬 Full Cascade';
+
+    const btnModeOverlap = document.createElement('button');
+    btnModeOverlap.style.padding = '5px 12px';
+    btnModeOverlap.style.fontSize = '12px';
+    btnModeOverlap.style.fontWeight = '600';
+    btnModeOverlap.style.borderRadius = '5px';
+    btnModeOverlap.style.background = '#f1f5f9';
+    btnModeOverlap.style.color = '#334155';
+    btnModeOverlap.style.border = '1px solid #cbd5e1';
+    btnModeOverlap.textContent = '🔍 Boundary Overlap';
+
+    modeToggleBox.appendChild(btnModeCascade);
+    modeToggleBox.appendChild(btnModeOverlap);
+    viewModeBar.appendChild(modeToggleBox);
+
+    // Overlap Sub-Controls (shown when in Boundary Overlap mode)
+    const overlapSubControls = document.createElement('div');
+    overlapSubControls.style.display = 'none';
+    overlapSubControls.style.alignItems = 'center';
+    overlapSubControls.style.gap = '8px';
+
+    const juncSelect = document.createElement('select');
+    juncSelect.style.padding = '4px 8px';
+    juncSelect.style.fontSize = '11.5px';
+    juncSelect.style.borderRadius = '4px';
+    juncSelect.style.border = '1px solid #cbd5e1';
+
+    const alignTypeBtn = document.createElement('button');
+    alignTypeBtn.style.padding = '4px 8px';
+    alignTypeBtn.style.fontSize = '11.5px';
+    alignTypeBtn.style.borderRadius = '4px';
+    alignTypeBtn.style.border = '1px solid #cbd5e1';
+    alignTypeBtn.style.background = '#ffffff';
+    alignTypeBtn.textContent = 'Aligned (Fit)';
+
+    const rmsdBadge = document.createElement('span');
+    rmsdBadge.style.fontSize = '11.5px';
+    rmsdBadge.style.fontWeight = '600';
+    rmsdBadge.style.color = '#0284c7';
+    rmsdBadge.style.background = '#e0f2fe';
+    rmsdBadge.style.padding = '3px 8px';
+    rmsdBadge.style.borderRadius = '4px';
+    rmsdBadge.textContent = 'RMSD: --';
+
+    overlapSubControls.appendChild(juncSelect);
+    overlapSubControls.appendChild(alignTypeBtn);
+    overlapSubControls.appendChild(rmsdBadge);
+    viewModeBar.appendChild(overlapSubControls);
+
+    rightPanel.appendChild(viewModeBar);
+
     const viewerBox = document.createElement('div');
     viewerBox.style.width = '100%';
     viewerBox.style.height = '390px';
-    viewerBox.style.background = '#0f0f1a';
+    viewerBox.style.background = '#0f172a';
     viewerBox.style.borderRadius = '8px';
     viewerBox.style.position = 'relative';
 
@@ -237,9 +305,11 @@ export function buildCascadeLayout(container, ui, options = {}) {
 
     return {
         root, seqList, juncList, bSlider, bVal,
-        restitchBtn, exportBtn, viewerBox, hudOverlay,
+        restitchBtn, viewerBox, hudOverlay,
+        btnModeCascade, btnModeOverlap, overlapSubControls,
+        juncSelect, alignTypeBtn, rmsdBadge,
         playBtn, prevBtn, nextBtn, frameSlider, frameLabel,
-        energyCanvas,
+        energyCanvas, ctrlRow,
         mFrames: mFrames.val,
         mSteps: mSteps.val,
         mBar: mBar.val,

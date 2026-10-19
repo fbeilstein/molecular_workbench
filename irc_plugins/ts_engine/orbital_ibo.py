@@ -64,8 +64,19 @@ def compute_frame_ibos(
     core_mo = occ_mo[:, core_mask]
     val_mo = occ_mo[:, ~core_mask]
     ibo_val = lo.ibo.ibo(mol, val_mo, verbose=0)
+    ovlp = mol.intor_symmetric("int1e_ovlp")
+    ao_atom = [int(l.split()[0]) for l in mol.ao_labels()]
 
-    # Match and orient core and valence orbitals using cross-frame overlap matrix
+    n_val = ibo_val.shape[1]
+    val_pops = np.zeros((n_val, mol.natm))
+    for k in range(n_val):
+        v = ibo_val[:, k]
+        ps = np.outer(v, v) @ ovlp
+        for mu in range(mol.nao):
+            val_pops[k, ao_atom[mu]] += ps[mu, mu]
+        val_pops[k] *= 2.0
+
+    # Match and orient core and valence orbitals using cross-frame population continuity and overlap
     if prev_data and "mol" in prev_data and "ibo_coeff" in prev_data:
         n_prev_core = prev_data.get("n_core", core_mo.shape[1])
         s_cross = gto.intor_cross("int1e_ovlp", prev_data["mol"], mol)
@@ -79,25 +90,59 @@ def compute_frame_ibos(
                     core_mo[:, k] = -core_mo[:, k]
 
         prev_val = prev_data["ibo_coeff"][:, n_prev_core:]
-        ovlp_mat = prev_val.T @ s_cross @ ibo_val
-        r, c = linear_sum_assignment(-np.abs(ovlp_mat))
+        prev_pops = prev_data.get("val_pops")
+        if prev_pops is None and "ibo_pops" in prev_data:
+            prev_pops = prev_data["ibo_pops"][n_prev_core:]
+
+        if prev_pops is not None and prev_pops.shape == val_pops.shape:
+            pop_cost = np.sum((prev_pops[:, None, :] - val_pops[None, :, :]) ** 2, axis=2)
+            r, c = linear_sum_assignment(pop_cost)
+        else:
+            ovlp_mat = prev_val.T @ s_cross @ ibo_val
+            r, c = linear_sum_assignment(-np.abs(ovlp_mat))
+
         ibo_val = ibo_val[:, c]
-        for k in range(ibo_val.shape[1]):
-            if ovlp_mat[k, c[k]] < 0.0:
+        val_pops = val_pops[c]
+        for k in range(n_val):
+            s_val = float(prev_val[:, k].T @ s_cross @ ibo_val[:, k])
+            if s_val < 0.0:
+                ibo_val[:, k] = -ibo_val[:, k]
+
+        # Intra-atom / near-degenerate orbital subspace SVD rotation to eliminate sudden orientation jumps
+        primary_atom = np.argmax(val_pops, axis=1)
+        for a in range(mol.natm):
+            orbs_on_a = [k for k in range(n_val) if primary_atom[k] == a and val_pops[k, a] > 1.2]
+            if len(orbs_on_a) >= 2:
+                sub_prev = prev_val[:, orbs_on_a]
+                sub_curr = ibo_val[:, orbs_on_a]
+                M_sub = sub_prev.T @ s_cross @ sub_curr
+                V, s, Wt = np.linalg.svd(M_sub)
+                U = Wt.T @ V.T
+                ibo_val[:, orbs_on_a] = sub_curr @ U
+                for idx in orbs_on_a:
+                    v = ibo_val[:, idx]
+                    ps = np.outer(v, v) @ ovlp
+                    val_pops[idx] = 0.0
+                    for mu in range(mol.nao):
+                        val_pops[idx, ao_atom[mu]] += ps[mu, mu]
+                    val_pops[idx] *= 2.0
+
+        for k in range(n_val):
+            s_val = float(prev_val[:, k].T @ s_cross @ ibo_val[:, k])
+            if s_val < 0.0:
                 ibo_val[:, k] = -ibo_val[:, k]
 
     ibo_coeff = np.hstack([core_mo, ibo_val])
 
-    ovlp = mol.intor_symmetric("int1e_ovlp")
-    ao_atom = [int(l.split()[0]) for l in mol.ao_labels()]
-
     pops = np.zeros((nocc, mol.natm))
-    for k in range(nocc):
-        v = ibo_coeff[:, k]
+    n_c = core_mo.shape[1]
+    for k in range(n_c):
+        v = core_mo[:, k]
         ps = np.outer(v, v) @ ovlp
         for mu in range(mol.nao):
             pops[k, ao_atom[mu]] += ps[mu, mu]
         pops[k] *= 2.0
+    pops[n_c:] = val_pops
 
     fock = mf.get_fock()
     ibo_fock = ibo_coeff.T @ fock @ ibo_coeff
@@ -155,7 +200,7 @@ def compute_frame_ibos(
                 c_key = f"{typ}_{'-'.join(atoms)}"
 
         ibo_dict[key] = {
-            "name": key, "index": k, "type": typ, "category": cat,
+            "key": key, "name": key, "index": k, "type": typ, "category": cat,
             "label": lbl, "atoms": atoms,
             "chem_key": c_key,
             "energy_ev": round(e_ev, 2),
@@ -187,7 +232,7 @@ def compute_frame_ibos(
                     star_sym = "σ*" if "sigma" in typ else "π*"
                     e_star = float(c_star.T @ fock @ c_star) * 27.2114
                     star_dict[star_key] = {
-                        "name": star_key, "index": 100 + k, "type": star_type,
+                        "key": star_key, "name": star_key, "index": 100 + k, "type": star_type,
                         "category": "antibonding", "label": f"{star_sym}({a1}-{a2}) [Antibond]",
                         "atoms": [a1, a2], "chem_key": f"{star_type}_{a1}-{a2}",
                         "energy_ev": round(e_star, 2), "pop": []
@@ -195,3 +240,4 @@ def compute_frame_ibos(
                     vec_dict[star_key] = c_star
 
     return ibo_dict, star_dict, vec_dict, pops, ibo_coeff
+

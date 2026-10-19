@@ -95,9 +95,11 @@ export class ViewerMoleculeModal {
 
     // Pop-up window button: Opens standalone single-molecule viewer
     modal.querySelector('#btn-modal-popout').addEventListener('click', () => {
-      const bundleUrl = this.app.currentBundleUrl || './bundles/tetrahedral_intermediate_CO.zip';
+      const bundleUrl = this.app.currentBundleUrl || (new URLSearchParams(window.location.search).get('bundle') || '');
       const targetMol = molBundle.manifest.molKey || molId;
-      const popUrl = `viewer.html?bundle=${encodeURIComponent(bundleUrl)}&molecule=${encodeURIComponent(targetMol)}`;
+      const popUrl = bundleUrl 
+        ? `viewer.html?bundle=${encodeURIComponent(bundleUrl)}&molecule=${encodeURIComponent(targetMol)}`
+        : `viewer.html?molecule=${encodeURIComponent(targetMol)}`;
       window.open(popUrl, '_blank', 'width=1100,height=750,menubar=no,toolbar=no');
     });
 

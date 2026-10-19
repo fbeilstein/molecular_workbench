@@ -9,9 +9,9 @@ export function buildIRCLayout(container) {
     const viewerBox = document.createElement('div');
     viewerBox.style.flex = '1 1 540px';
     viewerBox.style.height = '480px';
-    viewerBox.style.background = '#0f0f1a';
-    viewerBox.style.border = '1px solid #2a2a45';
-    viewerBox.style.borderRadius = '10px';
+    viewerBox.style.background = '#0f172a';
+    viewerBox.style.border = '1px solid #cbd5e1';
+    viewerBox.style.borderRadius = '8px';
     viewerBox.style.position = 'relative';
     viewerBox.style.overflow = 'hidden';
 

@@ -1,4 +1,4 @@
-import { IRC3DViewer } from './irc_viewer_3d.js';
+import { MoleculeViewer3D } from './common/molecule_viewer_3d.js';
 import { renderEnergyProfile } from './irc_profile_plot.js';
 import { buildCascadeLayout } from './cascade_dom_builder.js';
 
@@ -9,6 +9,9 @@ let currentFrameIndex = 0;
 let isPlaying = false;
 let currentJunctionChoices = {};
 let currentBridgeFrames = 8;
+let currentViewMode = 'cascade'; // 'cascade' | 'overlap'
+let activeJunctionIdx = 0;
+let isOverlapAligned = true;
 
 export const CascadeUI = {
     render: (container, ui, state, stepId) => {
@@ -16,6 +19,9 @@ export const CascadeUI = {
         currentMegajson = ui.megajson || null;
         currentBridgeFrames = ui.n_bridge_frames || 8;
         currentJunctionChoices = Object.assign({}, ui.junction_choices || {});
+        currentViewMode = 'cascade';
+        activeJunctionIdx = 0;
+        isOverlapAligned = true;
 
         const dom = buildCascadeLayout(container, ui, { initialBridgeFrames: currentBridgeFrames });
 
@@ -165,17 +171,28 @@ export const CascadeUI = {
         }
         renderSequenceList();
 
+        function getJunctionReports() {
+            return (currentMegajson && (currentMegajson.stitching_alignment_report || currentMegajson.junction_previews)) || ui.stitching_report || [];
+        }
+
         // Populate Junctions
         function populateJunctions(reports) {
             dom.juncList.innerHTML = '';
+            dom.juncSelect.innerHTML = '';
+
             if (!reports || reports.length === 0) {
                 const noJ = document.createElement('div');
                 noJ.style.fontSize = '12px';
                 noJ.style.color = '#94a3b8';
                 noJ.textContent = 'No intermediate junctions detected.';
                 dom.juncList.appendChild(noJ);
+
+                const opt = document.createElement('option');
+                opt.textContent = 'No junctions';
+                dom.juncSelect.appendChild(opt);
                 return;
             }
+
             reports.forEach((rep, jIdx) => {
                 const jBox = document.createElement('div');
                 jBox.style.padding = '8px';
@@ -216,18 +233,27 @@ export const CascadeUI = {
                 jBox.appendChild(jHdr);
                 jBox.appendChild(sel);
                 dom.juncList.appendChild(jBox);
+
+                // Option for Boundary Overlap Dropdown
+                const jOpt = document.createElement('option');
+                jOpt.value = jIdx.toString();
+                jOpt.textContent = `Junction ${jIdx + 1}➔${jIdx + 2} (${rep.hero_formula || 'Intermediate'})`;
+                dom.juncSelect.appendChild(jOpt);
             });
         }
 
-        populateJunctions((currentMegajson && currentMegajson.stitching_alignment_report) || ui.stitching_report || []);
+        populateJunctions(getJunctionReports());
 
         dom.bSlider.oninput = () => {
             currentBridgeFrames = parseInt(dom.bSlider.value);
             dom.bVal.textContent = `${currentBridgeFrames} Frames`;
         };
 
-        // Wire 3D Viewer & Controls
-        activeViewer = new IRC3DViewer(dom.viewerBox);
+        // Wire Unified 3D Viewer
+        activeViewer = new MoleculeViewer3D(dom.viewerBox, {
+            statusEl: dom.hudOverlay
+        });
+        activeViewer.init();
 
         function setFrame(idx) {
             if (!currentMegajson || !currentMegajson.frames || currentMegajson.frames.length === 0) return;
@@ -247,6 +273,88 @@ export const CascadeUI = {
             renderEnergyProfile(dom.energyCanvas, currentMegajson, currentFrameIndex, clicked => setFrame(clicked));
         }
 
+        function renderCurrentOverlap() {
+            const reports = getJunctionReports();
+            if (!reports || reports.length === 0) {
+                dom.hudOverlay.textContent = 'No intermediate junctions available for overlap inspection.';
+                return;
+            }
+            const j = reports[activeJunctionIdx] || reports[0];
+            if (!j || !j.prev_symbols || !j.prev_coords) return;
+
+            const nextCoords = isOverlapAligned ? (j.next_coords_aligned || j.next_coords) : (j.next_coords_unaligned || j.next_coords);
+            const rmsd = j.rmsd || j.joint_rmsd_angstrom || 0.0;
+
+            activeViewer.renderOverlap(
+                j.prev_symbols,
+                j.prev_coords,
+                j.next_symbols || j.prev_symbols,
+                nextCoords,
+                rmsd,
+                isOverlapAligned
+            );
+
+            dom.rmsdBadge.textContent = `RMSD: ${rmsd.toFixed(4)} Å`;
+            dom.hudOverlay.textContent = `Boundary Overlap | Junction ${activeJunctionIdx + 1}➔${activeJunctionIdx + 2}: ${j.hero_formula || 'Intermediate'} | RMSD: ${rmsd.toFixed(4)} Å (${isOverlapAligned ? 'Cyan: Step K, Magenta: Step K+1' : 'Cyan: Step K, Yellow: Step K+1 Unaligned'})`;
+        }
+
+        function setViewMode(mode) {
+            currentViewMode = mode;
+            if (mode === 'cascade') {
+                dom.btnModeCascade.style.background = '#0284c7';
+                dom.btnModeCascade.style.color = '#ffffff';
+                dom.btnModeCascade.style.border = 'none';
+
+                dom.btnModeOverlap.style.background = '#f1f5f9';
+                dom.btnModeOverlap.style.color = '#334155';
+                dom.btnModeOverlap.style.border = '1px solid #cbd5e1';
+
+                dom.overlapSubControls.style.display = 'none';
+                dom.ctrlRow.style.display = 'flex';
+                dom.energyCanvas.style.display = 'block';
+
+                if (currentMegajson) {
+                    activeViewer.loadTrajectory(currentMegajson);
+                    setFrame(currentFrameIndex);
+                }
+            } else {
+                if (isPlaying) {
+                    clearInterval(playbackTimer);
+                    isPlaying = false;
+                    dom.playBtn.textContent = '▶ Play';
+                }
+
+                dom.btnModeCascade.style.background = '#f1f5f9';
+                dom.btnModeCascade.style.color = '#334155';
+                dom.btnModeCascade.style.border = '1px solid #cbd5e1';
+
+                dom.btnModeOverlap.style.background = '#0284c7';
+                dom.btnModeOverlap.style.color = '#ffffff';
+                dom.btnModeOverlap.style.border = 'none';
+
+                dom.overlapSubControls.style.display = 'flex';
+                dom.ctrlRow.style.display = 'none';
+                dom.energyCanvas.style.display = 'none';
+
+                renderCurrentOverlap();
+            }
+        }
+
+        dom.btnModeCascade.onclick = () => setViewMode('cascade');
+        dom.btnModeOverlap.onclick = () => setViewMode('overlap');
+
+        dom.juncSelect.onchange = () => {
+            activeJunctionIdx = parseInt(dom.juncSelect.value) || 0;
+            renderCurrentOverlap();
+        };
+
+        dom.alignTypeBtn.onclick = () => {
+            isOverlapAligned = !isOverlapAligned;
+            dom.alignTypeBtn.textContent = isOverlapAligned ? 'Aligned (Fit)' : 'Raw Unaligned';
+            dom.alignTypeBtn.style.color = isOverlapAligned ? '#0284c7' : '#d97706';
+            renderCurrentOverlap();
+        };
+
         function loadMegajson(mj) {
             if (!mj || !mj.frames || mj.frames.length === 0) return;
             currentMegajson = mj;
@@ -263,8 +371,12 @@ export const CascadeUI = {
             if (mj.overall_barrier_kcal != null) dom.mBar.textContent = `+${mj.overall_barrier_kcal} kcal`;
             if (mj.overall_reaction_energy_kcal != null) dom.mRxn.textContent = `${mj.overall_reaction_energy_kcal} kcal`;
 
-            activeViewer.loadTrajectory(mj);
-            setFrame(0);
+            if (currentViewMode === 'cascade') {
+                activeViewer.loadTrajectory(mj);
+                setFrame(0);
+            } else {
+                renderCurrentOverlap();
+            }
         }
 
         dom.frameSlider.oninput = () => setFrame(parseInt(dom.frameSlider.value));
@@ -320,17 +432,6 @@ export const CascadeUI = {
             }
         };
 
-        dom.exportBtn.onclick = () => {
-            if (!currentMegajson) return;
-            const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(currentMegajson, null, 2));
-            const a = document.createElement('a');
-            a.setAttribute('href', dataStr);
-            a.setAttribute('download', 'master_reaction_cascade.json');
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-        };
-
         if (currentMegajson) {
             loadMegajson(currentMegajson);
         }
@@ -340,3 +441,4 @@ export const CascadeUI = {
         megajson: currentMegajson
     })
 };
+

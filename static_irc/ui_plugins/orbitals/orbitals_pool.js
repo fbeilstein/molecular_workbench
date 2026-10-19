@@ -181,25 +181,25 @@ export class OrbitalsPool {
 
             // Distinct card background and border colors for bonding vs anti-bonding
             let cardBorder = isAuditioning
-                ? (isAnti ? '#fb923c' : '#38bdf8')
-                : (isAnti ? 'rgba(251, 146, 60, 0.25)' : (isEsp ? 'rgba(168, 85, 247, 0.3)' : 'rgba(56, 189, 248, 0.15)'));
+                ? (isAnti ? '#ea580c' : '#0284c7')
+                : (isAnti ? '#fed7aa' : (isEsp ? '#e9d5ff' : '#e2e8f0'));
             let cardBg = isAuditioning
-                ? (isAnti ? 'rgba(251, 146, 60, 0.15)' : 'rgba(56, 189, 248, 0.15)')
-                : (isAnti ? 'rgba(251, 146, 60, 0.04)' : 'rgba(255, 255, 255, 0.02)');
+                ? (isAnti ? '#fff7ed' : '#f0f9ff')
+                : (isAnti ? '#fffbeb' : '#ffffff');
 
             html += `
                 <div class="orbital-pool-card" data-key="${item.key}" style="
                     background: ${cardBg};
                     border: 1px solid ${cardBorder};
-                    border-radius: 5px; padding: 0.4rem 0.6rem; display: flex; justify-content: space-between; align-items: center; gap: 0.4rem;
+                    border-radius: 6px; padding: 0.45rem 0.6rem; display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
                 ">
                     <div style="flex: 1; min-width: 0;">
                         <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-                            <span style="font-weight: 600; font-size: 0.82rem; color: #f8fafc;">${item.label}</span>
+                            <span style="font-weight: 600; font-size: 0.82rem; color: #0f172a;">${item.label}</span>
                             <span class="badge ${badge.cls}" style="font-size: 0.65rem; padding: 0.05rem 0.35rem; border-radius: 3px; ${badge.style}">${badge.label}</span>
-                            <span style="font-size: 0.7rem; color: #94a3b8;">${item.key}</span>
+                            <span style="font-size: 0.7rem; color: #64748b;">${item.key}</span>
                         </div>
-                        <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        <div style="font-size: 0.7rem; color: #475569; margin-top: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                             ${item.desc} ${atomStr}
                         </div>
                     </div>
