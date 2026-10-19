@@ -36,6 +36,7 @@ export class OrbitalsPool {
                     desc: fmo.description || `Frontier MO (${fmo.energy_ev != null ? fmo.energy_ev.toFixed(2) + ' eV' : ''})`,
                     atoms: fmo.atoms || [],
                     color: isLumo ? '#fb923c' : '#38bdf8',
+                    palette: fmo.palette || null,
                     energy: fmo.energy_ev
                 });
             }
@@ -55,6 +56,7 @@ export class OrbitalsPool {
                     desc: ibo.description || (isLp ? `Lone pair on ${ibo.atoms ? ibo.atoms[0] : 'atom'}` : `Bond ${ibo.atoms ? ibo.atoms.join('-') : ''}`),
                     atoms: ibo.atoms || [],
                     color: '#38bdf8',
+                    palette: ibo.palette || null,
                     energy: ibo.energy_ev
                 });
             }
@@ -72,6 +74,7 @@ export class OrbitalsPool {
                     desc: cpi.description || (isStar ? `Delocalized π* on ${cpi.atoms ? cpi.atoms.join('-') : 'fragment'}` : 'Delocalized conjugated π system'),
                     atoms: cpi.atoms || [],
                     color: isStar ? '#fb923c' : '#38bdf8',
+                    palette: cpi.palette || null,
                     energy: cpi.energy_ev
                 });
             }
@@ -89,6 +92,7 @@ export class OrbitalsPool {
                     desc: ab.description || `Antibond ${ab.label}`,
                     atoms: ab.atoms || [],
                     color: isPiStar ? '#db2777' : '#fb923c',
+                    palette: ab.palette || null,
                     energy: ab.energy_ev
                 });
             }

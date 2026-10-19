@@ -28,8 +28,12 @@ export const ELEMENT_RADII = {
 
 export function isAntiBondingOrbital(orb) {
     if (!orb) return false;
+    if (typeof orb === 'string') {
+        const s = orb.toUpperCase();
+        return s.includes('*') || s.includes('LUMO') || s.includes('STAR') || s.includes('ANTIBOND');
+    }
     if (orb.orbital_class === 'antibonding') return true;
-    const name = String(orb.name || orb.label || orb.orbital_key || '').toUpperCase();
+    const name = String(orb.name || orb.label || orb.orbital_key || orb.chem_key || orb.title || '').toUpperCase();
     const type = String(orb.type || '').toLowerCase();
     if (name.includes('*') || name.includes('LUMO') || type.includes('star') || type.includes('antibond')) {
         return true;

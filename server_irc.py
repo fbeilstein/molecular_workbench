@@ -5,12 +5,9 @@ import json
 import urllib.parse
 import shutil
 
+import irc_plugins
+
 def get_plugins():
-    import sys
-    for mod_name in list(sys.modules.keys()):
-        if mod_name.startswith("irc_plugins"):
-            del sys.modules[mod_name]
-    import irc_plugins
     return irc_plugins.get_plugins()
 
 PORT = 8082

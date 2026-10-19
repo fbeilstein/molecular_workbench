@@ -30,20 +30,19 @@ export const OrbitalsUI = {
 
         container.innerHTML = `
             <div style="display: flex; flex-direction: column; gap: 0.5rem; background: var(--bg-dark); color: var(--text-main);">
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0.75rem; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; gap: 0.5rem;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0.75rem; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); gap: 0.5rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
                         <span style="font-weight: 700; font-size: 0.95rem; color: #38bdf8;">Reaction Orbital Studio</span>
                         <span class="badge" style="font-size: 0.7rem; background: rgba(56,189,248,0.15); color: #38bdf8;">Step 6</span>
-                        <span id="orbitals-status-label" style="font-size: 0.74rem; color: #94a3b8;">Initializing...</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.4rem; flex: 1; max-width: 480px; margin: 0 0.5rem;">
-                        <button id="btn-play-pause" class="btn btn-sm btn-primary" style="padding: 0.2rem 0.6rem;">▶ Play</button>
-                        <button id="btn-prev-frame" class="btn btn-sm btn-secondary">⏮</button>
+                    <div style="display: flex; align-items: center; gap: 0.4rem; flex: 1; max-width: 520px; margin: 0 0.75rem;">
+                        <button id="btn-play-pause" class="btn btn-sm btn-primary" style="padding: 0.2rem 0.6rem; flex-shrink: 0;">▶ Play</button>
+                        <button id="btn-prev-frame" class="btn btn-sm btn-secondary" style="flex-shrink: 0;">⏮</button>
                         <input type="range" id="transport-frame-scrubber" min="0" max="${maxF}" value="0" style="flex: 1; cursor: pointer; accent-color: #38bdf8; height: 6px;">
-                        <button id="btn-next-frame" class="btn btn-sm btn-secondary">⏭</button>
-                        <span id="transport-frame-counter" style="font-size: 0.74rem; font-weight: 600; color: #f1f5f9; min-width: 85px; text-align: right;">Frame 0 / ${maxF}</span>
+                        <button id="btn-next-frame" class="btn btn-sm btn-secondary" style="flex-shrink: 0;">⏭</button>
+                        <span id="transport-frame-counter" style="font-size: 0.74rem; font-weight: 600; color: #f1f5f9; min-width: 105px; text-align: right; flex-shrink: 0;">Frame 0 / ${maxF}</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0;">
                         <button id="btn-toggle-lecture" class="btn btn-sm btn-secondary" title="Mute/Unmute Orbitals (M)">👁 Toggle MOs</button>
                         <button id="btn-toggle-esp" class="btn btn-sm btn-secondary" title="Toggle ESP / Charge Spheres (E)">⚡ ESP</button>
                         <button id="btn-precompute-all" class="btn btn-sm btn-outline" style="color: #10b981; border-color: #059669;">⚡ Precompute</button>
@@ -67,6 +66,7 @@ export const OrbitalsUI = {
                     </div>
                     <div style="flex: 1; height: 100%; position: relative; border-radius: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08);">
                         <div id="orbitals-3d-canvas" style="width: 100%; height: 100%;"></div>
+                        <div id="orbitals-status-label" style="position: absolute; top: 10px; left: 10px; font-size: 0.72rem; color: #94a3b8; background: rgba(15,23,42,0.85); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); pointer-events: none; z-index: 10; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; backdrop-filter: blur(4px);">Ready</div>
                         <div style="position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 4px; z-index: 10;">
                             <button id="btn-zoom-in" class="btn btn-xs btn-secondary" title="Zoom In (+)" style="font-size: 0.85rem; padding: 2px 7px; background: rgba(15,23,42,0.85);">+</button>
                             <button id="btn-zoom-out" class="btn btn-xs btn-secondary" title="Zoom Out (-)" style="font-size: 0.85rem; padding: 2px 7px; background: rgba(15,23,42,0.85);">−</button>
@@ -175,36 +175,78 @@ export const OrbitalsUI = {
     },
 
     async fetchCube(frameIdx, orbKey, chemKey, isovalue) {
-        const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action_type: 'get_cube', frame_index: frameIdx, orbital: orbKey, chem_key: chemKey, isovalue: isovalue })
-        });
-        return await res.json();
+        if (!this.state.cubePromises) this.state.cubePromises = new Map();
+        const k = `${frameIdx}_${orbKey}`;
+        if (this.state.viewer3D && this.state.viewer3D.cubeCache[k]) {
+            return { success: true, cube: this.state.viewer3D.cubeCache[k] };
+        }
+        if (this.state.cubePromises.has(k)) {
+            return await this.state.cubePromises.get(k);
+        }
+
+        const promise = (async () => {
+            try {
+                const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action_type: 'get_cube', frame_index: frameIdx, orbital: orbKey, chem_key: chemKey, isovalue: isovalue })
+                });
+                const data = await res.json();
+                if (data && data.success && data.cube && this.state.viewer3D) {
+                    this.state.viewer3D.cubeCache[k] = data.cube;
+                }
+                return data;
+            } catch (err) {
+                console.error('fetchCube network error:', err);
+                return { success: false, error: err.message };
+            } finally {
+                this.state.cubePromises.delete(k);
+            }
+        })();
+
+        this.state.cubePromises.set(k, promise);
+        return await promise;
     },
 
     _getActiveOrbitals(f) {
-        const muted = new Set(this.state.timeline ? this.state.timeline.getMutedOrbitalKeys() : []);
-        const activeTracks = (this.state.timeline ? this.state.timeline.getActiveOrbitalsAtFrame(f) : []).filter(t => !muted.has(t.orbital_key));
-        const auditioned = (this.state.pool ? this.state.pool.getAuditionedOrbitals() : []).filter(a => !muted.has(a.key));
-        const merged = [...activeTracks];
-        for (const a of auditioned) {
-            const aKey = a.orbital_key || a.key;
-            if (!merged.some(t => (t.orbital_key || t.key) === aKey)) {
+        const auditioned = this.state.pool ? this.state.pool.getAuditionedOrbitals() : [];
+        const fd = this.state.frameDataCache[f];
+        const getLiveMeta = (key) => {
+            if (!fd || !fd.all_ibos) return null;
+            return fd.all_ibos.find(i => (i.key || i.name) === key);
+        };
+        if (auditioned.length > 0) {
+            // Solo audition: when user clicks 👁 ON in pool, focus on auditioned orbital so background MOs don't obscure it
+            return auditioned.map(a => {
+                const aKey = a.orbital_key || a.key;
                 const isAnti = isAntiBondingOrbital(a);
-                merged.push({
+                const live = getLiveMeta(aKey);
+                const liveLabel = live ? (live.label || live.key) : (a.label || aKey);
+                const liveType = live ? (live.type || a.type) : a.type;
+                const isLiveAnti = (liveType && liveType.includes('star')) || isAnti;
+                return {
                     id: 'audition_' + aKey,
                     orbital_key: aKey,
                     chem_key: a.chem_key || aKey,
-                    orbital_class: a.orbital_class || (isAnti ? 'antibonding' : 'bonding'),
-                    type: a.type,
+                    orbital_class: live ? (isLiveAnti ? 'antibonding' : (liveType.includes('lone') ? 'lone_pairs' : 'bonding')) : (a.orbital_class || (isAnti ? 'antibonding' : 'bonding')),
+                    type: liveType,
                     palette: a.palette,
-                    title: a.label || aKey,
+                    title: liveLabel,
                     color: a.color || (isAnti ? '#fb923c' : '#38bdf8')
-                });
-            }
+                };
+            });
         }
-        return merged;
+        const muted = new Set(this.state.timeline ? this.state.timeline.getMutedOrbitalKeys() : []);
+        return (this.state.timeline ? this.state.timeline.getActiveOrbitalsAtFrame(f) : []).filter(t => !muted.has(t.orbital_key)).map(t => {
+            const live = getLiveMeta(t.orbital_key);
+            if (live) {
+                return {
+                    ...t,
+                    title: live.label || t.title || t.orbital_key
+                };
+            }
+            return t;
+        });
     },
 
     async refreshViewer() {
@@ -226,6 +268,7 @@ export const OrbitalsUI = {
 
     seekFrame(frameIdx, isPlayback = false) {
         this.state.currentFrame = frameIdx;
+        if (this.state.viewer3D) this.state.viewer3D.currentFrameIdx = frameIdx;
         if (this.state.timeline) this.state.timeline.setCurrentFrame(frameIdx);
         const scrubber = document.querySelector('#transport-frame-scrubber');
         if (scrubber) scrubber.value = frameIdx;
@@ -240,21 +283,29 @@ export const OrbitalsUI = {
             const charges = (fd && fd.charges) || this.state.trajectoryCharges[frameIdx] || null;
             const espActive = merged.some(t => t.orbital_key === 'track_esp_charge');
             const moTracks = this.state.hideAllOrbitals ? [] : merged.filter(t => t.orbital_key !== 'track_esp_charge');
+
             this.state.viewer3D.renderFastFrame(
                 this.state.uiSchema.symbols, coords, moTracks, this.state.isovalue,
                 frameIdx, charges, this.state.showCharges || espActive
             );
+
+            // Fetch any missing cubes for active orbitals
             for (const orb of moTracks) {
                 const ok = orb.orbital_key || orb.key || orb, ck = orb.chem_key || ok;
                 if (!this.state.viewer3D.cubeCache[`${frameIdx}_${ok}`]) {
+                    this.state.viewer3D.setStatus(`Frame ${frameIdx} | Computing orbital ${ok}...`);
                     this.fetchCube(frameIdx, ok, ck, this.state.isovalue).then(res => {
                         if (res && res.success && res.cube) {
-                            this.state.viewer3D.cubeCache[`${frameIdx}_${ok}`] = res.cube;
                             if (this.state.currentFrame === frameIdx) {
                                 this.state.viewer3D.renderFastFrame(
                                     this.state.uiSchema.symbols, coords, moTracks, this.state.isovalue,
                                     frameIdx, charges, this.state.showCharges || espActive
                                 );
+                                this.state.viewer3D.setStatus(`Frame ${frameIdx} | Ready`);
+                            }
+                        } else if (res && res.available === false) {
+                            if (this.state.currentFrame === frameIdx) {
+                                this.state.viewer3D.setStatus(`Frame ${frameIdx} | ${res.error || 'Orbital not formed at this frame'}`);
                             }
                         }
                     }).catch(() => {});

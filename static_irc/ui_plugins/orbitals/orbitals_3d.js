@@ -1,56 +1,45 @@
 /**
- * 3D Isosurface and Molecular Geometry Viewer for Step 6 Orbitals.
- * Renders stick/sphere models and 3D Gaussian cube volumetric isosurfaces
- * using 3Dmol.js with distinct colors for bonding vs anti-bonding orbitals.
+ * 3Dmol scene and volumetric isosurface renderer for Step 6 Orbitals.
+ * Preserves camera orientation and zoom across frames, provides instant fast scrubbing,
+ * and renders distinct phase colors for bonding vs. anti-bonding orbitals.
  */
-import { getPhaseColors } from './orbitals_types.js';
+import { getEspColor, getPhaseColors } from './orbitals_types.js';
 
 export class Orbitals3DViewer {
-    constructor(containerEl, statusEl = null) {
+    constructor(containerEl, statusEl) {
         this.containerEl = containerEl;
         this.statusEl = statusEl;
         this.viewer = null;
         this.cubeCache = {};
         this.vdoCache = {};
+        this.hasInitializedCamera = false;
         this.moleculeScale = 1.0;
-        this.currentOrientation = null;
+        this.currentFrameIdx = 0;
     }
 
     init() {
         if (!this.containerEl) return;
         this.containerEl.innerHTML = '';
         if (typeof $3Dmol === 'undefined') {
-            console.error('3Dmol library is not loaded');
-            this.setStatus('Error: 3Dmol library missing', true);
+            this.containerEl.innerHTML = '<div style="padding: 1rem; color: #ef4444;">3Dmol.js library not loaded.</div>';
             return;
         }
-
         this.viewer = $3Dmol.createViewer(this.containerEl, {
-            backgroundColor: 'rgba(15, 23, 42, 1.0)',
-            antialias: true
+            backgroundColor: '#0f172a',
+            id: 'orbitals-3dmol-canvas'
         });
-        this.viewer.render();
+
+        // Mouse wheel scales 3D molecule without page scroll interference
+        this.containerEl.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.12 : 0.89;
+            this.zoom(factor);
+        }, { passive: false });
     }
 
-    saveCamera() {
-        if (this.viewer) {
-            try {
-                this.currentOrientation = this.viewer.getView();
-            } catch (e) {}
-        }
-    }
-
-    restoreCamera() {
-        if (this.viewer && this.currentOrientation) {
-            try {
-                this.viewer.setView(this.currentOrientation);
-            } catch (e) {}
-        }
-    }
-
-    zoom(delta) {
+    zoom(factor) {
         if (!this.viewer) return;
-        this.viewer.zoom(delta);
+        this.viewer.zoom(factor);
         this.viewer.render();
     }
 
@@ -129,70 +118,48 @@ export class Orbitals3DViewer {
         this.viewer.render();
     }
 
-    renderFrameDirect(options) {
-        const { symbols, coords, charges, showCharges, activeOrbitals, isovalue, frameIdx } = options;
-        if (!this.viewer || !symbols || !coords) return;
-        this.viewer.clear();
-
-        const n = Math.min(symbols.length, coords.length);
-        let mdl = `${n}\nFrame Model\n`;
-        for (let i = 0; i < n; i++) {
-            const sym = symbols[i];
-            const [x, y, z] = coords[i];
-            mdl += `${sym} ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`;
-        }
-        this.viewer.addModel(mdl, 'xyz');
-        this.viewer.setStyle({}, {
-            stick: { radius: 0.14 * this.moleculeScale, colorscheme: 'Jmol' },
-            sphere: { scale: 0.28 * this.moleculeScale, colorscheme: 'Jmol' }
-        });
-
-        if (showCharges && charges && charges.length >= n) {
-            const atoms = this.viewer.selectedAtoms({});
-            for (let i = 0; i < atoms.length && i < charges.length; i++) {
-                atoms[i].partialCharge = charges[i] || 0.0;
-                atoms[i].properties = atoms[i].properties || {};
-                atoms[i].properties.partialCharge = charges[i] || 0.0;
-            }
-            this.viewer.addSurface($3Dmol.SurfaceType.VDW, {
-                opacity: 0.65,
-                colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
-            });
-            for (let i = 0; i < n; i++) {
-                const q = charges[i];
-                const [x, y, z] = coords[i];
-                this.viewer.addLabel(`${symbols[i]}: ${q > 0 ? '+' : ''}${q.toFixed(2)}`, {
-                    position: { x, y: y + 0.35, z },
-                    fontSize: 10, fontColor: '#ffffff', backgroundColor: 'rgba(15, 23, 42, 0.75)', backgroundOpacity: 0.75
-                });
-            }
-        }
-
-        if (activeOrbitals && activeOrbitals.length > 0) {
-            for (const orb of activeOrbitals) {
-                const orbKey = orb.orbital_key || orb.key || orb;
-                const cubeData = this.cubeCache[`${frameIdx}_${orbKey}`];
-                if (cubeData) {
-                    const vKey = `${frameIdx}_${orbKey}`;
-                    let vdo = this.vdoCache[vKey];
-                    if (!vdo) {
-                        try {
-                            vdo = new $3Dmol.VolumeData(cubeData, 'cube');
-                            this.vdoCache[vKey] = vdo;
-                        } catch (e) {}
+    renderActiveIsosurfaces(activeOrbitals, isovalue, frameIdx) {
+        if (!this.viewer || !activeOrbitals) return;
+        for (const orb of activeOrbitals) {
+            const orbKey = orb.orbital_key || orb.key || orb;
+            const cubeData = this.cubeCache[`${frameIdx}_${orbKey}`];
+            if (cubeData) {
+                const vKey = `${frameIdx}_${orbKey}`;
+                let vdo = this.vdoCache[vKey];
+                if (!vdo) {
+                    try {
+                        vdo = new $3Dmol.VolumeData(cubeData, 'cube');
+                        this.vdoCache[vKey] = vdo;
+                    } catch (e) {
+                        console.error('VolumeData error:', e);
                     }
-                    if (vdo) {
-                        try {
-                            // DISTINCT COLOR: pass the full orbital object to getPhaseColors
-                            const pc = getPhaseColors(orb);
-                            this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.72 });
-                            this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.72 });
-                        } catch (e) {}
+                }
+                if (vdo) {
+                    try {
+                        const pc = getPhaseColors(orb);
+                        this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.72 });
+                        this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.72 });
+                    } catch (e) {
+                        console.error('addIsosurface error:', e);
                     }
                 }
             }
         }
         this.viewer.render();
+    }
+
+    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false) {
+        this.currentFrameIdx = frameIdx;
+        this.renderMolecule(symbols, coords, charges, showCharges);
+
+        if (!this.hasInitializedCamera) {
+            this.viewer.zoomTo();
+            this.hasInitializedCamera = true;
+        }
+
+        if (activeOrbitals && activeOrbitals.length > 0) {
+            this.renderActiveIsosurfaces(activeOrbitals, isovalue, frameIdx);
+        }
     }
 
     async renderScene(options) {
@@ -203,50 +170,72 @@ export class Orbitals3DViewer {
         } = options;
 
         if (!this.viewer) return;
-        this.saveCamera();
+        this.currentFrameIdx = frameIdx;
+
+        // 1. Immediately render molecular coordinates
+        this.renderMolecule(symbols, coords, charges, showCharges);
+
+        if (!this.hasInitializedCamera || resetCamera) {
+            this.viewer.zoomTo();
+            this.hasInitializedCamera = true;
+        }
 
         if (hideAllOrbitals || !activeOrbitals || activeOrbitals.length === 0) {
-            this.renderMolecule(symbols, coords, charges, showCharges);
-            if (resetCamera) this.resetCamera();
-            else this.restoreCamera();
+            this.setStatus(`Frame ${frameIdx} | Ready`);
             return;
         }
 
-        const missing = [];
-        for (const orb of activeOrbitals) {
-            const orbKey = orb.orbital_key || orb.key || orb;
-            const k = `${frameIdx}_${orbKey}`;
-            if (!this.cubeCache[k]) {
-                missing.push(orb);
-            }
-        }
+        // 2. Render any already-cached orbital surfaces immediately
+        this.renderActiveIsosurfaces(activeOrbitals, isovalue, frameIdx);
 
-        if (missing.length > 0 && typeof fetchCubeFn === 'function') {
-            this.setStatus(`Calculating orbital surface${missing.length > 1 ? 's' : ''}...`);
-            for (const orb of missing) {
+        // 3. Find missing orbital cubes
+        const missing = [];
+        if (fetchCubeFn) {
+            for (const orb of activeOrbitals) {
                 const orbKey = orb.orbital_key || orb.key || orb;
-                const ck = orb.chem_key || null;
-                try {
-                    const res = await fetchCubeFn(frameIdx, orbKey, isovalue, ck);
-                    if (res && res.cube) {
-                        this.cubeCache[`${frameIdx}_${orbKey}`] = res.cube;
-                    }
-                } catch (err) {
-                    console.error('Error fetching cube for', orbKey, err);
+                const cacheKey = `${frameIdx}_${orbKey}`;
+                if (!this.cubeCache[cacheKey]) {
+                    missing.push({ orb, orbKey, cacheKey });
                 }
             }
-            this.setStatus('Ready');
         }
 
-        this.renderFrameDirect({
-            symbols, coords, charges, showCharges,
-            activeOrbitals, isovalue, frameIdx
-        });
+        if (missing.length > 0) {
+            this.setStatus(`Frame ${frameIdx} | Computing orbital (${missing.map(m => m.orbKey).join(', ')})...`);
+            const fetchErrors = [];
+            try {
+                await Promise.all(missing.map(async (m) => {
+                    const res = await fetchCubeFn(frameIdx, m.orbKey, m.orb.chem_key || null, isovalue);
+                    if (res && res.success && res.cube) {
+                        this.cubeCache[m.cacheKey] = res.cube;
+                    } else if (res && res.error) {
+                        fetchErrors.push(res.error);
+                    }
+                }));
+            } catch (err) {
+                fetchErrors.push(err.message);
+                console.error('fetchCube error:', err);
+            }
 
-        if (resetCamera) {
-            this.resetCamera();
+            // 4. Redraw scene once missing cubes are fetched (if user is still on this frame)
+            if (this.currentFrameIdx === frameIdx) {
+                this.renderMolecule(symbols, coords, charges, showCharges);
+                this.renderActiveIsosurfaces(activeOrbitals, isovalue, frameIdx);
+                if (fetchErrors.length > 0) {
+                    this.setStatus(`Frame ${frameIdx} | ${fetchErrors.join(' · ')}`, true);
+                } else {
+                    const names = activeOrbitals.map(o => o.title || o.orbital_key || o.key).join(', ');
+                    this.setStatus(`Frame ${frameIdx} | Ready (${names})`);
+                }
+            }
         } else {
-            this.restoreCamera();
+            const names = activeOrbitals.map(o => o.title || o.orbital_key || o.key).join(', ');
+            this.setStatus(`Frame ${frameIdx} | Ready (${names})`);
         }
+    }
+
+    clearCache() {
+        this.cubeCache = {};
+        this.vdoCache = {};
     }
 }

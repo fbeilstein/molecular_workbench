@@ -56,7 +56,7 @@ def _resolve_orbital_key(d: Dict[str, Any], orb_name: str, chem_key: str = None)
         if not target:
             continue
         for k, meta in all_metas.items():
-            if (meta.get("name") == target or meta.get("chem_key") == target) and k in d.get("vecs", {}):
+            if (meta.get("name") == target or meta.get("chem_key") == target or meta.get("label") == target) and k in d.get("vecs", {}):
                 return k
     return None
 
@@ -100,7 +100,24 @@ class Step6Orbitals(PipelineStep):
         ep = megajson.get("energy_profile", {}).get("frame_energies_kcal", []) or [
             f.get("rel_energy_kcal", 0.0) for f in megajson["frames"]
         ]
-        timeline = megajson.get("orbital_timeline") or {"default_isovalue": 0.03, "tracks": []}
+        timeline = megajson.get("orbital_timeline")
+        if not timeline or not timeline.get("tracks"):
+            total_f = len(megajson["frames"])
+            timeline = {
+                "default_isovalue": 0.03,
+                "tracks": [
+                    {
+                        "id": "trk_homo_default",
+                        "orbital_key": "HOMO",
+                        "chem_key": "HOMO",
+                        "orbital_class": "bonding",
+                        "title": "HOMO (Frontier Donor)",
+                        "color": "#38bdf8",
+                        "default_on": True,
+                        "clips": [{"id": "c_homo", "start": 0, "end": max(0, total_f - 1), "title": "HOMO"}]
+                    }
+                ]
+            }
 
         return {
             "type": "orbitals_ui",
@@ -285,35 +302,44 @@ class Step6Orbitals(PipelineStep):
                     if not ok or ok == "track_esp_charge":
                         continue
                     cache_key = f"{fi}_{ok}"
-                    disk_cube_path = os.path.join(CUBES_DIR, f"{cache_key}.cube")
+
+                    rk = _resolve_orbital_key(d, ok, ck)
+                    if not rk or rk not in d.get("vecs", {}):
+                        # Orbital / bond is not formed at this frame
+                        continue
+
+                    disk_cube_path = os.path.join(CUBES_DIR, f"{fi}_{rk}.cube")
 
                     if cache_key in _CUBE_CACHE:
-                        batch_cubes[cache_key] = _CUBE_CACHE[cache_key]
-                        continue
+                        cached_val = _CUBE_CACHE[cache_key]
+                        if cached_val.startswith(f"F{fi}_{rk}"):
+                            batch_cubes[cache_key] = cached_val
+                            continue
 
                     if os.path.exists(disk_cube_path):
                         try:
                             with open(disk_cube_path, "r") as cf:
-                                cube_text = cf.read()
-                            _CUBE_CACHE[cache_key] = cube_text
-                            batch_cubes[cache_key] = cube_text
-                            continue
+                                first_line = cf.readline().strip()
+                                if first_line == f"F{fi}_{rk}":
+                                    cf.seek(0)
+                                    cube_text = cf.read()
+                                    _CUBE_CACHE[cache_key] = cube_text
+                                    batch_cubes[cache_key] = cube_text
+                                    continue
                         except Exception:
                             pass
 
-                    rk = _resolve_orbital_key(d, ok, ck)
-                    if rk and rk in d.get("vecs", {}):
-                        v = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][rk], lo, step, npts)
-                        cube_text = orbital_engine.generate_cube_text(
-                            f"F{fi}_{rk}", megajson["symbols"], coords, v, lo, step, npts
-                        )
-                        _CUBE_CACHE[cache_key] = cube_text
-                        batch_cubes[cache_key] = cube_text
-                        try:
-                            with open(disk_cube_path, "w") as cf:
-                                cf.write(cube_text)
-                        except Exception:
-                            pass
+                    v = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][rk], lo, step, npts)
+                    cube_text = orbital_engine.generate_cube_text(
+                        f"F{fi}_{rk}", megajson["symbols"], coords, v, lo, step, npts
+                    )
+                    _CUBE_CACHE[cache_key] = cube_text
+                    batch_cubes[cache_key] = cube_text
+                    try:
+                        with open(disk_cube_path, "w") as cf:
+                            cf.write(cube_text)
+                    except Exception:
+                        pass
 
             return {
                 "success": True,
@@ -330,70 +356,92 @@ class Step6Orbitals(PipelineStep):
             tracks = user_input.get("tracks", [])
             found = {}
             for fi in frames:
+                d = _SCF_CACHE.get(fi)
                 for trk in tracks:
                     ok = trk.get("orbital_key") if isinstance(trk, dict) else str(trk)
+                    ck = trk.get("chem_key") if isinstance(trk, dict) else None
                     if not ok or ok == "track_esp_charge":
                         continue
                     cache_key = f"{fi}_{ok}"
                     if cache_key in _CUBE_CACHE:
                         found[cache_key] = _CUBE_CACHE[cache_key]
-                    else:
-                        disk_cube_path = os.path.join(CUBES_DIR, f"{cache_key}.cube")
+                        continue
+                    rk = _resolve_orbital_key(d, ok, ck) if d else ok
+                    if rk:
+                        disk_cube_path = os.path.join(CUBES_DIR, f"{fi}_{rk}.cube")
                         if os.path.exists(disk_cube_path):
                             try:
                                 with open(disk_cube_path, "r") as cf:
-                                    cube_text = cf.read()
-                                _CUBE_CACHE[cache_key] = cube_text
-                                found[cache_key] = cube_text
+                                    first_line = cf.readline().strip()
+                                    if first_line == f"F{fi}_{rk}":
+                                        cf.seek(0)
+                                        cube_text = cf.read()
+                                        _CUBE_CACHE[cache_key] = cube_text
+                                        found[cache_key] = cube_text
                             except Exception:
                                 pass
             return {"success": True, "cubes": found}
 
         if action in ["get_orbital_mesh", "get_cube"]:
             ok = str(user_input.get("orbital", "HOMO"))
-            ck = user_input.get("chem_key")
-            iso = float(user_input.get("isovalue", 0.03))
+            ck_raw = user_input.get("chem_key")
+            ck = str(ck_raw) if (ck_raw is not None and not isinstance(ck_raw, (int, float))) else None
+            iso_raw = user_input.get("isovalue")
+            try:
+                iso = float(iso_raw) if (iso_raw is not None and iso_raw != "") else 0.03
+            except (ValueError, TypeError):
+                iso = 0.03
             coords = megajson["frames"][frame_idx].get("coords", megajson["frames"][frame_idx].get("positions", []))
 
             cache_key = f"{frame_idx}_{ok}"
-            disk_cube_path = os.path.join(CUBES_DIR, f"{cache_key}.cube")
 
-            # Check memory cache or disk cache
+            d = self._ensure_frame_computed(frame_idx, megajson)
+            rk = _resolve_orbital_key(d, ok, ck)
+            if not rk or rk not in d.get("vecs", {}):
+                return {"success": False, "available": False, "error": f"Orbital '{ck or ok}' not formed at frame {frame_idx}"}
+
+            disk_cube_path = os.path.join(CUBES_DIR, f"{frame_idx}_{rk}.cube")
+
+            # Check memory cache
             if cache_key in _CUBE_CACHE:
                 cube_text = _CUBE_CACHE[cache_key]
-                return {
-                    "success": True,
-                    "cached": True,
-                    "frame_index": frame_idx,
-                    "orbital": ok,
-                    "isovalue": iso,
-                    "cube": cube_text,
-                    "filename": f"{ok}_f{frame_idx}.cube",
-                    "coords": coords
-                }
-
-            if os.path.exists(disk_cube_path):
-                try:
-                    with open(disk_cube_path, "r") as cf:
-                        cube_text = cf.read()
-                    _CUBE_CACHE[cache_key] = cube_text
+                if cube_text.startswith(f"F{frame_idx}_{rk}"):
                     return {
                         "success": True,
                         "cached": True,
                         "frame_index": frame_idx,
                         "orbital": ok,
+                        "resolved_orbital": rk,
+                        "chem_key": ck,
                         "isovalue": iso,
                         "cube": cube_text,
                         "filename": f"{ok}_f{frame_idx}.cube",
                         "coords": coords
                     }
+
+            # Check disk cache with header validation
+            if os.path.exists(disk_cube_path):
+                try:
+                    with open(disk_cube_path, "r") as cf:
+                        first_line = cf.readline().strip()
+                        if first_line == f"F{frame_idx}_{rk}":
+                            cf.seek(0)
+                            cube_text = cf.read()
+                            _CUBE_CACHE[cache_key] = cube_text
+                            return {
+                                "success": True,
+                                "cached": True,
+                                "frame_index": frame_idx,
+                                "orbital": ok,
+                                "resolved_orbital": rk,
+                                "chem_key": ck,
+                                "isovalue": iso,
+                                "cube": cube_text,
+                                "filename": f"{ok}_f{frame_idx}.cube",
+                                "coords": coords
+                            }
                 except Exception:
                     pass
-
-            d = self._ensure_frame_computed(frame_idx, megajson)
-            rk = _resolve_orbital_key(d, ok, ck)
-            if not rk or rk not in d.get("vecs", {}):
-                return {"success": False, "available": False, "error": f"Orbital '{ok}' unavailable at frame {frame_idx}"}
 
             lo, step, npts = self._get_grid(megajson)
             v = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][rk], lo, step, npts)
@@ -415,6 +463,8 @@ class Step6Orbitals(PipelineStep):
                 "cached": False,
                 "frame_index": frame_idx,
                 "orbital": ok,
+                "resolved_orbital": rk,
+                "chem_key": ck,
                 "isovalue": iso,
                 "cube": cube_text,
                 "filename": f"{ok}_f{frame_idx}.cube",

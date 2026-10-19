@@ -144,6 +144,7 @@ export class OrbitalsTimeline {
         if (frameData.all_ibos) {
             for (const ibo of frameData.all_ibos) {
                 iboMap.set(ibo.name || ibo.key, ibo);
+                if (ibo.chem_key) iboMap.set(ibo.chem_key, ibo);
             }
         }
 
@@ -154,7 +155,7 @@ export class OrbitalsTimeline {
                 el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx}:</span> <strong style="color: #38bdf8;">Electrostatic Surface mapped with partial charges</strong>`;
                 continue;
             }
-            const ibo = iboMap.get(trk.orbital_key);
+            const ibo = trk.chem_key ? iboMap.get(trk.chem_key) : iboMap.get(trk.orbital_key);
             if (ibo && ibo.pop && this.symbols.length) {
                 const major = [];
                 for (let i = 0; i < this.symbols.length; i++) {
@@ -165,6 +166,8 @@ export class OrbitalsTimeline {
                 el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx} [${curLabel}]:</span> <strong style="color: #e2e8f0;">${major.join(' · ') || 'delocalized'}</strong>`;
             } else if (trk.orbital_key.includes('HOMO') || trk.orbital_key.includes('LUMO') || trk.orbital_key.includes('STAR')) {
                 el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx}:</span> <span style="color: #cbd5e1;">Active across reaction</span>`;
+            } else {
+                el.innerHTML = `<span style="color: #94a3b8;">F${frameIdx}:</span> <span style="color: #64748b; font-style: italic;">Bond not formed at this frame</span>`;
             }
         }
     }
