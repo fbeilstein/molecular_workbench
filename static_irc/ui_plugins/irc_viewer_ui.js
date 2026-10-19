@@ -46,7 +46,6 @@ export const IRCViewerUI = {
             dom.prevBtn.disabled = false;
             dom.nextBtn.disabled = false;
             dom.downloadBtn.disabled = false;
-            if (dom.prolongBtn) dom.prolongBtn.disabled = false;
 
             const b = traj.barriers || {};
             const isGibbs = b.energy_type === 'gibbs';
@@ -122,32 +121,6 @@ export const IRCViewerUI = {
             a.remove();
         };
 
-        if (dom.prolongBtn) {
-            dom.prolongBtn.onclick = async () => {
-                if (!confirm('Prolong reaction: Archive this step and use its product as starting material for the next reaction?')) return;
-                dom.prolongBtn.disabled = true;
-                dom.prolongBtn.textContent = 'Prolonging...';
-                try {
-                    const res = await fetch('/api/step/step_4_irc/custom', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action_type: 'prolong_to_next' })
-                    });
-                    const r = await res.json();
-                    if (r.success) {
-                        alert(r.message || 'Product seeded for next reaction! Reloading workbench...');
-                        window.location.reload();
-                    } else {
-                        alert('Prolong Error: ' + (r.error || 'Failed to prolong reaction'));
-                    }
-                } catch (err) {
-                    alert('Prolong Request failed: ' + err.message);
-                } finally {
-                    dom.prolongBtn.disabled = false;
-                    dom.prolongBtn.textContent = '🌱 Prolong to Next Step';
-                }
-            };
-        }
 
         const curSolv = state.solvent || ui.solvent || 'water';
         if (dom.solventSelect) {

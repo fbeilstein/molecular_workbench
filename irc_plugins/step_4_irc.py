@@ -28,13 +28,26 @@ class Step4IRC(PipelineStep):
         return "4. IRC Trajectory"
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
+        from .project_manager import init_project, _step_traj_path
+        proj = init_project()
+        active_id = proj.get("active_step_id", "step_1")
+        step_traj_file = _step_traj_path(active_id)
+
         existing_traj = current_state.get("step_4_irc", {}).get("trajectory")
+        if existing_traj and (existing_traj.get("n_steps", 1) > 1 or existing_traj.get("title") == "Master Multistep IRC Trajectory"):
+            existing_traj = None
+
         if not existing_traj:
-            for tf in (TRAJECTORY_FILE, LEGACY_TRAJECTORY_FILE):
+            cands = [step_traj_file]
+            if len(proj.get("steps", [])) <= 1:
+                cands.extend([TRAJECTORY_FILE, LEGACY_TRAJECTORY_FILE])
+            for tf in cands:
                 if os.path.exists(tf):
                     try:
                         with open(tf, 'r') as f:
-                            existing_traj = json.load(f)
+                            tj = json.load(f)
+                        if tj and tj.get("frames") and tj.get("n_steps", 1) == 1 and tj.get("title") != "Master Multistep IRC Trajectory":
+                            existing_traj = tj
                             break
                     except Exception:
                         pass

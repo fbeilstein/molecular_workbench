@@ -335,16 +335,8 @@ export function buildIRCLayout(container) {
     downloadBtn.disabled = true;
     downloadBtn.textContent = '💾 Export JSON';
 
-    const prolongBtn = document.createElement('button');
-    prolongBtn.style.padding = '8px 12px';
-    prolongBtn.style.fontSize = '13px';
-    prolongBtn.disabled = true;
-    prolongBtn.title = 'Use product of this reaction as starting seed for the next reaction step';
-    prolongBtn.textContent = '🌱 Prolong to Next Step';
-
     actionRow.appendChild(calcBtn);
     actionRow.appendChild(downloadBtn);
-    actionRow.appendChild(prolongBtn);
     playerCard.appendChild(actionRow);
     sidePanel.appendChild(playerCard);
 
@@ -373,6 +365,6 @@ export function buildIRCLayout(container) {
         playBtn, prevBtn, nextBtn, loopCheckbox,
         engineSelect, solventSelect, relaxCheckbox,
         orcaModeRow, orcaModeSelect, orcaDescBox,
-        calcBtn, downloadBtn, prolongBtn, logBox
+        calcBtn, downloadBtn, logBox
     };
 }

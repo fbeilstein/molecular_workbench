@@ -9,41 +9,23 @@ from .common import rvdw, _unit, dir_pen, set_positions, DOCK_EXTRA
 def _select_lowest_energy_conf(mol, cids, solvent="water"):
     if not cids or len(cids) <= 1:
         return cids[0] if cids else 0
-    chg = int(sum(a.GetFormalCharge() for a in mol.GetAtoms()))
-    if chg == 0:
-        try:
-            res = AllChem.MMFFOptimizeMoleculeConfs(mol)
-            energies = [e for _, e in res]
-            if energies and max(energies) - min(energies) > 1e-4:
-                return int(np.argmin(energies))
-        except Exception:
-            pass
+    # 1. Fast MMFF optimization for all molecules
     try:
-        from ase import Atoms
-        from ase.optimize import BFGS
-        from .calculators import make_xtb
-        mult = int(sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())) + 1
-        calc = make_xtb(chg, mult, solvent=solvent or "water")
-        syms = [a.GetSymbol() for a in mol.GetAtoms()]
-        pruned = []
-        for cid in cids:
-            pos = mol.GetConformer(cid).GetPositions()
-            if not any(np.sqrt(np.mean(np.sum((pos - mol.GetConformer(k).GetPositions())**2, axis=1))) < 0.35 for k in pruned):
-                pruned.append(cid)
-        scored = []
-        for cid in pruned:
-            at = Atoms(symbols=syms, positions=mol.GetConformer(cid).GetPositions())
-            at.calc = calc
-            try:
-                opt = BFGS(at, logfile=None)
-                opt.run(fmax=0.1, steps=15)
-                mol.GetConformer(cid).SetPositions(at.get_positions())
-            except Exception:
-                pass
-            scored.append((float(at.get_potential_energy()), cid))
-        return min(scored, key=lambda s: s[0])[1]
+        res = AllChem.MMFFOptimizeMoleculeConfs(mol)
+        energies = [e for _, e in res]
+        if energies and max(energies) - min(energies) > 1e-4:
+            return int(cids[np.argmin(energies)])
     except Exception:
-        return cids[0]
+        pass
+    # 2. Fast UFF fallback if MMFF cannot parameterize the system
+    try:
+        res = AllChem.UFFOptimizeMoleculeConfs(mol)
+        energies = [e for _, e in res]
+        if energies and max(energies) - min(energies) > 1e-4:
+            return int(cids[np.argmin(energies)])
+    except Exception:
+        pass
+    return cids[0]
 
 
 def _select_product_aligned_conf(mol, fi, model, cids, seed=42):

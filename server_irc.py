@@ -234,9 +234,8 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                 save_current_state()
                 success, master, msg = project_manager.stitch_project_trajectories()
                 if success:
-                    pipeline_state.setdefault("step_4_irc", {})["trajectory"] = master
-                    save_current_state()
-                    return self._send_json({"success": True, "trajectory": master, "message": msg})
+                    pipeline_state.setdefault("step_5_cascade", {})["megajson"] = master
+                    return self._send_json({"success": True, "megajson": master, "message": msg})
                 else:
                     return self._send_json({"success": False, "error": msg}, 400)
 

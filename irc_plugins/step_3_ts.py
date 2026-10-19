@@ -168,12 +168,33 @@ class Step3TS(PipelineStep):
     def _handle_seed_from_previous(self, global_state, user_input):
         import glob, json
         from .ts_engine.trajectory_stitcher import extract_fragment_molblock
-        cand_files = [p for p in [os.path.join(OUT_DIR, "irc_trajectory_prev.json"), os.path.join(OUT_DIR, "irc_trajectory.json")] if os.path.exists(p)]
+        from .project_manager import init_project, _step_traj_path
+
+        proj = init_project()
+        active_id = proj.get("active_step_id", "step_1")
+        steps = proj.get("steps", [])
+
+        active_idx = 1
+        for s in steps:
+            if s["id"] == active_id:
+                active_idx = s.get("index", 1)
+                break
+
+        prev_steps = [s for s in steps if s.get("index", 1) < active_idx]
+        prev_steps.sort(key=lambda s: s.get("index", 1), reverse=True)
+        cand_files = [_step_traj_path(s["id"]) for s in prev_steps if os.path.exists(_step_traj_path(s["id"]))]
+
+        for p in [os.path.join(OUT_DIR, "irc_trajectory_prev.json"), os.path.join(OUT_DIR, "irc_trajectory.json")]:
+            if os.path.exists(p) and p not in cand_files:
+                cand_files.append(p)
         t_dir = os.path.join(os.path.dirname(OUT_DIR), "trajectories")
         if os.path.exists(t_dir):
-            cand_files.extend(sorted(glob.glob(os.path.join(t_dir, "*.json")), reverse=True))
+            for p in sorted(glob.glob(os.path.join(t_dir, "*.json")), reverse=True):
+                if p not in cand_files and not p.endswith("prolonged_pathway.json"):
+                    cand_files.append(p)
+
         if not cand_files:
-            return {"error": "No previous IRC trajectory found in out/ or trajectories/."}
+            return {"error": "No previous IRC trajectory found in project steps or trajectories/."}
         try:
             raw_smiles = global_state.get("step_1_input", {}).get("raw_smiles", "")
             r_smiles = raw_smiles.split(">>")[0].split(".") if ">>" in raw_smiles else []

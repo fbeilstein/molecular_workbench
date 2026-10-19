@@ -199,61 +199,134 @@ def load_active_state() -> Dict[str, Any]:
     if "solvent" not in state and proj.get("solvent"):
         state["solvent"] = proj.get("solvent", "water")
 
-    # Sync active trajectory to legacy root out/ for downstream compatibility
+    # Load active trajectory if present and valid elementary IRC
     t_path = _step_traj_path(active_id)
     if os.path.exists(t_path):
         try:
+            with open(t_path, 'r') as f:
+                traj_data = json.load(f)
+            if traj_data and traj_data.get("frames") and traj_data.get("n_steps", 1) == 1 and traj_data.get("title") != "Master Multistep IRC Trajectory":
+                state.setdefault("step_4_irc", {})["trajectory"] = traj_data
             shutil.copy2(t_path, LEGACY_TRAJ_FILE)
         except Exception:
             pass
-    elif os.path.exists(LEGACY_TRAJ_FILE):
-        try:
-            os.remove(LEGACY_TRAJ_FILE)
-        except Exception:
-            pass
+    else:
+        if "step_4_irc" in state:
+            state["step_4_irc"].pop("trajectory", None)
+        if os.path.exists(LEGACY_TRAJ_FILE):
+            try:
+                os.remove(LEGACY_TRAJ_FILE)
+            except Exception:
+                pass
 
-    return state
+    # Sanity check: Ensure step_4_irc never contains a multistep master trajectory in an elementary step!
+    cur_traj = state.get("step_4_irc", {}).get("trajectory")
+    if cur_traj and (cur_traj.get("n_steps", 1) > 1 or cur_traj.get("title") == "Master Multistep IRC Trajectory"):
+        if os.path.exists(t_path):
+            try:
+                with open(t_path, 'r') as f:
+                    tj = json.load(f)
+                if tj and tj.get("n_steps", 1) == 1 and tj.get("title") != "Master Multistep IRC Trajectory":
+                    state["step_4_irc"]["trajectory"] = tj
+                else:
+                    state.pop("step_4_irc", None)
+            except Exception:
+                state.pop("step_4_irc", None)
+        else:
+            state.pop("step_4_irc", None)
 
-
-def save_active_state(state: Dict[str, Any]):
-    """Save state into the currently active reaction step directory."""
-    proj = init_project()
-    active_id = proj.get("active_step_id", "step_1")
-    s_path = _step_state_path(active_id)
-    with open(s_path, 'w') as f:
-        json.dump(state, f, indent=2)
-
-    # Sync to legacy out/reaction_state.json
+    # Sync to legacy out/reaction_state.json for downstream tools
     try:
         shutil.copy2(s_path, LEGACY_STATE_FILE)
     except Exception:
         pass
 
-    # If state contains trajectory or trajectory was written, ensure synced
-    traj = state.get("step_4_irc", {}).get("trajectory")
-    if traj:
-        t_path = _step_traj_path(active_id)
+    return state
+
+
+def save_step_state(step_id: str, state: Dict[str, Any]):
+    """Save state into a specific reaction step directory with cross-step pollution safeguards."""
+    proj = init_project()
+    s_path = _step_state_path(step_id)
+
+    # Cross-step pollution safeguard:
+    # If this step is registered in project.json with a specific smiles, and state has raw_smiles
+    # belonging to a DIFFERENT step, redirect to the matching step instead of overwriting this step.
+    registered_smiles = None
+    for s in proj.get("steps", []):
+        if s["id"] == step_id:
+            registered_smiles = s.get("smiles")
+            break
+
+    state_to_save = dict(state)
+    raw_smiles = state.get("step_1_input", {}).get("raw_smiles")
+    if registered_smiles and raw_smiles and registered_smiles != raw_smiles:
+        other_matches = [s["id"] for s in proj.get("steps", []) if s.get("smiles") == raw_smiles and s["id"] != step_id]
+        if other_matches:
+            step_id = other_matches[0]
+            s_path = _step_state_path(step_id)
+
+    # Strip master cascade trajectory from elementary step state
+    traj = state_to_save.get("step_4_irc", {}).get("trajectory")
+    if traj and (traj.get("n_steps", 1) > 1 or traj.get("title") == "Master Multistep IRC Trajectory"):
+        s4 = dict(state_to_save.get("step_4_irc", {}))
+        t_path = _step_traj_path(step_id)
+        if os.path.exists(t_path):
+            try:
+                with open(t_path, 'r') as f:
+                    tj = json.load(f)
+                if tj.get("n_steps", 1) == 1 and tj.get("title") != "Master Multistep IRC Trajectory":
+                    s4["trajectory"] = tj
+                else:
+                    s4.pop("trajectory", None)
+            except Exception:
+                s4.pop("trajectory", None)
+        else:
+            s4.pop("trajectory", None)
+        state_to_save["step_4_irc"] = s4
+        traj = s4.get("trajectory")
+
+    with open(s_path, 'w') as f:
+        json.dump(state_to_save, f, indent=2)
+
+    # Sync elementary trajectory if valid
+    if traj and traj.get("n_steps", 1) == 1 and traj.get("title") != "Master Multistep IRC Trajectory":
+        t_path = _step_traj_path(step_id)
         with open(t_path, 'w') as f:
             json.dump(traj, f, indent=2)
+        if step_id == proj.get("active_step_id"):
+            try:
+                shutil.copy2(t_path, LEGACY_TRAJ_FILE)
+            except Exception:
+                pass
+
+    if step_id == proj.get("active_step_id"):
         try:
-            shutil.copy2(t_path, LEGACY_TRAJ_FILE)
+            shutil.copy2(s_path, LEGACY_STATE_FILE)
         except Exception:
             pass
 
-    # Update SMILES and solvent in project.json if changed
-    raw_smiles = state.get("step_1_input", {}).get("raw_smiles")
+    # Update SMILES and solvent in project.json if legitimately changed for this step
     solvent = state.get("solvent")
     updated = False
     if solvent and solvent != proj.get("solvent"):
         proj["solvent"] = solvent
         updated = True
     for s in proj.get("steps", []):
-        if s["id"] == active_id and raw_smiles:
-            s["smiles"] = raw_smiles
-            s["title"] = f"Step {s.get('index', 1)}: {raw_smiles}"
-            updated = True
+        if s["id"] == step_id and raw_smiles:
+            if s.get("smiles") != raw_smiles:
+                s["smiles"] = raw_smiles
+                s["title"] = f"Step {s.get('index', 1)}: {raw_smiles}"
+                updated = True
     if updated:
         save_project_meta(proj)
+
+
+def save_active_state(state: Dict[str, Any]):
+    """Save state into the currently active reaction step directory."""
+    proj = init_project()
+    active_id = proj.get("active_step_id", "step_1")
+    save_step_state(active_id, state)
 
 
 def select_step(target_step_id: str, current_state: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:

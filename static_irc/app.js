@@ -37,7 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const reactionStepSelect = document.getElementById('reaction-step-select');
     const addStepBtn = document.getElementById('btn-add-step');
-    const stitchProjectBtn = document.getElementById('btn-stitch-project');
     const deleteStepBtn = document.getElementById('btn-delete-step');
 
     function updateProjectUI(proj) {
@@ -70,16 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             reactionStepSelect.appendChild(opt);
         });
-
-        const completedIRC = steps.filter(s => s.has_irc).length;
-        if (stitchProjectBtn) {
-            if (completedIRC >= 2) {
-                stitchProjectBtn.style.display = 'inline-flex';
-                stitchProjectBtn.textContent = `🔗 Stitch (${completedIRC} Steps)`;
-            } else {
-                stitchProjectBtn.style.display = 'none';
-            }
-        }
 
         if (deleteStepBtn) {
             deleteStepBtn.disabled = (steps.length <= 1 && !steps[0]?.has_input);
@@ -118,14 +107,25 @@ document.addEventListener('DOMContentLoaded', () => {
         renderActiveStep();
     }
 
-    function determineActiveStep(preferredIndex = null) {
+    function getMaxAvailableIndex() {
         let maxAvailable = 0;
         for (let i = 0; i < plugins.length; i++) {
             if (!state[plugins[i].step_id]) break;
             maxAvailable = (i + 1 < plugins.length) ? i + 1 : i;
         }
-        if (preferredIndex !== null && preferredIndex >= 0 && preferredIndex <= maxAvailable) {
-            activeStepIndex = preferredIndex;
+        const completedIRC = (project.steps || []).filter(s => s.has_irc).length;
+        if (completedIRC >= 2 && plugins.length > 4) {
+            maxAvailable = Math.max(maxAvailable, 4);
+        }
+        return maxAvailable;
+    }
+
+    function determineActiveStep(preferredIndex = null) {
+        const maxAvailable = getMaxAvailableIndex();
+        if (preferredIndex !== null) {
+            activeStepIndex = Math.max(0, Math.min(preferredIndex, maxAvailable));
+        } else if (activeStepIndex !== null && activeStepIndex >= 0 && activeStepIndex <= maxAvailable) {
+            // Keep current user tab selection without forceful auto-redirects
         } else {
             activeStepIndex = maxAvailable;
         }
@@ -133,9 +133,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderTabs() {
         tabsContainer.innerHTML = '';
+        const maxAvailable = getMaxAvailableIndex();
+        const completedIRC = (project.steps || []).filter(s => s.has_irc).length;
+
         plugins.forEach((plugin, index) => {
-            const isCompleted = !!state[plugin.step_id];
-            const isLocked = !isCompleted && index > activeStepIndex;
+            const isCompleted = !!state[plugin.step_id] || (plugin.step_id === 'step_5_cascade' && completedIRC >= 2);
+            const isUnlocked = index <= maxAvailable || isCompleted || (plugin.step_id === 'step_5_cascade' && completedIRC >= 2);
+            const isLocked = !isUnlocked;
 
             const btn = document.createElement('button');
             btn.className = `tab ${index === activeStepIndex ? 'active' : ''} ${isCompleted ? 'completed' : ''} ${isLocked ? 'locked' : ''}`;
@@ -273,31 +277,6 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    // Stitch All Steps Shortcut Event
-    if (stitchProjectBtn) {
-        stitchProjectBtn.onclick = async () => {
-            stitchProjectBtn.disabled = true;
-            stitchProjectBtn.textContent = 'Stitching...';
-            try {
-                const res = await fetch('/api/project/stitch', { method: 'POST' });
-                const r = await res.json();
-                if (r.success && r.trajectory) {
-                    state.step_4_irc = { trajectory: r.trajectory };
-                    activeStepIndex = 3; // Switch to Step 4 (IRC Trajectory)
-                    renderTabs();
-                    renderActiveStep();
-                    alert(r.message || 'Master pathway stitched successfully!');
-                } else {
-                    alert('Stitch error: ' + (r.error || 'Failed to stitch master pathway'));
-                }
-            } catch (err) {
-                alert('Stitch request failed: ' + err.message);
-            } finally {
-                stitchProjectBtn.disabled = false;
-                stitchProjectBtn.textContent = '🔗 Stitch All';
-            }
-        };
-    }
 
     runBtn.onclick = async () => {
         errorContainer.style.display = 'none';
@@ -334,7 +313,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 errorContainer.style.display = 'block';
                 return;
             }
-            await loadPipeline();
+            const nextIndex = Math.min(activeStepIndex + 1, plugins.length - 1);
+            await loadPipeline(nextIndex);
         } catch (err) {
             errorContainer.innerText = err.message;
             errorContainer.style.display = 'block';
