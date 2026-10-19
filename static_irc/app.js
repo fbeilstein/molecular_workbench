@@ -4,6 +4,7 @@ import { MappingUI } from './ui_plugins/mapping_ui.js';
 import { TSEditorUI } from './ui_plugins/ts_editor_ui.js';
 import { IRCViewerUI } from './ui_plugins/irc_viewer_ui.js';
 import { CascadeUI } from './ui_plugins/cascade_ui.js';
+import { OrbitalsUI } from './ui_plugins/orbitals_ui.js';
 
 const UIRegistry = {
     'ketcher': KetcherUI,
@@ -11,7 +12,8 @@ const UIRegistry = {
     'fields': FieldsUI,
     'ts_editor_ui': TSEditorUI,
     'irc_viewer_ui': IRCViewerUI,
-    'cascade_ui': CascadeUI
+    'cascade_ui': CascadeUI,
+    'orbitals_ui': OrbitalsUI
 };
 
 async function executeStepRun(stepId, userInput) {
@@ -114,8 +116,11 @@ document.addEventListener('DOMContentLoaded', () => {
             maxAvailable = (i + 1 < plugins.length) ? i + 1 : i;
         }
         const completedIRC = (project.steps || []).filter(s => s.has_irc).length;
-        if (completedIRC >= 2 && plugins.length > 4) {
+        if (completedIRC >= 1 && plugins.length > 4) {
             maxAvailable = Math.max(maxAvailable, 4);
+        }
+        if (state['step_5_cascade'] && plugins.length > 5) {
+            maxAvailable = Math.max(maxAvailable, 5);
         }
         return maxAvailable;
     }
@@ -135,10 +140,13 @@ document.addEventListener('DOMContentLoaded', () => {
         tabsContainer.innerHTML = '';
         const maxAvailable = getMaxAvailableIndex();
         const completedIRC = (project.steps || []).filter(s => s.has_irc).length;
+        const hasCascade = !!state['step_5_cascade'];
 
         plugins.forEach((plugin, index) => {
-            const isCompleted = !!state[plugin.step_id] || (plugin.step_id === 'step_5_cascade' && completedIRC >= 2);
-            const isUnlocked = index <= maxAvailable || isCompleted || (plugin.step_id === 'step_5_cascade' && completedIRC >= 2);
+            const isCompleted = !!state[plugin.step_id] || (plugin.step_id === 'step_5_cascade' && hasCascade);
+            let isUnlocked = index <= maxAvailable || isCompleted;
+            if (plugin.step_id === 'step_5_cascade' && completedIRC >= 1) isUnlocked = true;
+            if (plugin.step_id === 'step_6_orbitals' && hasCascade) isUnlocked = true;
             const isLocked = !isUnlocked;
 
             const btn = document.createElement('button');
@@ -342,6 +350,50 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         await loadPipeline();
     };
+
+    const saveProjectBtn = document.getElementById('btn-save-project');
+    const openProjectBtn = document.getElementById('btn-open-project');
+    const fileOpenProjectInput = document.getElementById('file-open-project');
+
+    if (saveProjectBtn) {
+        saveProjectBtn.onclick = () => {
+            window.location.href = '/api/project/archive/export';
+        };
+    }
+
+    if (openProjectBtn && fileOpenProjectInput) {
+        openProjectBtn.onclick = () => {
+            fileOpenProjectInput.value = '';
+            fileOpenProjectInput.click();
+        };
+
+        fileOpenProjectInput.onchange = async () => {
+            const file = fileOpenProjectInput.files[0];
+            if (!file) return;
+
+            openProjectBtn.disabled = true;
+            openProjectBtn.textContent = 'Opening...';
+            try {
+                const res = await fetch('/api/project/archive/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: file
+                });
+                const r = await res.json();
+                if (r.success) {
+                    alert(r.message || 'Project successfully loaded!');
+                    await loadPipeline(0);
+                } else {
+                    alert('Failed to load project: ' + (r.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Project import failed: ' + err.message);
+            } finally {
+                openProjectBtn.disabled = false;
+                openProjectBtn.textContent = '📂 Open Project';
+            }
+        };
+    }
 
     loadPipeline();
 });

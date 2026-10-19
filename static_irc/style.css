@@ -118,3 +118,71 @@ button.danger:hover { background: #c82333; }
     border-radius: 4px;
     margin-top: 1rem;
 }
+
+:root {
+    --bg-dark: #0f172a;
+    --text-main: #f8fafc;
+    --text-dim: #94a3b8;
+    --primary: #3b82f6;
+    --secondary: #334155;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.55rem;
+    font-size: 0.75rem;
+}
+
+.btn-xs {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.68rem;
+    border-radius: 4px;
+}
+
+.btn-primary {
+    background: #0284c7;
+    color: #fff;
+    border-color: #0369a1;
+}
+.btn-primary:hover {
+    background: #0369a1;
+}
+
+.btn-secondary {
+    background: #1e293b;
+    color: #cbd5e1;
+    border-color: #475569;
+}
+.btn-secondary:hover {
+    background: #334155;
+    color: #fff;
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid currentColor;
+}
+.btn-outline:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}

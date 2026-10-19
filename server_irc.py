@@ -125,6 +125,17 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/project':
             return self._send_json(project_manager.get_project_summary())
 
+        if path == '/api/project/archive/export':
+            from irc_plugins import project_archive
+            zip_bytes, filename = project_archive.export_project_archive()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/zip')
+            self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+            self.send_header('Content-Length', str(len(zip_bytes)))
+            self.end_headers()
+            self.wfile.write(zip_bytes)
+            return
+
         self.send_response(404)
         self.end_headers()
 
@@ -236,6 +247,27 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                 if success:
                     pipeline_state.setdefault("step_5_cascade", {})["megajson"] = master
                     return self._send_json({"success": True, "megajson": master, "message": msg})
+                else:
+                    return self._send_json({"success": False, "error": msg}, 400)
+
+            if path == '/api/project/archive/import':
+                from irc_plugins import project_archive
+                content_len = int(self.headers.get('Content-Length', 0))
+                raw_body = self.rfile.read(content_len) if content_len > 0 else b""
+                if b'PK\x03\x04' in raw_body:
+                    pk_start = raw_body.find(b'PK\x03\x04')
+                    eocd = raw_body.rfind(b'PK\x05\x06')
+                    if eocd != -1 and eocd + 22 <= len(raw_body):
+                        comment_len = int.from_bytes(raw_body[eocd + 20 : eocd + 22], "little")
+                        raw_body = raw_body[pk_start : eocd + 22 + comment_len]
+                    else:
+                        raw_body = raw_body[pk_start:]
+
+                success, summary, new_state, msg = project_archive.import_project_archive(raw_body)
+                if success:
+                    pipeline_state.clear()
+                    pipeline_state.update(new_state)
+                    return self._send_json({"success": True, "project": summary, "state": pipeline_state, "message": msg})
                 else:
                     return self._send_json({"success": False, "error": msg}, 400)
 

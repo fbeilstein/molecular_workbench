@@ -385,15 +385,47 @@ def stitch_multistep_trajectories(
     n_bridge_frames: int = 8,
     junction_trims: Optional[Dict[str, Dict[str, int]]] = None,
     auto_trim: bool = False,
-    auto_sort: bool = True
+    auto_sort: bool = False
 ) -> Dict[str, Any]:
     """Stitch IRC trajectories with optimal element alignment, monotonic s_arc, step-aware bond orders, and sliding-window frame trimming."""
     if not trajectories:
         return {}
     if len(trajectories) == 1:
-        return trajectories[0]
+        t0 = json.loads(json.dumps(trajectories[0]))
+        frames = t0.get("frames", [])
+        ts_idx = t0.get("ts_frame_index", 0)
+        for f_i, fr in enumerate(frames):
+            fr["step_index"] = 1
+            fr["is_ts"] = (f_i == ts_idx)
+        step_boundaries = [{
+            "step_index": 1,
+            "step_name": t0.get("reaction_smiles", "Step 1"),
+            "reaction_smiles": t0.get("reaction_smiles", ""),
+            "start_frame": 0,
+            "end_frame": max(0, len(frames) - 1),
+            "ts_frame": ts_idx
+        }]
+        b_dict = {}
+        for b in t0.get("bonds", []):
+            u = b.get("from", b[0] if isinstance(b, (list, tuple)) else 0)
+            v = b.get("to", b[1] if isinstance(b, (list, tuple)) else 0)
+            b_dict[(min(u, v), max(u, v))] = dict(b)
+        barriers = t0.get("barriers", {})
+        return {
+            "title": "Master Reaction Trajectory",
+            "n_steps": 1,
+            "total_frames": len(frames),
+            "symbols": t0.get("symbols", []),
+            "bonds": list(b_dict.values()),
+            "step_boundaries": step_boundaries,
+            "stitching_alignment_report": [],
+            "junction_previews": [],
+            "overall_barrier_kcal": barriers.get("forward_barrier_kcal", 0.0),
+            "overall_reaction_energy_kcal": barriers.get("reaction_energy_kcal", 0.0),
+            "frames": frames
+        }
 
-    # Chemically verify / enforce forward reaction cascade sequence:
+    # Chemically verify / enforce forward reaction cascade sequence ONLY if explicitly requested:
     if auto_sort:
         trajectories = sort_trajectories_chemically(trajectories)
 

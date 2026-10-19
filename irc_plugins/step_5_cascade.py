@@ -11,6 +11,34 @@ TRAJECTORIES_DIR = os.path.join(ROOT_DIR, 'trajectories')
 PROLONGED_PATH = os.path.join(TRAJECTORIES_DIR, 'prolonged_pathway.json')
 
 
+def invert_trajectory_direction(traj: Dict[str, Any]) -> Dict[str, Any]:
+    """Invert downhill IRC trajectory (Product -> TS -> Reactant becomes Reactant -> TS -> Product)."""
+    inv = json.loads(json.dumps(traj))
+    frames = inv.get("frames", [])
+    if not frames:
+        return inv
+    inv_frames = frames[::-1]
+    n = len(inv_frames)
+    ts_idx = inv.get("ts_frame_index", 0)
+    new_ts_idx = max(0, n - 1 - ts_idx)
+    inv["ts_frame_index"] = new_ts_idx
+
+    e_base = inv_frames[0].get("energy_ev", 0.0)
+    for k, fr in enumerate(inv_frames):
+        fr["step"] = k - new_ts_idx
+        fr["is_ts"] = (k == new_ts_idx)
+        if "energy_ev" in fr:
+            fr["rel_energy_kcal"] = round((fr["energy_ev"] - e_base) * 23.0605, 3)
+
+    smi = inv.get("reaction_smiles", "")
+    if ">>" in smi:
+        parts = smi.split(">>")
+        inv["reaction_smiles"] = f"{parts[1]}>>{parts[0]}"
+
+    inv["frames"] = inv_frames
+    return inv
+
+
 class Step5Cascade(PipelineStep):
     """Step 5: Inspect and tune multi-step reaction cascades with rotamer alignment & bridge frames."""
 
@@ -23,23 +51,23 @@ class Step5Cascade(PipelineStep):
         return "5. Multistep Cascade"
 
     def _discover_trajectories(self) -> List[Dict[str, Any]]:
-        from .project_manager import init_project, _step_traj_path, STEPS_DIR
-        from .ts_engine.trajectory_stitcher import sort_trajectories_chemically, get_canonical_smiles_set
+        """
+        Discover trajectories in strict project index order [Step 1, Step 2, ...].
+        No automated topological re-sorting or fuzzy multi-directory globbing.
+        """
+        from .project_manager import init_project, _step_traj_path, _step_state_path
 
         proj = init_project()
         steps = proj.get("steps", [])
 
         results = []
-        seen_smiles = set()
-        seen_paths = set()
-
-        # 1. Primary source: Discover step trajectories in strict project index order
         for s in sorted(steps, key=lambda x: x.get("index", 1)):
             sid = s["id"]
             s_idx = s.get("index", 1)
             t_path = _step_traj_path(sid)
             traj_data = None
 
+            # 1. Primary isolated source: step directory irc_trajectory.json
             if os.path.exists(t_path):
                 try:
                     with open(t_path, "r") as f:
@@ -47,51 +75,29 @@ class Step5Cascade(PipelineStep):
                     if tj.get("frames") and tj.get("n_steps", 1) == 1:
                         traj_data = tj
                 except Exception:
-                    pass
+                    traj_data = None
 
-            # Self-healing if step trajectory missing: look for matching SMILES in trajectories/ or out/
+            # 2. Secondary isolated source: step directory reaction_state.json
             if not traj_data:
-                target_smi = s.get("smiles", "")
-                cands = []
-                cand_indexed = os.path.join(TRAJECTORIES_DIR, f"irc_trajectory{s_idx}.json")
-                if os.path.exists(cand_indexed):
-                    cands.append(cand_indexed)
-                if os.path.exists(TRAJECTORIES_DIR):
-                    cands.extend(sorted(glob.glob(os.path.join(TRAJECTORIES_DIR, "*.json"))))
-                cands.extend([
-                    os.path.join(OUT_DIR, "irc_trajectory.json"),
-                    os.path.join(ROOT_DIR, "irc_trajectory.json")
-                ])
-
-                for cp in cands:
-                    if cp.endswith("prolonged_pathway.json") or cp.endswith("master_pathway.json"):
-                        continue
-                    if not os.path.exists(cp):
-                        continue
+                s_state_path = _step_state_path(sid)
+                if os.path.exists(s_state_path):
                     try:
-                        with open(cp, "r") as f:
-                            tj = json.load(f)
-                        if not tj.get("frames") or tj.get("n_steps", 1) > 1 or tj.get("title") == "Master Multistep IRC Trajectory":
-                            continue
-                        cp_smi = tj.get("reaction_smiles", "")
-                        if cp_smi and target_smi and ">>" in cp_smi and ">>" in target_smi:
-                            r_cp, p_cp = cp_smi.split(">>")[:2]
-                            r_tgt, p_tgt = target_smi.split(">>")[:2]
-                            if get_canonical_smiles_set(r_cp) == get_canonical_smiles_set(r_tgt) and get_canonical_smiles_set(p_cp) == get_canonical_smiles_set(p_tgt):
-                                traj_data = tj
-                                try:
-                                    with open(t_path, "w") as out_f:
-                                        json.dump(tj, out_f, indent=2)
-                                except Exception:
-                                    pass
-                                break
+                        with open(s_state_path, "r") as f:
+                            st = json.load(f)
+                        tj = st.get("step_4_irc", {}).get("trajectory")
+                        if tj and tj.get("frames") and tj.get("n_steps", 1) == 1:
+                            traj_data = tj
+                            # Resync to step trajectory file
+                            try:
+                                with open(t_path, "w") as out_f:
+                                    json.dump(tj, out_f, indent=2)
+                            except Exception:
+                                pass
                     except Exception:
-                        continue
+                        pass
 
             if traj_data and traj_data.get("frames"):
                 smi = traj_data.get("reaction_smiles") or s.get("smiles", "")
-                seen_smiles.add(smi)
-                seen_paths.add(t_path)
                 results.append({
                     "step_id": sid,
                     "step_index": s_idx,
@@ -106,49 +112,6 @@ class Step5Cascade(PipelineStep):
                     "data": traj_data
                 })
 
-        # 2. Check trajectories directory for additional standalone trajectories
-        if os.path.exists(TRAJECTORIES_DIR):
-            for p in sorted(glob.glob(os.path.join(TRAJECTORIES_DIR, "*.json"))):
-                if p.endswith("prolonged_pathway.json") or p.endswith("master_pathway.json") or p in seen_paths:
-                    continue
-                try:
-                    with open(p, "r") as f:
-                        tj = json.load(f)
-                    if not tj.get("frames") or tj.get("n_steps", 1) > 1 or tj.get("title") == "Master Multistep IRC Trajectory":
-                        continue
-                    smi = tj.get("reaction_smiles") or os.path.basename(p)
-                    if smi in seen_smiles:
-                        continue
-                    seen_smiles.add(smi)
-                    seen_paths.add(p)
-                    idx = len(results) + 1
-                    results.append({
-                        "step_id": f"file_{idx}",
-                        "step_index": idx,
-                        "title": f"Step {idx}: {smi}",
-                        "path": p,
-                        "filename": os.path.basename(p),
-                        "reaction_smiles": tj.get("reaction_smiles", ""),
-                        "n_frames": len(tj.get("frames", [])),
-                        "n_atoms": len(tj.get("symbols", [])),
-                        "n_steps": 1,
-                        "barriers": tj.get("barriers", {}),
-                        "data": tj
-                    })
-                except Exception:
-                    continue
-
-        # 3. Chemical ordering validation: ensure sorted chemically
-        raw_trajs = [r["data"] for r in results]
-        sorted_trajs = sort_trajectories_chemically(raw_trajs)
-        if sorted_trajs and len(sorted_trajs) == len(results):
-            data_to_result = {id(r["data"]): r for r in results}
-            ordered_results = [data_to_result[id(t)] for t in sorted_trajs if id(t) in data_to_result]
-            if len(ordered_results) == len(results):
-                for idx, r in enumerate(ordered_results, start=1):
-                    r["step_index"] = idx
-                return ordered_results
-
         return results
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -161,19 +124,24 @@ class Step5Cascade(PipelineStep):
             try:
                 with open(PROLONGED_PATH, "r") as f:
                     cand_mj = json.load(f)
-                if cand_mj and cand_mj.get("step_boundaries") and len(available) >= 2:
+                if cand_mj and cand_mj.get("step_boundaries") and len(available) >= 1:
                     boundaries = cand_mj.get("step_boundaries", [])
                     b_smiles = [b.get("reaction_smiles") for b in boundaries]
                     a_smiles = [a.get("reaction_smiles") for a in available[:len(boundaries)]]
-                    # Only accept cached cascade if its step boundaries match available sequence
                     if b_smiles == a_smiles and b_smiles:
                         megajson = cand_mj
             except Exception:
                 pass
 
-        if not megajson and len(available) >= 2:
+        # If not cached, auto-stitch in project order (works for 1 or more steps!)
+        if not megajson and len(available) >= 1:
             try:
-                megajson = stitch_multistep_trajectories([a["data"] for a in available[:2]], n_bridge_frames=8, auto_sort=True)
+                megajson = stitch_multistep_trajectories(
+                    [a["data"] for a in available],
+                    n_bridge_frames=8,
+                    auto_sort=False
+                )
+                os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
                 with open(PROLONGED_PATH, "w") as f:
                     json.dump(megajson, f, indent=2)
             except Exception:
@@ -210,40 +178,49 @@ class Step5Cascade(PipelineStep):
         junction_choices = user_input.get("junction_choices", {})
         n_bridge = int(user_input.get("n_bridge_frames", 8))
         ordered_files = user_input.get("ordered_files", [])
+        reversed_steps = set(user_input.get("reversed_steps", []))
 
         available_list = self._discover_trajectories()
         if not available_list:
-            return {"error": "No trajectories found to stitch."}
+            return {"error": "No trajectories found to stitch. Complete Step 4 first."}
 
         to_stitch = []
         if ordered_files:
-            # Map filenames, step_ids, or paths given by user
+            # Map identifiers strictly in the order requested by user
+            id_map = {}
+            for a in available_list:
+                id_map[a.get("step_id")] = a["data"]
+                id_map[a.get("filename")] = a["data"]
+                id_map[str(a.get("step_index"))] = a["data"]
+                id_map[a.get("path")] = a["data"]
+
             for identifier in ordered_files:
-                for a in available_list:
-                    if identifier in (a.get("filename"), a.get("step_id"), a.get("path"), str(a.get("step_index"))):
-                        if a["data"] not in to_stitch:
-                            to_stitch.append(a["data"])
-                        break
+                if identifier in id_map:
+                    t_data = id_map[identifier]
+                    # Check if this step should be inverted
+                    if identifier in reversed_steps:
+                        t_data = invert_trajectory_direction(t_data)
+                    to_stitch.append(t_data)
 
-        if len(to_stitch) < 2:
-            to_stitch = [a["data"] for a in available_list][:2]
+        if not to_stitch:
+            to_stitch = [a["data"] for a in available_list]
 
-        if len(to_stitch) < 2:
-            return {"error": "Need at least 2 trajectories to stitch a cascade."}
+        if not to_stitch:
+            return {"error": "No trajectories available to stitch."}
 
         try:
-            # If user provided explicit manual ordering, honor it (auto_sort=False), otherwise auto_sort=True
+            # Strictly obey user order (auto_sort=False)
             megajson = stitch_multistep_trajectories(
                 to_stitch,
                 junction_choices=junction_choices,
                 n_bridge_frames=n_bridge,
-                auto_sort=(not ordered_files)
+                auto_sort=False
             )
             os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
             with open(PROLONGED_PATH, "w") as f:
                 json.dump(megajson, f, indent=2)
 
-            # Also update out/irc_trajectory.json master
+            # Sync master out/irc_trajectory.json
             try:
                 out_traj = os.path.join(OUT_DIR, "irc_trajectory.json")
                 with open(out_traj, "w") as f:
@@ -256,7 +233,7 @@ class Step5Cascade(PipelineStep):
                 "megajson": megajson,
                 "stitching_report": megajson.get("stitching_alignment_report", []),
                 "step_boundaries": megajson.get("step_boundaries", []),
-                "message": f"Successfully stitched {megajson.get('n_steps', len(to_stitch))} steps ({megajson.get('total_frames', len(megajson['frames']))} frames)!"
+                "message": f"Successfully stitched {megajson.get('n_steps', len(to_stitch))} step{'s' if megajson.get('n_steps', len(to_stitch)) != 1 else ''} ({megajson.get('total_frames', len(megajson['frames']))} frames)!"
             }
         except Exception as e:
             return {"error": f"Stitching failed: {e}"}

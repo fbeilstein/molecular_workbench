@@ -87,6 +87,25 @@ export const CascadeUI = {
                 btnBox.style.display = 'flex';
                 btnBox.style.gap = '2px';
 
+                const flipBtn = document.createElement('button');
+                flipBtn.textContent = t.is_reversed ? '⇄ Inv' : '⇄';
+                flipBtn.title = t.is_reversed ? 'Reaction is inverted (Product ➔ Reactant)' : 'Invert reaction direction (Reactant ↔ Product)';
+                flipBtn.style.padding = '2px 5px';
+                flipBtn.style.fontSize = '10px';
+                flipBtn.style.lineHeight = '1';
+                flipBtn.style.border = t.is_reversed ? '1px solid #f59e0b' : '1px solid #cbd5e1';
+                flipBtn.style.background = t.is_reversed ? '#fef3c7' : '#f8fafc';
+                flipBtn.style.color = t.is_reversed ? '#b45309' : '#334155';
+                flipBtn.style.fontWeight = t.is_reversed ? '700' : 'normal';
+                flipBtn.style.borderRadius = '3px';
+                flipBtn.style.cursor = 'pointer';
+                flipBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    t.is_reversed = !t.is_reversed;
+                    orderModified = true;
+                    renderSequenceList();
+                };
+
                 const upBtn = document.createElement('button');
                 upBtn.textContent = '▲';
                 upBtn.title = 'Move step earlier';
@@ -133,6 +152,7 @@ export const CascadeUI = {
                     }
                 };
 
+                btnBox.appendChild(flipBtn);
                 btnBox.appendChild(upBtn);
                 btnBox.appendChild(downBtn);
 
@@ -279,7 +299,8 @@ export const CascadeUI = {
                         action_type: 'stitch_cascade',
                         junction_choices: currentJunctionChoices,
                         n_bridge_frames: currentBridgeFrames,
-                        ordered_files: currentTrajs.map(t => t.filename || t.step_id)
+                        ordered_files: currentTrajs.map(t => t.step_id || t.filename),
+                        reversed_steps: currentTrajs.filter(t => t.is_reversed).map(t => t.step_id || t.filename)
                     })
                 });
                 const r = await res.json();
