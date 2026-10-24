@@ -185,7 +185,7 @@ export class BundleMoleculeModal {
             tree.forEach(cat => {
                 html += `<div style="font-size: 0.68rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin: 0.4rem 0 0.2rem 0; letter-spacing: 0.5px;">${cat.name}</div>`;
                 (cat.items || []).forEach(item => {
-                    const base = item.file ? item.file.replace(/^molecules\//, '').replace(/\.json$/, '').replace(/\.cube$/, '') : item.label;
+                    const base = item.file ? item.file.split('/').pop().replace(/\.json$/, '').replace(/\.cube$/, '') : item.label;
                     const evStr = (item.energy_ev !== undefined && item.energy_ev !== null) ? `${item.energy_ev} eV` : '';
                     html += `
                         <div class="mol-orb-item" data-name="${base}" data-label="${item.label}" style="padding: 0.35rem 0.55rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; font-size: 0.74rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
@@ -272,24 +272,34 @@ export class BundleMoleculeModal {
         const orbName = this.activeOrbital;
         const files = this.bundleData.files || {};
 
-        const posKey = Object.keys(files).find(k => k === `${orbName}_pos.json` || k.endsWith(`/${orbName}_pos.json`));
-        const negKey = Object.keys(files).find(k => k === `${orbName}_neg.json` || k.endsWith(`/${orbName}_neg.json`));
+        let posKey = Object.keys(files).find(k => k === `${orbName}_pos.json` || k.endsWith(`/${orbName}_pos.json`));
+        let negKey = Object.keys(files).find(k => k === `${orbName}_neg.json` || k.endsWith(`/${orbName}_neg.json`));
 
-        if (posKey && negKey) {
+        if (!posKey || !negKey) {
+            const targetLower = orbName.toLowerCase().replace(/[^a-z0-9]/g, '');
+            posKey = posKey || Object.keys(files).find(k => k.endsWith('_pos.json') && k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetLower));
+            negKey = negKey || Object.keys(files).find(k => k.endsWith('_neg.json') && k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetLower));
+        }
+
+        if (posKey || negKey) {
             try {
-                const posMesh = typeof files[posKey] === 'string' ? JSON.parse(files[posKey]) : files[posKey];
-                const negMesh = typeof files[negKey] === 'string' ? JSON.parse(files[negKey]) : files[negKey];
-                if (posMesh.vertices && posMesh.faces) {
-                    this.viewer.addCustom({
-                        vertexArr: posMesh.vertices, faceArr: posMesh.faces,
-                        normalArr: posMesh.normals || undefined, color: $3Dmol.CC.color('#38bdf8'), opacity: 0.80
-                    });
+                if (posKey && files[posKey]) {
+                    const posMesh = typeof files[posKey] === 'string' ? JSON.parse(files[posKey]) : files[posKey];
+                    if (posMesh.vertices && posMesh.faces) {
+                        this.viewer.addCustom({
+                            vertexArr: posMesh.vertices, faceArr: posMesh.faces,
+                            normalArr: posMesh.normals || undefined, color: $3Dmol.CC.color('#38bdf8'), opacity: 0.80
+                        });
+                    }
                 }
-                if (negMesh.vertices && negMesh.faces) {
-                    this.viewer.addCustom({
-                        vertexArr: negMesh.vertices, faceArr: negMesh.faces,
-                        normalArr: negMesh.normals || undefined, color: $3Dmol.CC.color('#f59e0b'), opacity: 0.80
-                    });
+                if (negKey && files[negKey]) {
+                    const negMesh = typeof files[negKey] === 'string' ? JSON.parse(files[negKey]) : files[negKey];
+                    if (negMesh.vertices && negMesh.faces) {
+                        this.viewer.addCustom({
+                            vertexArr: negMesh.vertices, faceArr: negMesh.faces,
+                            normalArr: negMesh.normals || undefined, color: $3Dmol.CC.color('#f59e0b'), opacity: 0.80
+                        });
+                    }
                 }
             } catch (err) {
                 console.error('Error parsing orbital mesh:', err);

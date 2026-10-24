@@ -99,6 +99,7 @@ def unpack_molecule_bundle(data_b64: str) -> MoleculeBundleResult:
                 content = zf.read(name).decode("utf-8", errors="ignore")
                 files_dict[name] = files_dict[os.path.basename(name)] = content
                 lname = name.lower()
+
                 if lname.endswith(".xyz") and not meta["xyz"]:
                     meta["xyz"] = content
                 elif lname.endswith((".mol", ".sdf")) and not meta["xyz"]:
@@ -107,9 +108,42 @@ def unpack_molecule_bundle(data_b64: str) -> MoleculeBundleResult:
                     try:
                         m_data = json.loads(content)
                         if isinstance(m_data, dict):
-                            meta["orbitals_tree"] = m_data.get("orbitals_tree", m_data.get("orbitals", []))
-                            meta["molecule_key"] = m_data.get("molecule_key") or m_data.get("key", "")
-                            meta["smiles"] = m_data.get("smiles", "")
+                            if "orbitals_tree" in m_data:
+                                meta["orbitals_tree"] = m_data["orbitals_tree"]
+                            elif "orbitals" in m_data and isinstance(m_data["orbitals"], list):
+                                meta["orbitals_tree"] = m_data["orbitals"]
+                            elif "molecules" in m_data and isinstance(m_data["molecules"], list) and len(m_data["molecules"]) > 0:
+                                for mol in m_data["molecules"]:
+                                    if not meta["orbitals_tree"] and "orbitals" in mol:
+                                        meta["orbitals_tree"] = mol["orbitals"]
+                                    if not meta["xyz"] and "xyz" in mol:
+                                        meta["xyz"] = mol["xyz"]
+                                    if not meta["esp_surface"] and "esp_surface" in mol:
+                                        meta["esp_surface"] = mol["esp_surface"]
+                                    if not meta["molecule_key"] and "key" in mol:
+                                        meta["molecule_key"] = mol["key"]
+                            if not meta["molecule_key"]:
+                                meta["molecule_key"] = m_data.get("molecule_key") or m_data.get("key") or m_data.get("name", "")
+                            if not meta["smiles"]:
+                                meta["smiles"] = m_data.get("smiles", "")
+                            if not meta["xyz"] and "xyz" in m_data:
+                                meta["xyz"] = m_data["xyz"]
+                    except Exception:
+                        pass
+                elif lname.startswith("molecules/") and lname.endswith(".json") and not lname.endswith(("_pos.json", "_neg.json", "_esp.json")):
+                    try:
+                        mol_data = json.loads(content)
+                        if isinstance(mol_data, dict):
+                            if not meta["orbitals_tree"] and "orbitals" in mol_data:
+                                meta["orbitals_tree"] = mol_data["orbitals"]
+                            if not meta["xyz"] and "xyz" in mol_data:
+                                meta["xyz"] = mol_data["xyz"]
+                            if not meta["esp_surface"] and "esp_surface" in mol_data:
+                                meta["esp_surface"] = mol_data["esp_surface"]
+                            if not meta["molecule_key"] and "key" in mol_data:
+                                meta["molecule_key"] = mol_data["key"]
+                            if not meta["smiles"] and "smiles" in mol_data:
+                                meta["smiles"] = mol_data["smiles"]
                     except Exception:
                         pass
                 elif "esp" in lname and lname.endswith(".json") and not meta["esp_surface"]:
@@ -117,12 +151,33 @@ def unpack_molecule_bundle(data_b64: str) -> MoleculeBundleResult:
                         meta["esp_surface"] = json.loads(content)
                     except Exception:
                         pass
-                elif lname.startswith("orbitals/") and lname.endswith(("_pos.json", "_neg.json")):
-                    orb = os.path.basename(lname).replace("_pos.json", "").replace("_neg.json", "")
-                    if orb not in orbitals_found:
+
+                # Orbitals extraction from mesh or cube files anywhere in the archive
+                if lname.endswith(("_pos.json", "_neg.json")):
+                    bname = os.path.basename(name)
+                    orb = bname[:-9] if bname.lower().endswith(("_pos.json", "_neg.json")) else bname
+                    if orb and orb not in orbitals_found:
+                        orbitals_found.append(orb)
+                elif lname.endswith(".cube"):
+                    bname = os.path.basename(name)
+                    orb = os.path.splitext(bname)[0]
+                    if orb and orb not in orbitals_found:
                         orbitals_found.append(orb)
             except Exception:
                 pass
+
+    # If orbitals_found is empty but we have an orbitals_tree, extract orbital identifiers from tree items
+    if not orbitals_found and meta["orbitals_tree"]:
+        for cat in meta["orbitals_tree"]:
+            for item in cat.get("items", []):
+                file_val = item.get("file", "")
+                if file_val:
+                    b = os.path.splitext(os.path.basename(file_val))[0]
+                    if b not in orbitals_found:
+                        orbitals_found.append(b)
+                elif item.get("label"):
+                    if item["label"] not in orbitals_found:
+                        orbitals_found.append(item["label"])
 
     return MoleculeBundleResult({
         "orbitals": orbitals_found, "files": files_dict, "xyz": meta["xyz"],
