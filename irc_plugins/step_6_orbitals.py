@@ -307,15 +307,10 @@ class Step6Orbitals(PipelineStep):
             if frame_idx == 0:
                 return _SCF_CACHE[0]
 
-            closest = min(_SCF_CACHE.keys(), key=lambda k: abs(k - frame_idx))
-            if closest < frame_idx:
-                for fi in range(closest + 1, frame_idx + 1):
-                    if fi not in _SCF_CACHE:
-                        self._compute_single_frame(fi, _SCF_CACHE[fi - 1], megajson)
-            elif closest > frame_idx:
-                for fi in range(closest - 1, frame_idx - 1, -1):
-                    if fi not in _SCF_CACHE:
-                        self._compute_single_frame(fi, _SCF_CACHE[fi + 1], megajson)
+            prev_fi = max([k for k in _SCF_CACHE.keys() if k < frame_idx], default=0)
+            for fi in range(prev_fi + 1, frame_idx + 1):
+                if fi not in _SCF_CACHE:
+                    self._compute_single_frame(fi, _SCF_CACHE[fi - 1], megajson)
             return _SCF_CACHE[frame_idx]
 
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:

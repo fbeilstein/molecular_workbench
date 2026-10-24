@@ -79,38 +79,7 @@ def convert_and_pack_trajectory_orbitals(
         if has_m and key not in packed_keys:
             packed_keys.append(key)
 
-    ws_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    search_zips = []
-    for bundle_dir in [
-        os.path.join(ws_root, "bundles"),
-        os.path.join(ws_root, "out", "bundles"),
-        os.path.join(ws_root, "out"),
-    ]:
-        if os.path.isdir(bundle_dir):
-            for fname in os.listdir(bundle_dir):
-                if fname.endswith(".zip"):
-                    search_zips.append(os.path.join(bundle_dir, fname))
-    reusable_meshes: Dict[str, bytes] = {}
-    for zp in search_zips:
-        if os.path.exists(zp):
-            try:
-                with zipfile.ZipFile(zp, "r") as ref_zf:
-                    for n in ref_zf.namelist():
-                        if n.startswith("orbitals/") and n.endswith(("_pos.json", "_neg.json")):
-                            bn = os.path.basename(n)
-                            if bn not in reusable_meshes:
-                                reusable_meshes[bn] = ref_zf.read(n)
-            except Exception:
-                pass
-
-    missing_targets: List[Tuple[int, str, Optional[str]]] = []
-    for fi, ok, ck in needed_targets:
-        key = f"{fi}_{ok}"
-        p_name, n_name = f"{key}_pos.json", f"{key}_neg.json"
-        if p_name in reusable_meshes or n_name in reusable_meshes:
-            _pack_mesh_data(key, reusable_meshes.get(p_name), reusable_meshes.get(n_name))
-        else:
-            missing_targets.append((fi, ok, ck))
+    missing_targets = list(needed_targets)
 
     sources: Dict[str, str] = {}
     if os.path.exists(CUBE_DIR):
@@ -222,7 +191,7 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
     # Only load precomputed zip mesh if requested isovalue is default ~0.03
     if abs(iso_val - 0.03) <= 0.003:
         root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-        for sub in ("out/bundles", "bundles"):
+        for sub in ("out/bundles",):
             bundle_zip = os.path.join(root_dir, sub, "reaction_cascade_bundle.zip")
             if os.path.exists(bundle_zip):
                 try:
