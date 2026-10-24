@@ -15,7 +15,6 @@ export class BundleMoleculeModal {
         this.onBundleUploaded = options.onBundleUploaded || (() => {});
         this.viewer = null;
         this.activeOrbital = null;
-        this.isovalue = 0.03;
         this.bundleData = null;
     }
 
@@ -61,13 +60,6 @@ export class BundleMoleculeModal {
                             </div>
                         </div>
 
-                        <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem;">
-                            <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #94a3b8;">
-                                <span>Isovalue</span>
-                                <span id="mol-isoval-readout">0.030</span>
-                            </div>
-                            <input type="range" id="mol-isoval-slider" min="0.005" max="0.10" step="0.005" value="0.03" style="width: 100%; cursor: pointer; accent-color: #38bdf8;">
-                        </div>
                     </div>
 
                     <div style="flex: 1; height: 100%; position: relative; background: #090d16; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
@@ -91,12 +83,6 @@ export class BundleMoleculeModal {
         modal.querySelector('#btn-popout-window').onclick = () => openMoleculePopout(this.moleculeName, this.bundleData);
 
         modal.querySelector('#input-mol-zip').addEventListener('change', (e) => this.handleFileUpload(e.target.files[0]));
-
-        modal.querySelector('#mol-isoval-slider').addEventListener('input', (e) => {
-            this.isovalue = parseFloat(e.target.value);
-            modal.querySelector('#mol-isoval-readout').textContent = this.isovalue.toFixed(3);
-            if (this.activeOrbital) this.renderActiveOrbital();
-        });
 
         modal.querySelector('#btn-mol-zoom-in').onclick = () => this.viewer?.zoom(1.2);
         modal.querySelector('#btn-mol-zoom-out').onclick = () => this.viewer?.zoom(0.83);
@@ -315,15 +301,15 @@ export class BundleMoleculeModal {
                 this.viewer.addModel(cubeText, 'cube');
                 this.viewer.setStyle({}, { stick: { radius: 0.12, colorscheme: 'Jmol' }, sphere: { scale: 0.25, colorscheme: 'Jmol' } });
             }
-            this.viewer.addIsosurface(vdo, { isoval: Math.abs(this.isovalue), color: '#38bdf8', opacity: 0.75 });
-            this.viewer.addIsosurface(vdo, { isoval: -Math.abs(this.isovalue), color: '#f59e0b', opacity: 0.75 });
+            this.viewer.addIsosurface(vdo, { isoval: 0.03, color: '#38bdf8', opacity: 0.75 });
+            this.viewer.addIsosurface(vdo, { isoval: -0.03, color: '#f59e0b', opacity: 0.75 });
         }
 
         this.viewer.zoomTo();
         this.viewer.render();
 
         const statusBadge = document.querySelector('#modal-molecule-orbitals #mol-status-badge');
-        if (statusBadge) statusBadge.textContent = `${this.activeOrbital} (isovalue: ±${this.isovalue.toFixed(3)})`;
+        if (statusBadge) statusBadge.textContent = `${this.activeOrbital}`;
     }
 
     async renderEsp() {
