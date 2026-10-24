@@ -24,6 +24,7 @@ export const BundleViewerUI = {
     },
 
     async render(container, uiSchema, globalState, stepId) {
+        window.bundleViewerUI = this;
         this.state.stepId = stepId;
         const megajson = uiSchema.megajson;
         this.state.megajson = megajson;
@@ -221,16 +222,33 @@ export const BundleViewerUI = {
             });
         }
 
-        const handleIsovalue = (e) => {
-            this.state.isovalue = parseFloat(e.target.value);
+        let isoDebounceTimer = null;
+        const handleIsovalue = (e, immediateAll = false) => {
+            const newIso = parseFloat(e.target.value);
+            if (isNaN(newIso) || newIso <= 0) return;
+            this.state.isovalue = newIso;
+            if (this.state.megajson) this.state.megajson.orbital_isovalue = newIso;
             const lbl = container.querySelector('#label-bundle-isovalue');
-            if (lbl) lbl.textContent = this.state.isovalue.toFixed(3);
+            if (lbl) lbl.textContent = newIso.toFixed(3);
+
+            // 1. Immediately re-render active frame
             this.refreshViewer();
+
+            // 2. Schedule recomputing all frames across entire trajectory
+            clearTimeout(isoDebounceTimer);
+            if (immediateAll) {
+                this.preloadAllCachedCubes(true);
+            } else {
+                isoDebounceTimer = setTimeout(() => {
+                    this.preloadAllCachedCubes(true);
+                }, 250);
+            }
         };
+
         const isoSlider = container.querySelector('#slider-bundle-isovalue');
         if (isoSlider) {
-            isoSlider.addEventListener('input', handleIsovalue);
-            isoSlider.addEventListener('change', handleIsovalue);
+            isoSlider.addEventListener('input', (e) => handleIsovalue(e, false));
+            isoSlider.addEventListener('change', (e) => handleIsovalue(e, true));
         }
 
         container.querySelector('#btn-recompute-highres').addEventListener('click', () => {
@@ -238,7 +256,10 @@ export const BundleViewerUI = {
         });
 
         container.querySelector('#btn-export-bundle-zip').addEventListener('click', () => {
-            exportMaxCompBundleZip(this.state.stepId, { esp_surfaces: this.state.viewer3D?.espMeshCache || {} });
+            exportMaxCompBundleZip(this.state.stepId, {
+                isovalue: this.state.isovalue,
+                esp_surfaces: this.state.viewer3D?.espMeshCache || {}
+            });
         });
 
         container.querySelector('#btn-bundle-zoom-in')?.addEventListener('click', () => this.state.viewer3D?.zoomIn());
@@ -266,18 +287,36 @@ export const BundleViewerUI = {
         });
     },
 
-    async preloadAllCachedCubes() {
+    async preloadAllCachedCubes(force = false) {
         if (!this.state.megajson || !this.state.viewer3D) return;
         const total = this.state.megajson.frames.length;
         const targets = this.state.tracks.filter(t => t.orbital_key && t.orbital_key !== 'track_esp_charge');
         if (!targets.length) return;
 
+        const iso = this.state.isovalue;
+        const isoSuffix = `_${Math.round(iso * 1000)}`;
+        const seq = ++this._preloadSeq || (this._preloadSeq = 1);
+
+        if (force) {
+            this.state.viewer3D?.setStatus(`Remeshing all frames for isovalue ${iso.toFixed(3)}...`);
+            fetch(`/api/step/${this.state.stepId}/custom`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action_type: 'set_isovalue', isovalue: iso })
+            }).catch(() => {});
+        }
+
         const batchSize = 35;
         for (let start = 0; start < total; start += batchSize) {
+            if (this._preloadSeq !== seq) return;
             const end = Math.min(total, start + batchSize);
             const frames = [];
             for (let i = start; i < end; i++) {
-                const need = targets.some(t => !this.state.viewer3D.meshCache[`${i}_${t.orbital_key}`] && !this.state.viewer3D.cubeCache[`${i}_${t.orbital_key}`]);
+                const need = force || targets.some(t => {
+                    const ok = t.orbital_key;
+                    const isoKey = `${i}_${ok}${isoSuffix}`;
+                    return !this.state.viewer3D.meshCache[isoKey] && !this.state.viewer3D.meshCache[`${i}_${ok}`];
+                });
                 if (need) frames.push(i);
             }
             if (frames.length > 0) {
@@ -285,16 +324,36 @@ export const BundleViewerUI = {
                     const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action_type: 'get_cached_meshes', frames, tracks: targets, isovalue: this.state.isovalue })
+                        body: JSON.stringify({
+                            action_type: 'get_cached_meshes',
+                            frames,
+                            tracks: targets,
+                            isovalue: iso
+                        })
                     });
                     const d = await res.json();
+                    if (this._preloadSeq !== seq) return;
                     if (d && d.success) {
-                        if (d.meshes) Object.assign(this.state.viewer3D.meshCache, d.meshes);
+                        if (d.meshes) {
+                            for (const [k, v] of Object.entries(d.meshes)) {
+                                this.state.viewer3D.meshCache[k] = v;
+                                if (!k.endsWith(isoSuffix)) {
+                                    this.state.viewer3D.meshCache[`${k}${isoSuffix}`] = v;
+                                }
+                            }
+                        }
                         if (d.cubes) Object.assign(this.state.viewer3D.cubeCache, d.cubes);
                         if (frames.includes(this.state.currentFrame)) this.refreshViewer();
                     }
                 } catch (e) {}
             }
+        }
+
+        if (this._preloadSeq === seq && force) {
+            this.state.viewer3D?.setStatus(`✓ All ${total} frames remeshed (iso: ${iso.toFixed(3)})`);
+            setTimeout(() => {
+                if (this._preloadSeq === seq) this.state.viewer3D?.setStatus('Ready');
+            }, 2000);
         }
     },
 
@@ -364,7 +423,8 @@ export const BundleViewerUI = {
             const isDefaultIso = Math.abs(this.state.isovalue - 0.03) < 0.003;
             const isoKey = `${f}_${ok}_${Math.round(this.state.isovalue * 1000)}`;
             const hasData = this.state.viewer3D.cubeCache[`${f}_${ok}`] ||
-                (isDefaultIso ? this.state.viewer3D.meshCache[`${f}_${ok}`] : this.state.viewer3D.meshCache[isoKey]);
+                this.state.viewer3D.meshCache[isoKey] ||
+                (isDefaultIso && this.state.viewer3D.meshCache[`${f}_${ok}`]);
 
             if (!hasData) {
                 this.fetchCube(f, ok, ck, this.state.isovalue).then(res => {
@@ -373,11 +433,9 @@ export const BundleViewerUI = {
                             this.state.viewer3D.cubeCache[`${f}_${ok}`] = res.cube;
                         }
                         if (res.pos || res.neg) {
-                            if (isDefaultIso) {
-                                this.state.viewer3D.meshCache[`${f}_${ok}`] = { pos: res.pos, neg: res.neg };
-                            } else {
-                                this.state.viewer3D.meshCache[isoKey] = { pos: res.pos, neg: res.neg };
-                            }
+                            const meshData = { pos: res.pos, neg: res.neg };
+                            this.state.viewer3D.meshCache[`${f}_${ok}`] = meshData;
+                            this.state.viewer3D.meshCache[isoKey] = meshData;
                         }
                         if (this.state.currentFrame === f) doRender();
                     }

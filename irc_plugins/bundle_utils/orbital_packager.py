@@ -188,22 +188,29 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
     if cache_key in _SURFACE_CACHE:
         return _SURFACE_CACHE[cache_key]
 
-    # Only load precomputed zip mesh if requested isovalue is default ~0.03
-    if abs(iso_val - 0.03) <= 0.003:
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-        for sub in ("out/bundles",):
-            bundle_zip = os.path.join(root_dir, sub, "reaction_cascade_bundle.zip")
-            if os.path.exists(bundle_zip):
-                try:
-                    with zipfile.ZipFile(bundle_zip, "r") as zf:
+    # Only load precomputed zip mesh if requested isovalue matches the bundle's packed isovalue
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    for sub in ("out/bundles",):
+        bundle_zip = os.path.join(root_dir, sub, "reaction_cascade_bundle.zip")
+        if os.path.exists(bundle_zip):
+            try:
+                with zipfile.ZipFile(bundle_zip, "r") as zf:
+                    zip_iso = 0.03
+                    if "bundle.json" in zf.namelist():
+                        try:
+                            bm = json.loads(zf.read("bundle.json").decode("utf-8"))
+                            zip_iso = float(bm.get("orbital_isovalue") or 0.03)
+                        except Exception:
+                            pass
+                    if abs(iso_val - zip_iso) <= 0.003:
                         p_fn, n_fn = f"orbitals/{frame_idx}_{ok}_pos.json", f"orbitals/{frame_idx}_{ok}_neg.json"
                         pos = json.loads(zf.read(p_fn).decode("utf-8")) if p_fn in zf.namelist() else None
                         neg = json.loads(zf.read(n_fn).decode("utf-8")) if n_fn in zf.namelist() else None
                         if pos or neg:
                             _SURFACE_CACHE[cache_key] = (pos, neg)
                             return pos, neg
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
     # For dynamic isovalues (or if zip mesh wasn't found), obtain volumetric cube
     from .highres_engine import get_cached_highres_cube

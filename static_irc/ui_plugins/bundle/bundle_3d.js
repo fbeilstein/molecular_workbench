@@ -304,7 +304,7 @@ export class Bundle3DViewer {
         }
 
         // 2. Precalculated 3D surface mesh
-        const mesh = isDefaultIso ? (this.meshCache[isoKey] || this.meshCache[mKey]) : this.meshCache[isoKey];
+        const mesh = this.meshCache[isoKey] || this.meshCache[mKey];
         if (mesh) {
             if (mesh.pos && mesh.pos.vertices && mesh.pos.faces) {
                 this.viewer.addCustom({
@@ -391,7 +391,7 @@ export class Bundle3DViewer {
                 const cacheKey = `${frameIdx}_${orbKey}`;
                 const isDefaultIso = Math.abs(isovalue - 0.03) < 0.003;
                 const isoKey = `${cacheKey}_${Math.round(isovalue * 1000)}`;
-                const hasSurface = this.cubeCache[cacheKey] || (isDefaultIso ? this.meshCache[cacheKey] : this.meshCache[isoKey]);
+                const hasSurface = this.cubeCache[cacheKey] || this.meshCache[isoKey] || this.meshCache[cacheKey];
 
                 if (!hasSurface) {
                     missing.push(fetchCubeFn(frameIdx, orbKey, orb.chem_key || null, isovalue).then(res => {
@@ -400,19 +400,17 @@ export class Bundle3DViewer {
                                 this.cubeCache[cacheKey] = res.cube;
                             }
                             if (res.pos || res.neg) {
-                                if (isDefaultIso) {
-                                    this.meshCache[cacheKey] = { pos: res.pos, neg: res.neg };
-                                } else {
-                                    this.meshCache[isoKey] = { pos: res.pos, neg: res.neg };
-                                }
+                                const meshData = { pos: res.pos, neg: res.neg };
+                                this.meshCache[cacheKey] = meshData;
+                                this.meshCache[isoKey] = meshData;
                             }
                         } else {
-                            if (!isDefaultIso) this.meshCache[isoKey] = null;
-                            else this.meshCache[cacheKey] = null;
+                            this.meshCache[isoKey] = null;
+                            this.meshCache[cacheKey] = null;
                         }
                     }).catch(() => {
-                        if (!isDefaultIso) this.meshCache[isoKey] = null;
-                        else this.meshCache[cacheKey] = null;
+                        this.meshCache[isoKey] = null;
+                        this.meshCache[cacheKey] = null;
                     }));
                 }
             }

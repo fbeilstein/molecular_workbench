@@ -57,6 +57,7 @@ def build_bundle_manifest(megajson: Dict[str, Any], global_state: Dict[str, Any]
         "overall_reaction_energy_kcal": megajson.get("overall_reaction_energy_kcal", 0.0),
         "solvent": megajson.get("solvent", "water"),
         "orbital_resolution": megajson.get("orbital_resolution", 32),
+        "orbital_isovalue": float(megajson.get("orbital_isovalue") or megajson.get("isovalue") or 0.035),
         "step_boundaries": boundaries,
         "symbols": megajson.get("symbols", []),
         "energy_profile": megajson.get("energy_profile", {}),

@@ -230,11 +230,27 @@ class Step7Bundle(PipelineStep):
 
             return Step6Orbitals().custom_action(user_input, global_state)
 
+        if action == "set_isovalue":
+            iso = float(user_input.get("isovalue", 0.03))
+            megajson["orbital_isovalue"] = iso
+            megajson["isovalue"] = iso
+            for s_key in ("step_7_bundle", "step_6_orbitals", "step_5_cascade"):
+                if s_key in global_state and isinstance(global_state[s_key], dict):
+                    s_mj = global_state[s_key].get("megajson")
+                    if isinstance(s_mj, dict):
+                        s_mj["orbital_isovalue"] = iso
+                        s_mj["isovalue"] = iso
+            save_state_to_file(global_state)
+            return {"success": True, "isovalue": iso}
+
         if action in ["get_cached_cubes", "get_cached_meshes"]:
             frames = [int(x) for x in user_input.get("frames", [])]
             tracks = user_input.get("tracks", [])
             iso = float(user_input.get("isovalue", 0.03))
+            megajson["orbital_isovalue"] = iso
+            megajson["isovalue"] = iso
             meshes = {}
+            iso_suffix = f"_{round(iso * 1000)}"
             for fi in frames:
                 for trk in tracks:
                     ok = trk.get("orbital_key") if isinstance(trk, dict) else str(trk)
@@ -242,7 +258,9 @@ class Step7Bundle(PipelineStep):
                         continue
                     pos, neg = get_or_extract_surface_mesh(fi, ok, iso, megajson, global_state)
                     if pos or neg:
-                        meshes[f"{fi}_{ok}"] = {"pos": pos, "neg": neg}
+                        mesh_data = {"pos": pos, "neg": neg}
+                        meshes[f"{fi}_{ok}"] = mesh_data
+                        meshes[f"{fi}_{ok}{iso_suffix}"] = mesh_data
 
             if meshes:
                 return {"success": True, "meshes": meshes, "is_mesh": True}
@@ -406,6 +424,19 @@ class Step7Bundle(PipelineStep):
 
         # 5. Pure Data Archive Packager (NO standalone HTML, NO cubes, NO xyz)
         if action in ["repack_bundle", "export_bundle"]:
+            iso_input = user_input.get("isovalue")
+            if iso_input is not None:
+                iso_val = float(iso_input)
+                megajson["orbital_isovalue"] = iso_val
+                megajson["isovalue"] = iso_val
+                for s_key in ("step_7_bundle", "step_6_orbitals", "step_5_cascade"):
+                    if s_key in global_state and isinstance(global_state[s_key], dict):
+                        s_mj = global_state[s_key].get("megajson")
+                        if isinstance(s_mj, dict):
+                            s_mj["orbital_isovalue"] = iso_val
+                            s_mj["isovalue"] = iso_val
+                save_state_to_file(global_state)
+
             esp_surfaces = user_input.get("esp_surfaces")
             if esp_surfaces and isinstance(esp_surfaces, dict):
                 megajson.setdefault("esp_surfaces", {}).update(esp_surfaces)
