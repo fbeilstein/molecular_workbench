@@ -1,5 +1,11 @@
 export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick) {
     if (!canvas || !trajectory || !trajectory.frames || trajectory.frames.length === 0) return;
+    if (canvas.parentElement && canvas.parentElement.clientWidth > 0) {
+        const parentW = canvas.parentElement.clientWidth;
+        if (canvas.width !== parentW) {
+            canvas.width = parentW;
+        }
+    }
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
     const h = canvas.height;
@@ -13,8 +19,8 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     const plotH = h - padTop - padBottom;
 
     const frames = trajectory.frames;
-    const s_vals = frames.map(f => f.s_arc);
-    const e_vals = frames.map(f => f.rel_energy_kcal);
+    const s_vals = frames.map((f, i) => f.s_arc !== undefined ? f.s_arc : (f.step !== undefined ? f.step : i));
+    const e_vals = frames.map(f => f.rel_energy_kcal !== undefined ? f.rel_energy_kcal : (f.energy_kcal !== undefined ? f.energy_kcal : 0.0));
 
     const minS = Math.min(...s_vals);
     const maxS = Math.max(...s_vals);
@@ -48,7 +54,8 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     // Asymptotic Approach boundary if present
     const asympCount = trajectory.asymp_r_count || 0;
     if (asympCount > 0 && asympCount < frames.length) {
-        const ax = toX(frames[asympCount].s_arc);
+        const asympS = frames[asympCount].s_arc !== undefined ? frames[asympCount].s_arc : asympCount;
+        const ax = toX(asympS);
         ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
         ctx.setLineDash([2, 2]);
         ctx.beginPath();
@@ -68,8 +75,10 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     frames.forEach((f, idx) => {
-        const x = toX(f.s_arc);
-        const y = toY(f.rel_energy_kcal);
+        const s = f.s_arc !== undefined ? f.s_arc : (f.step !== undefined ? f.step : idx);
+        const e = f.rel_energy_kcal !== undefined ? f.rel_energy_kcal : (f.energy_kcal !== undefined ? f.energy_kcal : 0.0);
+        const x = toX(s);
+        const y = toY(e);
         if (idx === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
     });
@@ -83,8 +92,10 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
 
     // Points on curve
     frames.forEach((f, idx) => {
-        const x = toX(f.s_arc);
-        const y = toY(f.rel_energy_kcal);
+        const s = f.s_arc !== undefined ? f.s_arc : (f.step !== undefined ? f.step : idx);
+        const e = f.rel_energy_kcal !== undefined ? f.rel_energy_kcal : (f.energy_kcal !== undefined ? f.energy_kcal : 0.0);
+        const x = toX(s);
+        const y = toY(e);
         if (tsIndices.has(idx)) {
             ctx.fillStyle = '#e11d48';
         } else if (idx < asympCount) {
@@ -100,8 +111,10 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     // Active Frame Highlight
     if (frames[currentIdx]) {
         const curF = frames[currentIdx];
-        const curX = toX(curF.s_arc);
-        const curY = toY(curF.rel_energy_kcal);
+        const curS = curF.s_arc !== undefined ? curF.s_arc : (curF.step !== undefined ? curF.step : currentIdx);
+        const curE = curF.rel_energy_kcal !== undefined ? curF.rel_energy_kcal : (curF.energy_kcal !== undefined ? curF.energy_kcal : 0.0);
+        const curX = toX(curS);
+        const curY = toY(curE);
 
         // Vertical highlight bar
         ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
@@ -121,11 +134,29 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
         ctx.stroke();
+
+        // Active Energy Label (Dark text with subtle background for pristine contrast)
+        const eStr = `${curE.toFixed(1)} kcal/mol`;
+        ctx.font = 'bold 11px Inter, monospace, sans-serif';
+        const txtW = ctx.measureText(eStr).width;
+        const tagX = curX > w - txtW - 20 ? curX - txtW - 10 : curX + 10;
+        const tagY = Math.max(padTop + 14, Math.min(curY - 4, padTop + plotH - 6));
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(tagX - 4, tagY - 11, txtW + 8, 15);
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tagX - 4, tagY - 11, txtW + 8, 15);
+
+        ctx.fillStyle = '#1e293b';
+        ctx.textAlign = 'left';
+        ctx.fillText(eStr, tagX, tagY);
     }
 
     // Text Labels
     ctx.fillStyle = '#64748b';
     ctx.font = '10.5px monospace';
+    ctx.textAlign = 'left';
     ctx.fillText(`${maxE.toFixed(1)} kcal`, 4, padTop + 10);
     ctx.fillText(`${minE.toFixed(1)} kcal`, 4, padTop + plotH);
     ctx.fillText(`s: ${minS.toFixed(1)}`, padLeft, h - 8);
@@ -137,7 +168,8 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
         trajectory.step_boundaries.forEach(sb => {
             const tsF = frames[sb.ts_frame];
             if (tsF) {
-                const tsX = toX(tsF.s_arc);
+                const tsS = tsF.s_arc !== undefined ? tsF.s_arc : tsF.step;
+                const tsX = toX(tsS);
                 ctx.fillText(`TS ${sb.step_index}`, tsX - 14, h - 8);
             }
         });
@@ -153,7 +185,8 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
         let closestIdx = 0;
         let minDist = 9999;
         frames.forEach((f, idx) => {
-            const x = toX(f.s_arc);
+            const s = f.s_arc !== undefined ? f.s_arc : (f.step !== undefined ? f.step : idx);
+            const x = toX(s);
             const dist = Math.abs(x - clickX);
             if (dist < minDist) {
                 minDist = dist;

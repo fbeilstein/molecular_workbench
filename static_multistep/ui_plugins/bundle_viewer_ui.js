@@ -3,7 +3,7 @@
  */
 
 import { Bundle3DViewer } from './bundle/bundle_3d.js?v=2.0.5';
-import { BundlePesChart } from './bundle/bundle_pes.js?v=2.0.3';
+import { BundlePesChart } from './bundle/bundle_pes.js?v=2.0.6';
 import { SvgMechanismManager } from './bundle/bundle_svg.js?v=2.0.4';
 import { BundleHighresManager } from './bundle/bundle_highres.js?v=2.0.3';
 import { BundleMoleculeModal } from './bundle/bundle_molecule_modal.js';
@@ -11,11 +11,11 @@ import { exportMultiModelXyz, exportMaxCompBundleZip, purgeTemporaryCubes } from
 import { BundleTransportController } from './bundle/bundle_transport.js?v=2.0.4';
 import { BundleWiringManager } from './bundle/bundle_wiring_ui.js';
 import { renderOrbitalTracksSidebar } from './bundle/bundle_orbital_panel.js';
-import { getBundleViewerTemplate } from './bundle/bundle_viewer_template.js';
+import { getBundleViewerTemplate } from './bundle/bundle_viewer_template.js?v=2.0.6';
 
 export const BundleViewerUI = {
     state: {
-        stepId: 'step_5_bundle_viewer', megajson: null, currentFrame: 0,
+        stepId: 'step_7_bundle', megajson: null, currentFrame: 0,
         isPlaying: false, playDirection: 'forward', playbackSpeed: 1.0, playTimer: null,
         viewer3D: null, pesChart: null, svgManager: null, highresManager: null,
         moleculeModal: null, transport: null, wiringMgr: null, activeOrbitals: new Set(),
@@ -85,7 +85,10 @@ export const BundleViewerUI = {
         });
         this.state.viewer3D = new Bundle3DViewer(container.querySelector('#bundle-viewport-3d'), { isovalue: this.state.isovalue });
         this.state.pesChart = new BundlePesChart(container.querySelector('#bundle-pes-canvas'), {
-            energies: ep, boundaries: this.state.megajson.step_boundaries || [], onSeekFrame: (f) => this.state.transport.seekFrame(f)
+            trajectory: this.state.megajson,
+            energies: ep,
+            boundaries: this.state.megajson.step_boundaries || [],
+            onSeekFrame: (f) => this.state.transport.seekFrame(f)
         });
         this.state.svgManager = new SvgMechanismManager(container.querySelector('#bundle-svg-view'), {
             initialWiring: this.state.megajson.svg_wiring || {},

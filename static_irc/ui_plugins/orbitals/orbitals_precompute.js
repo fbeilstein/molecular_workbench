@@ -12,7 +12,7 @@ export class OrbitalsPrecompute {
         this.abortFlag = false;
     }
 
-    async startPrecompute(totalFrames) {
+    async startPrecompute(totalFrames, force = true) {
         if (this.isPrecomputing) return;
         this.isPrecomputing = true;
         this.abortFlag = false;
@@ -38,7 +38,8 @@ export class OrbitalsPrecompute {
                         action_type: 'batch_precompute_cubes',
                         start_frame: currentFrame,
                         batch_size: batchSize,
-                        selected_tracks: targets
+                        selected_tracks: targets,
+                        force: force
                     })
                 });
                 const data = await res.json();

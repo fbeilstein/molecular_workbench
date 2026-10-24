@@ -249,7 +249,14 @@ class Step6Orbitals(PipelineStep):
                 _SCF_CACHE.clear()
                 _CUBE_CACHE.clear()
                 _GRID_CACHE.clear()
-            return {"success": True, "message": "Orbital caches cleared."}
+                if os.path.exists(CUBES_DIR):
+                    for cf in os.listdir(CUBES_DIR):
+                        if cf.endswith(".cube"):
+                            try:
+                                os.remove(os.path.join(CUBES_DIR, cf))
+                            except Exception:
+                                pass
+            return {"success": True, "message": "Orbital caches and disk cubes cleared."}
 
         if action == "get_frame_orbitals":
             data = self._ensure_frame_computed(frame_idx, megajson)
@@ -294,6 +301,7 @@ class Step6Orbitals(PipelineStep):
             sf = int(user_input.get("start_frame", 0))
             sz = int(user_input.get("batch_size", 2))
             sel = user_input.get("selected_tracks", [])
+            force = bool(user_input.get("force", False) or user_input.get("overwrite", False))
             ef = min(n_frames - 1, sf + sz - 1)
             lo, step, npts = self._get_grid(megajson)
             batch_cubes = {}
@@ -316,24 +324,25 @@ class Step6Orbitals(PipelineStep):
 
                     disk_cube_path = os.path.join(CUBES_DIR, f"{fi}_{rk}.cube")
 
-                    if cache_key in _CUBE_CACHE:
-                        cached_val = _CUBE_CACHE[cache_key]
-                        if cached_val.startswith(f"F{fi}_{rk}"):
-                            batch_cubes[cache_key] = cached_val
-                            continue
+                    if not force:
+                        if cache_key in _CUBE_CACHE:
+                            cached_val = _CUBE_CACHE[cache_key]
+                            if cached_val.startswith(f"F{fi}_{rk}"):
+                                batch_cubes[cache_key] = cached_val
+                                continue
 
-                    if os.path.exists(disk_cube_path):
-                        try:
-                            with open(disk_cube_path, "r") as cf:
-                                first_line = cf.readline().strip()
-                                if first_line == f"F{fi}_{rk}":
-                                    cf.seek(0)
-                                    cube_text = cf.read()
-                                    _CUBE_CACHE[cache_key] = cube_text
-                                    batch_cubes[cache_key] = cube_text
-                                    continue
-                        except Exception:
-                            pass
+                        if os.path.exists(disk_cube_path):
+                            try:
+                                with open(disk_cube_path, "r") as cf:
+                                    first_line = cf.readline().strip()
+                                    if first_line == f"F{fi}_{rk}":
+                                        cf.seek(0)
+                                        cube_text = cf.read()
+                                        _CUBE_CACHE[cache_key] = cube_text
+                                        batch_cubes[cache_key] = cube_text
+                                        continue
+                            except Exception:
+                                pass
 
                     v = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][rk], lo, step, npts)
                     cube_text = orbital_engine.generate_cube_text(

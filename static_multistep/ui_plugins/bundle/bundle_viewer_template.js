@@ -129,9 +129,9 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                 </div>
             </div>
 
-            <!-- Bottom: 2D PES Chart -->
-            <div style="background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.6rem; height: 140px;">
-                <canvas id="bundle-pes-canvas" style="width: 100%; height: 100%; display: block;"></canvas>
+            <!-- Bottom: 2D PES Chart (Matches Step 5 Style & Component) -->
+            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.4rem 0.6rem; height: 150px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
+                <canvas id="bundle-pes-canvas" style="width: 100%; height: 140px; display: block; background: #ffffff; border-radius: 6px;"></canvas>
             </div>
         </div>
     `;
