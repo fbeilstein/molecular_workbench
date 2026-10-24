@@ -32,31 +32,6 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                     <button id="btn-export-bundle-zip" class="btn btn-primary btn-sm" style="background: linear-gradient(135deg, #10b981, #059669); border-color: #059669; font-weight: 700;">
                         Export Bundle (.zip)
                     </button>
-                    <button id="btn-export-xyz" class="btn btn-secondary btn-sm">Multi-Model XYZ</button>
-                    <button id="btn-purge-cubes" class="btn btn-secondary btn-sm" style="color: #f87171; border-color: rgba(248,113,113,0.4);" title="Delete temporary .cube files to free up disk space">
-                        <span>🗑 Purge Cubes</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Dual Direction Playback Transport Bar -->
-            <div style="display: flex; align-items: center; gap: 0.6rem; background: rgba(17,24,39,0.9); padding: 0.5rem 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
-                <div style="display: flex; gap: 0.3rem;">
-                    <button id="btn-play-fwd" class="btn btn-primary btn-sm" title="Play Forward">▶ Play Fwd</button>
-                    <button id="btn-play-rev" class="btn btn-amber btn-sm" title="Play Reverse">◀ Play Rev</button>
-                    <button id="btn-playback-pause" class="btn btn-secondary btn-sm" title="Pause">⏸ Pause</button>
-                </div>
-                <span id="badge-playback-dir" class="dir-badge dir-fwd">Forward ⏩</span>
-                <input type="range" id="bundle-frame-scrubber" min="0" max="${totalFrames - 1}" value="0" class="scrub-slider" style="flex: 1;">
-                <div style="display: flex; align-items: center; gap: 0.6rem;">
-                    <select id="sel-playback-speed" class="input-xs" style="background: rgba(0,0,0,0.4); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 4px;">
-                        <option value="0.5">0.5x</option>
-                        <option value="1.0" selected>1.0x</option>
-                        <option value="2.0">2.0x</option>
-                    </select>
-                    <span id="bundle-frame-readout" style="font-family: monospace; font-size: 0.8rem; color: #94a3b8; min-width: 105px; text-align: right;">
-                        Frame 0 / ${totalFrames - 1}
-                    </span>
                 </div>
             </div>
 
@@ -74,6 +49,29 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                 </div>
                 <div style="height: 270px; width: 100%; position: relative; overflow: hidden; background: #090d16;">
                     <div id="bundle-svg-view" style="width: 100%; height: 100%;"></div>
+                </div>
+            </div>
+
+            <!-- Dual Direction Playback Transport Bar (Positioned directly below Reaction SVG) -->
+            <div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(17,24,39,0.9); padding: 0.5rem 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap;">
+                <div style="display: flex; gap: 0.3rem; align-items: center;">
+                    <button id="btn-step-prev" class="btn btn-secondary btn-sm" title="Step 1 Frame Backward (⏮ -1)">⏮ -1</button>
+                    <button id="btn-play-rev" class="btn btn-amber btn-sm" title="Play Reverse">◀ Play Rev</button>
+                    <button id="btn-playback-pause" class="btn btn-secondary btn-sm" title="Pause">⏸ Pause</button>
+                    <button id="btn-play-fwd" class="btn btn-primary btn-sm" title="Play Forward">▶ Play Fwd</button>
+                    <button id="btn-step-next" class="btn btn-secondary btn-sm" title="Step 1 Frame Forward (+1 ⏭)">+1 ⏭</button>
+                </div>
+                <span id="badge-playback-dir" class="dir-badge dir-fwd">Forward ⏩</span>
+                <input type="range" id="bundle-frame-scrubber" min="0" max="${totalFrames - 1}" value="0" class="scrub-slider" style="flex: 1; min-width: 140px;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <select id="sel-playback-speed" class="input-xs" style="background: rgba(0,0,0,0.4); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 4px;">
+                        <option value="0.5">0.5x</option>
+                        <option value="1.0" selected>1.0x</option>
+                        <option value="2.0">2.0x</option>
+                    </select>
+                    <span id="bundle-frame-readout" style="font-family: monospace; font-size: 0.8rem; color: #94a3b8; min-width: 105px; text-align: right;">
+                        Frame 0 / ${totalFrames - 1}
+                    </span>
                 </div>
             </div>
 

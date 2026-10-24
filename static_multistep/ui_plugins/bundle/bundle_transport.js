@@ -59,6 +59,21 @@ export class BundleTransportController {
         }
     }
 
+    stepForward() {
+        this.pause();
+        this.setDirection('forward');
+        const total = (this.state.megajson && this.state.megajson.frames) ? this.state.megajson.frames.length : 1;
+        const nextF = Math.min(total - 1, this.state.currentFrame + 1);
+        this.seekFrame(nextF);
+    }
+
+    stepBackward() {
+        this.pause();
+        this.setDirection('reverse');
+        const prevF = Math.max(0, this.state.currentFrame - 1);
+        this.seekFrame(prevF);
+    }
+
     playSegment(startFrame, endFrame, direction = 'forward') {
         this.pause();
         this.setDirection(direction);

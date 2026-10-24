@@ -7,11 +7,11 @@ import { BundlePesChart } from './bundle/bundle_pes.js?v=2.0.6';
 import { SvgMechanismManager } from './bundle/bundle_svg.js?v=2.0.4';
 import { BundleHighresManager } from './bundle/bundle_highres.js?v=2.0.3';
 import { BundleMoleculeModal } from './bundle/bundle_molecule_modal.js';
-import { exportMultiModelXyz, exportMaxCompBundleZip, purgeTemporaryCubes } from './bundle/bundle_export.js';
-import { BundleTransportController } from './bundle/bundle_transport.js?v=2.0.4';
+import { exportMaxCompBundleZip } from './bundle/bundle_export.js';
+import { BundleTransportController } from './bundle/bundle_transport.js?v=2.1.0';
 import { BundleWiringManager } from './bundle/bundle_wiring_ui.js?v=2.0.9';
 import { renderOrbitalTracksSidebar } from './bundle/bundle_orbital_panel.js';
-import { getBundleViewerTemplate } from './bundle/bundle_viewer_template.js?v=2.0.9';
+import { getBundleViewerTemplate } from './bundle/bundle_viewer_template.js?v=2.1.0';
 
 export const BundleViewerUI = {
     state: {
@@ -195,9 +195,11 @@ export const BundleViewerUI = {
         tabWiring.addEventListener('click', () => setMode(true));
 
         const t = this.state.transport;
-        container.querySelector('#btn-play-fwd').addEventListener('click', () => t.playForward());
-        container.querySelector('#btn-play-rev').addEventListener('click', () => t.playReverse());
-        container.querySelector('#btn-playback-pause').addEventListener('click', () => t.pause());
+        container.querySelector('#btn-step-prev')?.addEventListener('click', () => t.stepBackward());
+        container.querySelector('#btn-play-rev')?.addEventListener('click', () => t.playReverse());
+        container.querySelector('#btn-playback-pause')?.addEventListener('click', () => t.pause());
+        container.querySelector('#btn-play-fwd')?.addEventListener('click', () => t.playForward());
+        container.querySelector('#btn-step-next')?.addEventListener('click', () => t.stepForward());
 
         container.querySelector('#sel-playback-speed').addEventListener('change', (e) => {
             this.state.playbackSpeed = parseFloat(e.target.value);
@@ -238,8 +240,6 @@ export const BundleViewerUI = {
         container.querySelector('#btn-export-bundle-zip').addEventListener('click', () => {
             exportMaxCompBundleZip(this.state.stepId, { esp_surfaces: this.state.viewer3D?.espMeshCache || {} });
         });
-        container.querySelector('#btn-export-xyz').addEventListener('click', () => exportMultiModelXyz(this.state.megajson));
-        container.querySelector('#btn-purge-cubes')?.addEventListener('click', () => purgeTemporaryCubes(this.state.stepId));
 
         container.querySelector('#btn-bundle-zoom-in')?.addEventListener('click', () => this.state.viewer3D?.zoomIn());
         container.querySelector('#btn-bundle-zoom-out')?.addEventListener('click', () => this.state.viewer3D?.zoomOut());
