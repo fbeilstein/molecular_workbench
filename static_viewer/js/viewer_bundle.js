@@ -485,7 +485,7 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
             vertexArr: eV,
             faceArr: eF,
             color: colorParam,
-            opacity: 0.82
+            opacity: 0.65
           };
           if (eN && eN.length === eV.length) {
             customObj.normalArr = eN;
@@ -493,9 +493,27 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
           this.glViewer.addCustom(customObj);
         } else if (window.$3Dmol) {
           try {
+            const traj2 = this.bundle.trajectory || {};
+            const trajCharges = traj2.trajectory_charges ? traj2.trajectory_charges[frameIdx] : null;
+            const frameCharges = frame.charges || trajCharges || this.bundle.charges || [];
+            const atoms = this.glViewer.selectedAtoms({});
+            for (let i = 0; i < atoms.length && i < natoms; i++) {
+              let q = frameCharges && frameCharges[i] !== void 0 ? frameCharges[i] : null;
+              if (q === null) {
+                const s = symbols[i];
+                if (s === "H") q = 0.08;
+                else if (s === "C") q = -0.05;
+                else if (s === "O") q = -0.5;
+                else if (s === "Cl") q = -0.45;
+                else q = 0;
+              }
+              atoms[i].partialCharge = q;
+              atoms[i].properties = atoms[i].properties || {};
+              atoms[i].properties.partialCharge = q;
+            }
             this.glViewer.addSurface(window.$3Dmol.SurfaceType.VDW, {
-              opacity: 0.7,
-              colorscheme: "Jmol"
+              opacity: 0.65,
+              colorscheme: { prop: "partialCharge", gradient: "rwb", min: -0.6, max: 0.6 }
             });
           } catch (e) {
             console.warn("Dynamic surface rendering failed:", e);
@@ -1002,9 +1020,24 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
           }
         } else if (cfg.role === "molecule") {
           el.classList.add("svg-clickable-molecule");
-          el.setAttribute("title", `${cfg.moleculeName || "Molecule"}: Double-click to inspect`);
+          const stateTarget = this.findStateTarget(el.parentElement, svg);
+          const stateInfo = stateTarget && stateTarget.cfg && stateTarget.cfg.targetFrame !== void 0 ? ` (Frame ${stateTarget.cfg.targetFrame}): Click to jump, ` : ": ";
+          el.setAttribute("title", `${cfg.moleculeName || "Molecule"}${stateInfo}Double-click to inspect`);
         }
       }
+    }
+    findStateTarget(el, rootSvg) {
+      let cur = el;
+      while (cur && cur !== rootSvg && cur.tagName && cur.tagName.toLowerCase() !== "svg") {
+        const id = cur.getAttribute("id");
+        const lbl = cur.getAttribute("inkscape:label") || cur.getAttribute("label");
+        const cfg = id && this.wiring[id] || lbl && this.wiring[lbl];
+        if (cfg && (cfg.role === "state" || cfg.role === "state_molecule" || cfg.targetFrame !== void 0)) {
+          return { el: cur, id: id || lbl, cfg };
+        }
+        cur = cur.parentElement;
+      }
+      return null;
     }
     bindEvents() {
       const svg = this.container.querySelector("svg");
@@ -1020,10 +1053,17 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
           const ef = cfg.endFrame !== void 0 ? parseInt(cfg.endFrame, 10) : 100;
           const dir = cfg.direction || "forward";
           this.onPlaySegment(sf, ef, dir);
-        } else if (cfg.role === "state" || cfg.role === "state_molecule") {
+        } else if (cfg.role === "state" || cfg.role === "state_molecule" || cfg.targetFrame !== void 0) {
           e.stopPropagation();
           const tf = cfg.targetFrame !== void 0 ? parseInt(cfg.targetFrame, 10) : 0;
           this.onJumpFrame(tf);
+        } else {
+          const stateTarget = this.findStateTarget(e.target, svg);
+          if (stateTarget && stateTarget.cfg && stateTarget.cfg.targetFrame !== void 0) {
+            e.stopPropagation();
+            const tf = parseInt(stateTarget.cfg.targetFrame, 10) || 0;
+            this.onJumpFrame(tf);
+          }
         }
       });
       svg.addEventListener("dblclick", (e) => {

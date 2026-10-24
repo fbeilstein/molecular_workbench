@@ -4,6 +4,83 @@
  */
 import { getEspColor, getPhaseColors } from '../orbitals/orbitals_types.js';
 
+const COV_RADII = {
+    H: 0.31, C: 0.76, N: 0.71, O: 0.66, F: 0.57,
+    P: 1.07, S: 1.05, Cl: 1.02, Br: 1.20, I: 1.39
+};
+const MAX_VALENCE = { H: 1, F: 1, Cl: 1, Br: 1, I: 1, O: 2, N: 4, C: 4, S: 6, P: 5 };
+
+function computeBonds(symbols, coords) {
+    const bonds = [];
+    const n = Math.min(symbols.length, coords.length);
+    const valences = new Array(n).fill(0);
+    const candidates = [];
+
+    for (let i = 0; i < n; i++) {
+        const s1 = symbols[i];
+        const r1 = COV_RADII[s1] || 0.75;
+        for (let j = i + 1; j < n; j++) {
+            const s2 = symbols[j];
+            const r2 = COV_RADII[s2] || 0.75;
+            if (s1 === 'H' && s2 === 'H' && n > 2) continue;
+
+            const dx = coords[i][0] - coords[j][0];
+            const dy = coords[i][1] - coords[j][1];
+            const dz = coords[i][2] - coords[j][2];
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const maxD = 1.28 * (r1 + r2);
+
+            if (d >= 0.4 && d <= maxD) {
+                const pair = [s1, s2].sort().join('-');
+                let targetOrder = 1;
+                if (pair === 'C-O') {
+                    if (d < 1.16) targetOrder = 3;
+                    else if (d < 1.265) targetOrder = 2;
+                } else if (pair === 'C-C') {
+                    if (d < 1.24) targetOrder = 3;
+                    else if (d < 1.39) targetOrder = 2;
+                } else if (pair === 'C-N') {
+                    if (d < 1.18) targetOrder = 3;
+                    else if (d < 1.32) targetOrder = 2;
+                } else if (pair === 'N-N') {
+                    if (d < 1.14) targetOrder = 3;
+                    else if (d < 1.28) targetOrder = 2;
+                } else if (pair === 'N-O' || pair === 'O-O') {
+                    if (d < 1.25) targetOrder = 2;
+                }
+                candidates.push({ d, i, j, s1, s2, targetOrder });
+            }
+        }
+    }
+
+    // Shortest bonds assigned first
+    candidates.sort((a, b) => a.d - b.d);
+
+    for (const c of candidates) {
+        bonds.push({ a1: c.i, a2: c.j, order: 1, target: c.targetOrder, s1: c.s1, s2: c.s2, d: c.d });
+        valences[c.i]++;
+        valences[c.j]++;
+    }
+
+    // Promote to double/triple bond if atom valences allow
+    for (const b of bonds) {
+        if (b.target > 1) {
+            const v1Cap = MAX_VALENCE[b.s1] || 4;
+            const v2Cap = MAX_VALENCE[b.s2] || 4;
+            const desiredBoost = b.target - 1;
+            const maxBoost = Math.min(v1Cap - valences[b.a1], v2Cap - valences[b.a2]);
+            const boost = Math.max(0, Math.min(desiredBoost, maxBoost));
+            if (boost > 0) {
+                b.order += boost;
+                valences[b.a1] += boost;
+                valences[b.a2] += boost;
+            }
+        }
+    }
+
+    return bonds;
+}
+
 export class Bundle3DViewer {
     constructor(containerEl, options = {}) {
         this.containerEl = containerEl;
@@ -74,8 +151,8 @@ export class Bundle3DViewer {
         this.moleculeScale = Math.max(0.4, Math.min(3.0, scale));
         if (this.viewer) {
             this.viewer.setStyle({}, {
-                stick: { radius: 0.14 * this.moleculeScale },
-                sphere: { scale: 0.28 * this.moleculeScale }
+                stick: { radius: 0.14 * this.moleculeScale, colorscheme: 'Jmol' },
+                sphere: { scale: 0.28 * this.moleculeScale, colorscheme: 'Jmol' }
             });
             this.viewer.render();
         }
@@ -90,20 +167,32 @@ export class Bundle3DViewer {
     renderMolecule(symbols, coords, charges = null, showCharges = false, showEspSurface = false, frameIdx = 0) {
         if (!this.viewer || !symbols || !coords) return;
         this.activeFrameIdx = frameIdx;
+        this.viewer.removeAllSurfaces();
+        this.viewer.removeAllShapes();
         this.viewer.clear();
 
-        const n = Math.min(symbols.length, coords.length);
-        let mdl = `${n}\nFrame Model\n`;
-        for (let i = 0; i < n; i++) {
+        const natoms = Math.min(symbols.length, coords.length);
+        const n = natoms;
+        const bonds = computeBonds(symbols, coords);
+        let sdf = `\n  Reaction Pathway Viewer\n\n${String(natoms).padStart(3, ' ')}${String(bonds.length).padStart(3, ' ')}  0  0  0  0  0  0  0  0999 V2000\n`;
+        for (let i = 0; i < natoms; i++) {
             const sym = symbols[i];
-            const [x, y, z] = coords[i];
-            mdl += `${sym} ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`;
+            const pos = coords[i];
+            const x = Number(pos[0]).toFixed(4).padStart(10, ' ');
+            const y = Number(pos[1]).toFixed(4).padStart(10, ' ');
+            const z = Number(pos[2]).toFixed(4).padStart(10, ' ');
+            sdf += `${x}${y}${z} ${sym.padEnd(3, ' ')} 0  0  0  0  0  0  0  0  0  0  0  0\n`;
         }
+        for (let i = 0; i < bonds.length; i++) {
+            const b = bonds[i];
+            sdf += `${String(b.a1 + 1).padStart(3, ' ')}${String(b.a2 + 1).padStart(3, ' ')}${String(b.order).padStart(3, ' ')}  0  0  0  0\n`;
+        }
+        sdf += 'M  END\n$$$$\n';
 
-        this.viewer.addModel(mdl, 'xyz');
+        this.viewer.addModel(sdf, 'sdf');
         this.viewer.setStyle({}, {
-            stick: { radius: 0.14 * this.moleculeScale },
-            sphere: { scale: 0.28 * this.moleculeScale }
+            stick: { radius: 0.14 * this.moleculeScale, colorscheme: 'Jmol' },
+            sphere: { scale: 0.28 * this.moleculeScale, colorscheme: 'Jmol' }
         });
 
         // 1. ESP Potential Surface (cached WebGL mesh or client VDW extraction)

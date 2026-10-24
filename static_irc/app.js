@@ -5,7 +5,7 @@ import { TSEditorUI } from './ui_plugins/ts_editor_ui.js';
 import { IRCViewerUI } from './ui_plugins/irc_viewer_ui.js';
 import { CascadeUI } from './ui_plugins/cascade_ui.js';
 import { OrbitalsUI } from './ui_plugins/orbitals_ui.js';
-import { BundleViewerUI } from './ui_plugins/bundle_viewer_ui.js?v=2.1.3';
+import { BundleViewerUI } from './ui_plugins/bundle_viewer_ui.js?v=2.1.4';
 
 const UIRegistry = {
     'ketcher': KetcherUI,

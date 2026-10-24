@@ -227,7 +227,7 @@ export class Viewer3D {
           vertexArr: eV,
           faceArr: eF,
           color: colorParam,
-          opacity: 0.82
+          opacity: 0.65
         };
         if (eN && eN.length === eV.length) {
           customObj.normalArr = eN;
@@ -236,9 +236,27 @@ export class Viewer3D {
       } else if (window.$3Dmol) {
         // Fallback for reaction frames without precomputed mesh: dynamic molecular surface
         try {
+          const traj = this.bundle.trajectory || {};
+          const trajCharges = traj.trajectory_charges ? traj.trajectory_charges[frameIdx] : null;
+          const frameCharges = frame.charges || trajCharges || this.bundle.charges || [];
+          const atoms = this.glViewer.selectedAtoms({});
+          for (let i = 0; i < atoms.length && i < natoms; i++) {
+            let q = (frameCharges && frameCharges[i] !== undefined) ? frameCharges[i] : null;
+            if (q === null) {
+              const s = symbols[i];
+              if (s === 'H') q = 0.08;
+              else if (s === 'C') q = -0.05;
+              else if (s === 'O') q = -0.50;
+              else if (s === 'Cl') q = -0.45;
+              else q = 0.0;
+            }
+            atoms[i].partialCharge = q;
+            atoms[i].properties = atoms[i].properties || {};
+            atoms[i].properties.partialCharge = q;
+          }
           this.glViewer.addSurface(window.$3Dmol.SurfaceType.VDW, {
-            opacity: 0.70,
-            colorscheme: 'Jmol'
+            opacity: 0.65,
+            colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
           });
         } catch (e) {
           console.warn('Dynamic surface rendering failed:', e);

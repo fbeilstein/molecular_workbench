@@ -57,9 +57,27 @@ export class ViewerSvgMechanism {
         }
       } else if (cfg.role === 'molecule') {
         el.classList.add('svg-clickable-molecule');
-        el.setAttribute('title', `${cfg.moleculeName || 'Molecule'}: Double-click to inspect`);
+        const stateTarget = this.findStateTarget(el.parentElement, svg);
+        const stateInfo = (stateTarget && stateTarget.cfg && stateTarget.cfg.targetFrame !== undefined)
+          ? ` (Frame ${stateTarget.cfg.targetFrame}): Click to jump, `
+          : ': ';
+        el.setAttribute('title', `${cfg.moleculeName || 'Molecule'}${stateInfo}Double-click to inspect`);
       }
     }
+  }
+
+  findStateTarget(el, rootSvg) {
+    let cur = el;
+    while (cur && cur !== rootSvg && cur.tagName && cur.tagName.toLowerCase() !== 'svg') {
+      const id = cur.getAttribute('id');
+      const lbl = cur.getAttribute('inkscape:label') || cur.getAttribute('label');
+      const cfg = (id && this.wiring[id]) || (lbl && this.wiring[lbl]);
+      if (cfg && (cfg.role === 'state' || cfg.role === 'state_molecule' || cfg.targetFrame !== undefined)) {
+        return { el: cur, id: id || lbl, cfg };
+      }
+      cur = cur.parentElement;
+    }
+    return null;
   }
 
   bindEvents() {
@@ -80,10 +98,18 @@ export class ViewerSvgMechanism {
         const ef = cfg.endFrame !== undefined ? parseInt(cfg.endFrame, 10) : 100;
         const dir = cfg.direction || 'forward';
         this.onPlaySegment(sf, ef, dir);
-      } else if (cfg.role === 'state' || cfg.role === 'state_molecule') {
+      } else if (cfg.role === 'state' || cfg.role === 'state_molecule' || cfg.targetFrame !== undefined) {
         e.stopPropagation();
         const tf = cfg.targetFrame !== undefined ? parseInt(cfg.targetFrame, 10) : 0;
         this.onJumpFrame(tf);
+      } else {
+        // e.g. clicked on a molecule (reactants or products) belonging to a state
+        const stateTarget = this.findStateTarget(e.target, svg);
+        if (stateTarget && stateTarget.cfg && stateTarget.cfg.targetFrame !== undefined) {
+          e.stopPropagation();
+          const tf = parseInt(stateTarget.cfg.targetFrame, 10) || 0;
+          this.onJumpFrame(tf);
+        }
       }
     });
 

@@ -345,7 +345,7 @@ export class BundleMoleculeModal {
                     });
                     this.viewer.addCustom({
                         vertexArr: espData.vertices, faceArr: espData.faces,
-                        normalArr: espData.normals || undefined, color: colors, opacity: 0.85
+                        normalArr: espData.normals || undefined, color: colors, opacity: 0.65
                     });
                     const statusBadge = document.querySelector('#modal-molecule-orbitals #mol-status-badge');
                     if (statusBadge) statusBadge.textContent = `ESP Surface [${espMin.toFixed(1)} to +${espMax.toFixed(1)} kcal/mol]`;
