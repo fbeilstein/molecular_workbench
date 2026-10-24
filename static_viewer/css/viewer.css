@@ -90,16 +90,14 @@ html, body {
 .svg-clickable-molecule:hover { filter: drop-shadow(0 0 6px #a855f7) !important; }
 .svg-active-element { filter: drop-shadow(0 0 8px #0ea5e9) !important; }
 
-/* Step 5 Push Arrow Pulse Highlight */
+/* Directional Push Arrow State & Visibility (SVG colors strictly preserved) */
 .svg-push-active {
-  opacity: 1.0 !important; filter: drop-shadow(0 0 6px #38bdf8) !important;
-  animation: pulse-push-active 1.6s infinite ease-in-out;
+  opacity: 1.0 !important;
+  visibility: visible !important;
 }
-.svg-push-active path { stroke-width: 2.2px !important; filter: drop-shadow(0 0 4px #0284c7) !important; }
-.svg-push-inactive { opacity: 0.15 !important; pointer-events: none; }
-@keyframes pulse-push-active {
-  0%, 100% { filter: drop-shadow(0 0 4px #38bdf8); }
-  50% { filter: drop-shadow(0 0 12px #0284c7); }
+.svg-push-inactive {
+  opacity: 0.15 !important;
+  transition: opacity 0.2s ease-in-out;
 }
 
 /* --- Main Viewport (3D + PES Background) --- */

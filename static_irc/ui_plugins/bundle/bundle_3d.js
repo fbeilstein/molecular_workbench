@@ -107,7 +107,15 @@ export class Bundle3DViewer {
         });
 
         // 1. ESP Potential Surface (cached WebGL mesh or client VDW extraction)
-        if (showEspSurface && charges && charges.length >= n) {
+        if (showEspSurface) {
+            const actualCharges = (charges && charges.length >= n) ? charges : symbols.map(s => {
+                if (s === 'H') return 0.08;
+                if (s === 'C') return -0.05;
+                if (s === 'O') return -0.50;
+                if (s === 'Cl') return -0.45;
+                return 0.0;
+            });
+
             const cachedEsp = this.espMeshCache[frameIdx];
             if (cachedEsp && cachedEsp.vertexArr && cachedEsp.faceArr) {
                 this.viewer.addCustom({
@@ -119,9 +127,11 @@ export class Bundle3DViewer {
             } else if (!this._espInFlight.has(frameIdx)) {
                 this._espInFlight.add(frameIdx);
                 const atoms = this.viewer.selectedAtoms({});
-                for (let i = 0; i < atoms.length && i < charges.length; i++) {
-                    atoms[i].partialCharge = charges[i] || 0.0;
-                    atoms[i].properties = { partialCharge: charges[i] || 0.0 };
+                for (let i = 0; i < atoms.length && i < actualCharges.length; i++) {
+                    const qVal = actualCharges[i] || 0.0;
+                    atoms[i].partialCharge = qVal;
+                    atoms[i].properties = atoms[i].properties || {};
+                    atoms[i].properties.partialCharge = qVal;
                 }
                 const p = this.viewer.addSurface($3Dmol.SurfaceType.VDW, {
                     opacity: 0.65,
@@ -151,20 +161,34 @@ export class Bundle3DViewer {
                                 color: cols.length ? cols : undefined
                             };
                         }
-                        if (this.activeFrameIdx !== frameIdx) {
+                        if (this.activeFrameIdx === frameIdx) {
+                            this.viewer.render();
+                        } else {
                             try { this.viewer.removeSurface(sId); } catch (e) {}
                         }
                     }).catch(() => { this._espInFlight.delete(frameIdx); });
+                } else {
+                    this._espInFlight.delete(frameIdx);
+                    if (this.activeFrameIdx === frameIdx) {
+                        this.viewer.render();
+                    }
                 }
             }
         }
 
         // 2. Atom Numeric Partial Charge Labels
-        if (showCharges && charges && charges.length >= n) {
+        if (showCharges) {
+            const actualCharges = (charges && charges.length >= n) ? charges : symbols.map(s => {
+                if (s === 'H') return 0.08;
+                if (s === 'C') return -0.05;
+                if (s === 'O') return -0.50;
+                if (s === 'Cl') return -0.45;
+                return 0.0;
+            });
             for (let i = 0; i < n; i++) {
-                const q = charges[i];
+                const q = actualCharges[i];
                 const [x, y, z] = coords[i];
-                this.viewer.addLabel(`${symbols[i]}: ${q > 0 ? '+' : ''}${q.toFixed(2)}`, {
+                this.viewer.addLabel(`${symbols[i]}: ${q > 0 ? '+' : ''}${Number(q).toFixed(2)}`, {
                     position: { x, y: y + 0.35, z },
                     fontSize: 10,
                     fontColor: '#ffffff',
@@ -246,9 +270,41 @@ export class Bundle3DViewer {
         if (orbKey === 'track_esp_charge') return;
         const pc = getPhaseColors(orb.color || '#06b6d4');
         const mKey = `${frameIdx}_${orbKey}`;
+        const isDefaultIso = Math.abs(isovalue - 0.03) < 0.003;
+        const isoKey = `${mKey}_${Math.round(isovalue * 1000)}`;
 
-        // 1. Prefer precalculated 3D surface mesh (Direct WebGL vertex/face buffers)
-        const mesh = this.meshCache[mKey];
+        // 1. If we have volumetric cube data and isovalue is not default 0.03 (or mesh not cached),
+        // use 3Dmol's native VolumeData marching cubes for instant arbitrary isovalue rendering:
+        const cubeData = this.cubeCache[mKey];
+        if (cubeData && (!isDefaultIso || !this.meshCache[mKey])) {
+            let vdo = this.vdoCache[mKey];
+            if (!vdo) {
+                try {
+                    vdo = new $3Dmol.VolumeData(cubeData, 'cube');
+                    this.vdoCache[mKey] = vdo;
+                } catch (e) {}
+            }
+            if (vdo) {
+                try {
+                    this.viewer.addIsosurface(vdo, {
+                        isoval: Math.abs(isovalue),
+                        color: pc.pos,
+                        opacity: 0.72,
+                        wireframe: false
+                    });
+                    this.viewer.addIsosurface(vdo, {
+                        isoval: -Math.abs(isovalue),
+                        color: pc.neg,
+                        opacity: 0.72,
+                        wireframe: false
+                    });
+                    return;
+                } catch (e) {}
+            }
+        }
+
+        // 2. Precalculated 3D surface mesh
+        const mesh = isDefaultIso ? (this.meshCache[isoKey] || this.meshCache[mKey]) : this.meshCache[isoKey];
         if (mesh) {
             if (mesh.pos && mesh.pos.vertices && mesh.pos.faces) {
                 this.viewer.addCustom({
@@ -271,8 +327,7 @@ export class Bundle3DViewer {
             return;
         }
 
-        // 2. Fallback to volumetric cube isosurface
-        const cubeData = this.cubeCache[mKey];
+        // 3. Fallback to cubeData
         if (cubeData) {
             let vdo = this.vdoCache[mKey];
             if (!vdo) {
@@ -334,19 +389,30 @@ export class Bundle3DViewer {
                 const orbKey = orb.orbital_key || orb.key || orb;
                 if (orbKey === 'track_esp_charge') continue;
                 const cacheKey = `${frameIdx}_${orbKey}`;
-                if (!this.meshCache[cacheKey] && !this.cubeCache[cacheKey]) {
+                const isDefaultIso = Math.abs(isovalue - 0.03) < 0.003;
+                const isoKey = `${cacheKey}_${Math.round(isovalue * 1000)}`;
+                const hasSurface = this.cubeCache[cacheKey] || (isDefaultIso ? this.meshCache[cacheKey] : this.meshCache[isoKey]);
+
+                if (!hasSurface) {
                     missing.push(fetchCubeFn(frameIdx, orbKey, orb.chem_key || null, isovalue).then(res => {
                         if (res && res.success) {
-                            if (res.pos || res.neg) {
-                                this.meshCache[cacheKey] = { pos: res.pos, neg: res.neg };
-                            } else if (res.cube) {
+                            if (res.cube) {
                                 this.cubeCache[cacheKey] = res.cube;
                             }
+                            if (res.pos || res.neg) {
+                                if (isDefaultIso) {
+                                    this.meshCache[cacheKey] = { pos: res.pos, neg: res.neg };
+                                } else {
+                                    this.meshCache[isoKey] = { pos: res.pos, neg: res.neg };
+                                }
+                            }
                         } else {
-                            this.meshCache[cacheKey] = null;
+                            if (!isDefaultIso) this.meshCache[isoKey] = null;
+                            else this.meshCache[cacheKey] = null;
                         }
                     }).catch(() => {
-                        this.meshCache[cacheKey] = null;
+                        if (!isDefaultIso) this.meshCache[isoKey] = null;
+                        else this.meshCache[cacheKey] = null;
                     }));
                 }
             }

@@ -63,6 +63,19 @@ export class SvgMechanismManager {
             return false;
         }
 
+        // Normalize raw SVG text elements to match Inkscape rendering and prevent bold/overlapping text
+        svgEl.querySelectorAll('text').forEach(t => {
+            const st = t.getAttribute('style') || '';
+            let newSt = st.replace(/stroke:\s*#[0-9a-fA-F]+;?/gi, 'stroke:none;');
+            if (!/font-size/i.test(newSt) && !t.getAttribute('font-size')) {
+                newSt += ';font-size:10.5px;';
+            }
+            if (!/font-family/i.test(newSt) && !t.getAttribute('font-family')) {
+                newSt += ';font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+            }
+            t.setAttribute('style', newSt);
+        });
+
         this.groupsTree = parseLabeledElements(svgEl);
         this.renderSvgToContainer(svgEl);
         this.attachEventDelegation();
@@ -96,15 +109,21 @@ export class SvgMechanismManager {
 
     setMode(newMode) {
         this.mode = newMode;
+        const paper = this.containerEl.querySelector('#svg-paper-card') || this.containerEl;
+        if (paper) {
+            paper.classList.toggle('mode-wiring', newMode === 'edit');
+            paper.classList.toggle('mode-interactive', newMode === 'interactive');
+        }
         this.applyClassesToWiredElements();
+        this.updatePushArrows(this.currentFrame, this.playDirection);
     }
 
     applyClassesToWiredElements() {
         const svg = this.containerEl.querySelector('#active-mechanism-svg');
         if (!svg) return;
 
-        svg.querySelectorAll('.svg-clickable-arrow, .svg-clickable-state, .svg-clickable-molecule, .svg-edit-selectable').forEach(el => {
-            el.classList.remove('svg-clickable-arrow', 'svg-clickable-state', 'svg-clickable-molecule', 'svg-edit-selectable');
+        svg.querySelectorAll('.svg-clickable-arrow, .svg-clickable-state, .svg-clickable-molecule, .svg-edit-selectable, .svg-wired-push-arrow').forEach(el => {
+            el.classList.remove('svg-clickable-arrow', 'svg-clickable-state', 'svg-clickable-molecule', 'svg-edit-selectable', 'svg-wired-push-arrow');
         });
 
         Object.entries(this.wiring).forEach(([key, cfg]) => {
@@ -128,6 +147,9 @@ export class SvgMechanismManager {
                 } else if (cfg.role === 'molecule') {
                     el.classList.add('svg-clickable-molecule');
                     el.title = `${cfg.moleculeName || 'Molecule'}: Right-click for orbitals`;
+                } else if (cfg.role === 'push_arrow') {
+                    el.classList.add('svg-wired-push-arrow');
+                    el.title = `Push Arrow: Active frames ${cfg.startFrame || 0} → ${cfg.endFrame || 0} (${cfg.direction || 'both'})`;
                 }
             } else {
                 el.classList.add('svg-edit-selectable');
@@ -187,13 +209,26 @@ export class SvgMechanismManager {
     selectGroup(grpId) {
         this.selectedGroupId = grpId;
         const svg = this.containerEl.querySelector('#active-mechanism-svg');
+        let lbl = grpId;
         if (svg) {
             svg.querySelectorAll('.svg-group-selected').forEach(el => el.classList.remove('svg-group-selected'));
-            const el = svg.getElementById(grpId) || svg.querySelector(`[inkscape\\:label="${grpId}"]`);
-            if (el) el.classList.add('svg-group-selected');
+            let el = svg.getElementById(grpId);
+            if (!el) {
+                for (const elem of svg.querySelectorAll('*')) {
+                    if (elem.getAttribute('inkscape:label') === grpId || elem.getAttribute('label') === grpId) {
+                        el = elem;
+                        break;
+                    }
+                }
+            }
+            if (el) {
+                el.classList.add('svg-group-selected');
+                lbl = el.getAttribute('inkscape:label') || el.getAttribute('label') || grpId;
+            }
         }
+        const cfg = this.wiring[grpId] || this.wiring[lbl] || {};
         if (this.options.onGroupSelected) {
-            this.options.onGroupSelected(grpId, this.wiring[grpId]);
+            this.options.onGroupSelected(grpId, cfg);
         }
     }
 
@@ -202,7 +237,13 @@ export class SvgMechanismManager {
         this.playDirection = direction || 'forward';
 
         const svg = this.containerEl.querySelector('#active-mechanism-svg');
-        if (!svg) return;
+        // In wiring / edit mode, all arrows remain 100% visible and selectable
+        if (this.mode === 'edit') {
+            svg.querySelectorAll('.svg-push-inactive, .svg-push-active').forEach(el => {
+                el.classList.remove('svg-push-inactive', 'svg-push-active');
+            });
+            return;
+        }
 
         Object.entries(this.wiring).forEach(([key, cfg]) => {
             if (cfg.role !== 'push_arrow') return;
@@ -223,8 +264,8 @@ export class SvgMechanismManager {
             }
             if (!el) return;
 
-            const sf = cfg.startFrame !== undefined ? parseInt(cfg.startFrame, 10) : 0;
-            const ef = cfg.endFrame !== undefined ? parseInt(cfg.endFrame, 10) : 9999;
+            const sf = !isNaN(parseInt(cfg.startFrame, 10)) ? parseInt(cfg.startFrame, 10) : 0;
+            const ef = !isNaN(parseInt(cfg.endFrame, 10)) ? parseInt(cfg.endFrame, 10) : 9999;
             const arrowDir = cfg.direction || 'both';
 
             const dirMatches = (arrowDir === 'both') || (arrowDir === this.playDirection);

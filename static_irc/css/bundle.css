@@ -32,62 +32,108 @@
 
 /* Role Selector Buttons in Wiring Inspector */
 .btn-role {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #cbd5e1;
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important; /* High contrast black/dark charcoal text */
     font-size: 0.72rem;
+    font-weight: 600;
     padding: 3px 8px;
     border-radius: 4px;
     cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     transition: all 0.15s ease;
 }
 .btn-role:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: #f1f5f9 !important;
+    border-color: #94a3b8 !important;
+    color: #000000 !important;
 }
 .btn-role.active {
-    background: #2563eb;
-    border-color: #3b82f6;
-    color: #fff;
-    font-weight: 600;
+    background: #0284c7 !important;
+    border-color: #0369a1 !important;
+    color: #ffffff !important;
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgba(2, 132, 199, 0.35);
 }
 
 /* Small Chips for Tree Nodes */
-.chip-sm {
+.chip-sm, .chip-mini {
     font-size: 0.65rem;
     padding: 1px 6px;
     border-radius: 9999px;
     font-weight: 600;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: inline-block;
 }
-.chip-sm.blue { color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); }
-.chip-sm.emerald { color: #10b981; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.1); }
-.chip-sm.purple { color: #c084fc; border-color: rgba(192, 132, 252, 0.3); background: rgba(192, 132, 252, 0.1); }
-.chip-sm.amber { color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1); }
+.chip-sm.blue, .chip-mini.blue { color: #0284c7; border: 1px solid #bae6fd; background: #e0f2fe; }
+.chip-sm.emerald, .chip-mini.emerald { color: #16a34a; border: 1px solid #bbf7d0; background: #dcfce7; }
+.chip-sm.purple, .chip-mini.purple { color: #7c3aed; border: 1px solid #e9d5ff; background: #f3e8ff; }
+.chip-sm.amber, .chip-mini.amber { color: #d97706; border: 1px solid #fde68a; background: #fef3c7; }
 
 /* Tree Group Node Highlight */
-.tree-group-node:hover {
-    background: rgba(255, 255, 255, 0.06);
+.group-tree-item, .tree-group-node {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.74rem;
+    color: #0f172a;
+    transition: background 0.12s ease;
 }
-.tree-group-node.active {
-    background: rgba(56, 189, 248, 0.15);
-    border: 1px solid rgba(56, 189, 248, 0.4);
+.group-tree-item:hover, .tree-group-node:hover {
+    background: #f1f5f9;
+    color: #000000;
+}
+.group-tree-item.selected, .tree-group-node.active {
+    background: #e0f2fe;
+    color: #0284c7;
+    font-weight: 600;
 }
 
-/* Inputs in Wiring Forms */
+/* Inputs and Selects in Wiring Forms */
 .input-xs {
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: #f8fafc;
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important; /* Pure dark text */
     border-radius: 4px;
     padding: 2px 6px;
     font-size: 0.74rem;
 }
+.input-xs:focus {
+    border-color: #0284c7 !important;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+}
 .btn-xxs {
-    padding: 1px 5px;
+    padding: 2px 6px;
     font-size: 0.68rem;
+    font-weight: 600;
     border-radius: 3px;
     cursor: pointer;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    color: #0f172a !important;
+}
+.btn-xxs:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #000000 !important;
+}
+.role-fields-container {
+    background: #f8fafc;
+    padding: 0.5rem;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    color: #0f172a;
+}
+.role-fields-container label {
+    color: #334155;
+    font-weight: 600;
+    font-size: 0.74rem;
 }
 
 /* SVG Interactive Dynamic Classes */
@@ -114,26 +160,25 @@
     filter: drop-shadow(0 0 8px #a855f7);
 }
 
-/* Directional Push Arrow Highlighting & Pulse */
+/* Directional Push Arrow State & Visibility (SVG colors strictly preserved) */
 .svg-push-active {
     opacity: 1.0 !important;
-    filter: drop-shadow(0 0 6px #38bdf8) !important;
-    transition: all 0.25s ease-in-out;
-    animation: pulse-push-active 1.6s infinite ease-in-out;
-}
-.svg-push-active path {
-    stroke-width: 2.2px !important;
-    filter: drop-shadow(0 0 4px #0284c7) !important;
-}
-.svg-push-inactive {
-    opacity: 0.12 !important;
-    pointer-events: none;
-    transition: opacity 0.25s ease-in-out;
+    visibility: visible !important;
 }
 
-@keyframes pulse-push-active {
-    0%, 100% { filter: drop-shadow(0 0 4px #38bdf8); }
-    50% { filter: drop-shadow(0 0 12px #0284c7); }
+.svg-push-inactive {
+    opacity: 0.15 !important;
+    transition: opacity 0.2s ease-in-out;
+}
+
+/* In Wiring / Edit mode, keep all elements 100% visible and interactive */
+.mode-wiring .svg-push-inactive,
+.bundle-svg-container.mode-wiring .svg-push-inactive,
+#svg-paper-card.mode-wiring .svg-push-inactive {
+    opacity: 1.0 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    cursor: pointer !important;
 }
 
 .svg-group-selected {
@@ -252,3 +297,14 @@
     to { transform: rotate(360deg); }
 }
 
+/* SVG Mechanism Typography & Crisp Text Rendering */
+#active-mechanism-svg text,
+.svg-paper-card text {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    stroke: none !important;
+    paint-order: fill !important;
+}
+#active-mechanism-svg text:not([font-size]),
+.svg-paper-card text:not([font-size]) {
+    font-size: 10.5px;
+}

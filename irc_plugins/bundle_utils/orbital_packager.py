@@ -213,26 +213,30 @@ def convert_and_pack_trajectory_orbitals(
 _SURFACE_CACHE: Dict[str, Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]] = {}
 
 
-def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: Dict[str, Any]):
-    cache_key = f"{frame_idx}_{ok}_{iso}"
+def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: Dict[str, Any], global_state: Optional[Dict[str, Any]] = None):
+    iso_val = round(float(iso), 4)
+    cache_key = f"{frame_idx}_{ok}_{iso_val}"
     if cache_key in _SURFACE_CACHE:
         return _SURFACE_CACHE[cache_key]
 
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-    for sub in ("out/bundles", "bundles"):
-        bundle_zip = os.path.join(root_dir, sub, "reaction_cascade_bundle.zip")
-        if os.path.exists(bundle_zip):
-            try:
-                with zipfile.ZipFile(bundle_zip, "r") as zf:
-                    p_fn, n_fn = f"orbitals/{frame_idx}_{ok}_pos.json", f"orbitals/{frame_idx}_{ok}_neg.json"
-                    pos = json.loads(zf.read(p_fn).decode("utf-8")) if p_fn in zf.namelist() else None
-                    neg = json.loads(zf.read(n_fn).decode("utf-8")) if n_fn in zf.namelist() else None
-                    if pos or neg:
-                        _SURFACE_CACHE[cache_key] = (pos, neg)
-                        return pos, neg
-            except Exception:
-                pass
+    # Only load precomputed zip mesh if requested isovalue is default ~0.03
+    if abs(iso_val - 0.03) <= 0.003:
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+        for sub in ("out/bundles", "bundles"):
+            bundle_zip = os.path.join(root_dir, sub, "reaction_cascade_bundle.zip")
+            if os.path.exists(bundle_zip):
+                try:
+                    with zipfile.ZipFile(bundle_zip, "r") as zf:
+                        p_fn, n_fn = f"orbitals/{frame_idx}_{ok}_pos.json", f"orbitals/{frame_idx}_{ok}_neg.json"
+                        pos = json.loads(zf.read(p_fn).decode("utf-8")) if p_fn in zf.namelist() else None
+                        neg = json.loads(zf.read(n_fn).decode("utf-8")) if n_fn in zf.namelist() else None
+                        if pos or neg:
+                            _SURFACE_CACHE[cache_key] = (pos, neg)
+                            return pos, neg
+                except Exception:
+                    pass
 
+    # For dynamic isovalues (or if zip mesh wasn't found), obtain volumetric cube
     from .highres_engine import get_cached_highres_cube
     cube_text = get_cached_highres_cube(frame_idx, ok, megajson)
     if not cube_text:
@@ -242,15 +246,34 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
         except Exception:
             pass
 
+    if not cube_text:
+        try:
+            from ..step_6_orbitals import Step6Orbitals
+            s6 = Step6Orbitals()
+            res = s6.custom_action({
+                "action_type": "get_orbital_mesh",
+                "frame_index": frame_idx,
+                "orbital": ok,
+                "isovalue": iso_val
+            }, global_state or {"step_6_orbitals": {"megajson": megajson}})
+            if isinstance(res, dict):
+                if res.get("cube"):
+                    cube_text = res["cube"]
+                elif res.get("pos") or res.get("neg"):
+                    _SURFACE_CACHE[cache_key] = (res.get("pos"), res.get("neg"))
+                    return res.get("pos"), res.get("neg")
+        except Exception as e:
+            print(f"[OrbitalPackager] On-demand cube fetch failed: {e}")
+
     if cube_text:
         try:
             vol, origin, step = CubeConverter.read_cube(cube_text)
-            pos = CubeConverter.extract_mesh(vol, origin, step, iso)
-            neg = CubeConverter.extract_mesh(vol, origin, step, -iso)
+            pos = CubeConverter.extract_mesh(vol, origin, step, iso_val)
+            neg = CubeConverter.extract_mesh(vol, origin, step, -iso_val)
             _SURFACE_CACHE[cache_key] = (pos, neg)
             return pos, neg
         except Exception as e:
-            print(f"[Step7] Warning: mesh extraction failed for {frame_idx}_{ok}: {e}")
+            print(f"[Step7] Warning: mesh extraction failed for {frame_idx}_{ok} at iso {iso_val}: {e}")
 
     return None, None
 

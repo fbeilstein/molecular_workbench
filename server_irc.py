@@ -111,6 +111,21 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/' or path.startswith(('/ketcher/', '/static_irc/', '/static_viewer/', '/out/', '/bundles/')) or path.endswith('.html'):
             return super().do_GET()
 
+        if path == '/favicon.ico':
+            fav_path = os.path.join(ROOT_DIR, '.ketcher', 'favicon.ico')
+            if os.path.exists(fav_path):
+                self.send_response(200)
+                self.send_header('Content-Type', 'image/x-icon')
+                with open(fav_path, 'rb') as f:
+                    data = f.read()
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self.send_response(204)
+                self.end_headers()
+            return
+
         if path == '/api/log':
             return self._handle_get_log()
 

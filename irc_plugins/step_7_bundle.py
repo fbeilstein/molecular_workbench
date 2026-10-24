@@ -2,6 +2,9 @@ import json
 import os
 import re
 import sys
+import shutil
+import tempfile
+import subprocess
 import zipfile
 from typing import Any, Dict, Optional, Tuple
 from .base import PipelineStep, StepResult
@@ -19,6 +22,53 @@ from .bundle_utils import (
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 TRAJECTORIES_DIR = os.path.join(ROOT_DIR, 'trajectories')
 PROLONGED_PATH = os.path.join(TRAJECTORIES_DIR, 'prolonged_pathway.json')
+
+
+def normalize_svg_text(svg_text: str) -> str:
+    """Normalize SVG mechanism text to match Inkscape rendering while preserving arrow strokes and markers."""
+    if not svg_text or not svg_text.strip():
+        return svg_text
+
+    if "<text" in svg_text:
+        inkscape_bin = shutil.which("inkscape")
+        if inkscape_bin:
+            in_path = None
+            out_path = None
+            try:
+                with tempfile.NamedTemporaryFile("w", suffix=".svg", delete=False) as in_f:
+                    in_f.write(svg_text)
+                    in_path = in_f.name
+                out_path = in_path + ".out.svg"
+                cmd = [inkscape_bin, '--actions=select-by-element:text;object-to-path', in_path, '-o', out_path]
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+                if res.returncode == 0 and os.path.exists(out_path):
+                    with open(out_path, "r") as f:
+                        converted = f.read()
+                    if "<svg" in converted:
+                        return converted
+            except Exception as e:
+                print(f"[Step7] Inkscape text-to-path error: {e}")
+            finally:
+                for p in (in_path, out_path):
+                    if p and os.path.exists(p):
+                        try:
+                            os.remove(p)
+                        except Exception:
+                            pass
+
+        # Fallback regex sanitization if inkscape is not available: only modify <text> elements!
+        def fix_style(m):
+            style = m.group(1)
+            style = re.sub(r'stroke:\s*#[0-9a-fA-F]+;?', 'stroke:none;', style)
+            if 'font-size' not in style:
+                style += ';font-size:10.5px;'
+            if 'font-family' not in style:
+                style += ';font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;'
+            return f'style="{style}"'
+
+        svg_text = re.sub(r'<text\b([^>]*?)style="([^"]*?)"', lambda m: f'<text{m.group(1)}{fix_style(m)}', svg_text)
+
+    return svg_text
 
 
 class Step7Bundle(PipelineStep):
@@ -61,6 +111,9 @@ class Step7Bundle(PipelineStep):
 
         frames = megajson.get("frames", [])
         timeline = megajson.get("orbital_timeline") or current_state.get("step_6_orbitals", {}).get("orbital_timeline", {})
+        from .step_6_orbitals import enrich_timeline_tracks
+        if timeline and isinstance(timeline, dict) and "tracks" in timeline:
+            timeline["tracks"] = enrich_timeline_tracks(megajson, timeline["tracks"])
         molecule_bundles = megajson.get("molecule_bundles", {})
         molecule_summary = {
             m_id: {
@@ -93,10 +146,11 @@ class Step7Bundle(PipelineStep):
             "overall_reaction_energy_kcal": megajson.get("overall_reaction_energy_kcal", 0.0),
             "energy_profile": megajson.get("energy_profile", {}),
             "symbols": megajson.get("symbols", []),
+            "trajectory_charges": megajson.get("trajectory_charges", []),
             "orbital_timeline": timeline,
             "orbital_schedule": megajson.get("orbital_schedule", {}),
             "landmarks": current_state.get("step_6_orbitals", {}).get("landmarks", []),
-            "mechanism_svg": megajson.get("mechanism_svg", ""),
+            "mechanism_svg": normalize_svg_text(megajson.get("mechanism_svg", "")),
             "svg_wiring": megajson.get("svg_wiring", {}),
             "orbital_resolution": megajson.get("orbital_resolution", 32),
             "highres_count": len(megajson.get("highres_cubes", {})),
@@ -119,6 +173,16 @@ class Step7Bundle(PipelineStep):
 
         action = user_input.get("action_type")
 
+        if action == "get_frame_charges":
+            frame_idx = int(user_input.get("frame_index", 0))
+            tc = megajson.get("trajectory_charges")
+            if tc and 0 <= frame_idx < len(tc):
+                return {"success": True, "frame_index": frame_idx, "charges": tc[frame_idx]}
+            fr = megajson.get("frames", [])
+            if 0 <= frame_idx < len(fr) and fr[frame_idx].get("charges"):
+                return {"success": True, "frame_index": frame_idx, "charges": fr[frame_idx]["charges"]}
+            return Step6Orbitals().custom_action(user_input, global_state)
+
         # 1. High-resolution orbital recomputation
         if action == "recompute_highres_cubes":
             resolution = int(user_input.get("resolution", 50))
@@ -137,15 +201,25 @@ class Step7Bundle(PipelineStep):
             ok = str(user_input.get("orbital", "HOMO"))
             iso = float(user_input.get("isovalue", 0.03))
 
-            pos, neg = get_or_extract_surface_mesh(frame_idx, ok, iso, megajson)
+            pos, neg = get_or_extract_surface_mesh(frame_idx, ok, iso, megajson, global_state)
+            highres_cube = get_cached_highres_cube(frame_idx, ok, megajson)
+            if not highres_cube:
+                try:
+                    from .step_6_orbitals import _CUBE_CACHE
+                    highres_cube = _CUBE_CACHE.get(f"{frame_idx}_{ok}")
+                except Exception:
+                    pass
+
             if pos or neg:
-                return {
+                resp = {
                     "success": True, "frame_index": frame_idx, "orbital": ok, "isovalue": iso,
                     "is_mesh": True, "pos": pos, "neg": neg,
                     "coords": megajson["frames"][frame_idx].get("coords") or megajson["frames"][frame_idx].get("positions", [])
                 }
+                if highres_cube:
+                    resp["cube"] = highres_cube
+                return resp
 
-            highres_cube = get_cached_highres_cube(frame_idx, ok, megajson)
             if highres_cube:
                 return {
                     "success": True, "frame_index": frame_idx, "orbital": ok, "isovalue": iso,
@@ -166,7 +240,7 @@ class Step7Bundle(PipelineStep):
                     ok = trk.get("orbital_key") if isinstance(trk, dict) else str(trk)
                     if ok == "track_esp_charge":
                         continue
-                    pos, neg = get_or_extract_surface_mesh(fi, ok, iso, megajson)
+                    pos, neg = get_or_extract_surface_mesh(fi, ok, iso, megajson, global_state)
                     if pos or neg:
                         meshes[f"{fi}_{ok}"] = {"pos": pos, "neg": neg}
 
@@ -188,6 +262,7 @@ class Step7Bundle(PipelineStep):
         # 3. Mechanism SVG & Wiring persistence
         if action == "save_mechanism_svg":
             svg_text = user_input.get("svg_text", "")
+            svg_text = normalize_svg_text(svg_text)
             megajson["mechanism_svg"] = svg_text
             for s_key in ("step_7_bundle", "step_6_orbitals", "step_5_cascade"):
                 if s_key in global_state and isinstance(global_state[s_key], dict):
@@ -195,7 +270,16 @@ class Step7Bundle(PipelineStep):
                     if isinstance(s_mj, dict):
                         s_mj["mechanism_svg"] = svg_text
             save_state_to_file(global_state)
-            return {"success": True, "svg_length": len(svg_text)}
+            if os.path.exists(PROLONGED_PATH):
+                try:
+                    with open(PROLONGED_PATH, "r") as pf:
+                        pj = json.load(pf)
+                    pj["mechanism_svg"] = svg_text
+                    with open(PROLONGED_PATH, "w") as pf:
+                        json.dump(pj, pf, indent=2)
+                except Exception as ex:
+                    print(f"[Step7] Warning persisting svg to prolonged_pathway: {ex}")
+            return {"success": True, "svg_length": len(svg_text), "svg_text": svg_text}
 
         if action == "save_svg_wiring":
             wiring = user_input.get("wiring", {})
@@ -218,6 +302,15 @@ class Step7Bundle(PipelineStep):
                     if isinstance(s_mj, dict):
                         s_mj["svg_wiring"] = wiring
             save_state_to_file(global_state)
+            if os.path.exists(PROLONGED_PATH):
+                try:
+                    with open(PROLONGED_PATH, "r") as pf:
+                        pj = json.load(pf)
+                    pj["svg_wiring"] = wiring
+                    with open(PROLONGED_PATH, "w") as pf:
+                        json.dump(pj, pf, indent=2)
+                except Exception as ex:
+                    print(f"[Step7] Warning persisting wiring to prolonged_pathway: {ex}")
             return {"success": True, "wired_count": len(wiring)}
 
         # 4. Molecular Workbench ZIP bundle upload & orbital catalog

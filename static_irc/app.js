@@ -124,11 +124,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state['step_5_cascade'] && plugins.length > 5) {
             maxAvailable = Math.max(maxAvailable, 5);
         }
+        if ((state['step_6_orbitals'] || state['step_5_cascade'] || plugins.find(p => p.step_id === 'step_7_bundle')?.ui_schema?.has_megajson) && plugins.length > 6) {
+            maxAvailable = Math.max(maxAvailable, 6);
+        }
         return maxAvailable;
     }
 
     function determineActiveStep(preferredIndex = null) {
         const maxAvailable = getMaxAvailableIndex();
+        const hash = (window.location.hash || '').replace('#', '') || new URLSearchParams(window.location.search).get('step');
+        if (hash) {
+            const idx = plugins.findIndex((p, i) => p.step_id === hash || String(i + 1) === hash || p.step_name.toLowerCase().includes(hash.toLowerCase()));
+            if (idx !== -1) {
+                activeStepIndex = idx;
+                return;
+            }
+        }
         if (preferredIndex !== null) {
             activeStepIndex = Math.max(0, Math.min(preferredIndex, maxAvailable));
         } else if (activeStepIndex !== null && activeStepIndex >= 0 && activeStepIndex <= maxAvailable) {
@@ -149,6 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let isUnlocked = index <= maxAvailable || isCompleted;
             if (plugin.step_id === 'step_5_cascade' && completedIRC >= 1) isUnlocked = true;
             if (plugin.step_id === 'step_6_orbitals' && hasCascade) isUnlocked = true;
+            if (plugin.step_id === 'step_7_bundle' && (plugin.ui_schema?.has_megajson || hasCascade || !!state['step_6_orbitals'])) isUnlocked = true;
             const isLocked = !isUnlocked;
 
             const btn = document.createElement('button');
@@ -159,6 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.onclick = () => {
                 if (isLocked) return;
                 activeStepIndex = index;
+                try { window.location.hash = plugin.step_id; } catch (e) {}
                 renderTabs();
                 renderActiveStep();
             };

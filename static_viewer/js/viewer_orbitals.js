@@ -187,6 +187,7 @@ export class ViewerOrbitalsPanel {
   static parsePathwayTracks(tracks = []) {
     const categoriesMap = {
       'Frontier': [],
+      'Transforming Orbitals': [],
       'σ Bonds': [],
       'π Bonds': [],
       'σ* Anti-Bonds': [],
@@ -198,11 +199,14 @@ export class ViewerOrbitalsPanel {
     tracks.forEach(trk => {
       if (trk.role === 'esp' || trk.orbital_key === 'track_esp_charge') return;
       const key = trk.orbital_key;
-      const title = trk.title || key;
+      let title = trk.label || trk.title || key;
+      title = title.replace(/^Non-Bonding\s+/i, '').replace(/\[Antibond\]/i, '').trim();
       const color = trk.color || '#38bdf8';
       const item = { key, label: title, color };
 
-      if (title.includes('HOMO') || title.includes('LUMO')) {
+      if (title.includes('→') || title.includes('->')) {
+        categoriesMap['Transforming Orbitals'].push(item);
+      } else if (title.includes('HOMO') || title.includes('LUMO')) {
         categoriesMap['Frontier'].push(item);
       } else if (title.includes('π*') || title.includes('pistar')) {
         categoriesMap['π* Anti-Bonds'].push(item);

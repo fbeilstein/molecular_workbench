@@ -7,6 +7,7 @@ and scheduling orbital tracks across reaction coordinates.
 
 import json
 import os
+import re
 import threading
 from typing import Any, Dict, List, Optional
 from rdkit import Chem
@@ -64,7 +65,88 @@ def _resolve_orbital_key(d: Dict[str, Any], orb_name: str, chem_key: str = None)
         for k, meta in all_metas.items():
             if (meta.get("key") == target or meta.get("name") == target or meta.get("chem_key") == target or meta.get("label") == target) and k in d.get("vecs", {}):
                 return k
-    return None
+def _clean_role_label(meta: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not meta:
+        return None
+    typ = meta.get("type", "")
+    atoms = meta.get("atoms", [])
+    atoms_str = "-".join(atoms) if atoms else ""
+    if typ == "lone_pair":
+        return f"LP({atoms[0]})" if atoms else "LP"
+    elif "sigma_star" in typ or "sigmastar" in typ:
+        return f"σ*({atoms_str})" if atoms_str else "σ*"
+    elif "pistar" in typ or "pi_star" in typ or typ == "delocalized_pistar":
+        return f"π*({atoms_str})" if atoms_str else "π*"
+    elif "pi" in typ or typ == "delocalized_pi":
+        return f"π({atoms_str})" if atoms_str else "π"
+    elif "sigma" in typ or typ == "delocalized_sigma":
+        return f"σ({atoms_str})" if atoms_str else "σ"
+    return meta.get("label") or typ
+
+
+def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, s6_instance=None) -> list:
+    """Enrich orbital timeline tracks with normal chemical nomenclature and role transitions."""
+    if not tracks:
+        return tracks
+
+    n_frames = len(megajson.get("frames", []))
+    f0 = _SCF_CACHE.get(0) if n_frames > 0 else None
+    flast = _SCF_CACHE.get(n_frames - 1) if n_frames > 0 else None
+
+    for trk in tracks:
+        if not isinstance(trk, dict):
+            continue
+        ok = trk.get("orbital_key", "")
+        if ok == "track_esp_charge" or trk.get("id") == "trk_esp_charge":
+            trk["label"] = "ESP Surface"
+            trk["title"] = "ESP Surface"
+            trk["short_label"] = "ESP"
+            trk["role_transition"] = "ESP"
+            trk["category"] = "ESP"
+            continue
+
+        start_role = trk.get("start_role")
+        end_role = trk.get("end_role")
+
+        if (not start_role or not end_role) and f0 is not None and flast is not None:
+            r0 = _resolve_orbital_key(f0, ok, trk.get("chem_key"))
+            m0 = {**f0.get("ibos_meta", {}), **f0.get("canonical_pi_meta", {}), **f0.get("antibonds_meta", {})}.get(r0, {}) if r0 else {}
+            rlast = _resolve_orbital_key(flast, ok, trk.get("chem_key"))
+            mlast = {**flast.get("ibos_meta", {}), **flast.get("canonical_pi_meta", {}), **flast.get("antibonds_meta", {})}.get(rlast, {}) if rlast else {}
+            start_role = _clean_role_label(m0)
+            end_role = _clean_role_label(mlast)
+
+        ck = trk.get("chem_key", "")
+        if not start_role and ck:
+            if ck.startswith("lp_"):
+                start_role = f"LP({ck.replace('lp_', '')})"
+            elif ck.startswith("sigma_"):
+                start_role = f"σ({ck.replace('sigma_', '')})"
+            elif ck.startswith("pi_"):
+                start_role = f"π({ck.replace('pi_', '')})"
+            elif "pistar" in ck:
+                start_role = f"π*({ck.split('_')[1] if '_' in ck else ''})"
+
+        if start_role and end_role and start_role != end_role:
+            label = f"{start_role} → {end_role}"
+            role_trans = f"{start_role.split('(')[0]} → {end_role.split('(')[0]}"
+        else:
+            label = start_role or end_role or trk.get("title") or ok
+            label = re.sub(r"^Non-Bonding\s+", "", label)
+            label = re.sub(r"\[Antibond\]", "", label).strip()
+            role_trans = label.split("(")[0] if "(" in label else label
+
+        trk["label"] = label
+        trk["title"] = label
+        trk["role_transition"] = role_trans
+        trk["short_label"] = role_trans
+        if start_role:
+            trk["start_role"] = start_role
+        if end_role:
+            trk["end_role"] = end_role
+        trk["category"] = role_trans
+
+    return tracks
 
 
 class Step6Orbitals(PipelineStep):
@@ -115,6 +197,8 @@ class Step6Orbitals(PipelineStep):
         else:
             if "tracks" not in timeline or not isinstance(timeline["tracks"], list):
                 timeline["tracks"] = []
+            else:
+                timeline["tracks"] = enrich_timeline_tracks(megajson, timeline["tracks"], self)
             if "default_isovalue" not in timeline:
                 timeline["default_isovalue"] = 0.03
 
@@ -125,6 +209,7 @@ class Step6Orbitals(PipelineStep):
             "step_boundaries": megajson.get("step_boundaries", []),
             "symbols": megajson.get("symbols", []),
             "trajectory": [f.get("coords", f.get("positions", [])) for f in megajson["frames"]],
+            "trajectory_charges": megajson.get("trajectory_charges", []),
             "energy_profile": ep,
             "timeline": timeline,
             "default_isovalue": 0.03,
@@ -286,7 +371,10 @@ class Step6Orbitals(PipelineStep):
 
         if action == "save_timeline":
             if user_input.get("timeline"):
-                megajson["orbital_timeline"] = user_input["timeline"]
+                tl = user_input["timeline"]
+                if isinstance(tl, dict) and "tracks" in tl and isinstance(tl["tracks"], list):
+                    tl["tracks"] = enrich_timeline_tracks(megajson, tl["tracks"], self)
+                megajson["orbital_timeline"] = tl
                 # Persist to prolonged_pathway.json
                 try:
                     os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
@@ -294,7 +382,7 @@ class Step6Orbitals(PipelineStep):
                         json.dump(megajson, f, indent=2)
                 except Exception:
                     pass
-                return {"success": True, "message": "Orbital timeline saved."}
+                return {"success": True, "message": "Orbital timeline saved.", "timeline": tl}
             return {"error": "No timeline data provided."}
 
         if action == "batch_precompute_cubes":

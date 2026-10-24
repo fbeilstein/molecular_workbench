@@ -87,10 +87,12 @@ export function resolveEventTarget(el, wiring) {
     while (cur && cur.tagName && cur.tagName.toLowerCase() !== 'svg') {
         const id = cur.getAttribute('id');
         const lbl = cur.getAttribute('inkscape:label') || cur.getAttribute('label');
-        if ((id && wiring[id]) || (lbl && wiring[lbl]) ||
+        if (lbl || (id && wiring[id]) || (lbl && wiring[lbl]) ||
             cur.classList.contains('svg-clickable-arrow') ||
             cur.classList.contains('svg-clickable-state') ||
-            cur.classList.contains('svg-clickable-molecule')) {
+            cur.classList.contains('svg-clickable-molecule') ||
+            cur.classList.contains('svg-wired-push-arrow') ||
+            cur.classList.contains('svg-push-active')) {
             return cur;
         }
         if (id && cur.tagName.toLowerCase() === 'g') {

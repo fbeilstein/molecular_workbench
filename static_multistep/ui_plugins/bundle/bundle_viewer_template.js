@@ -119,13 +119,13 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                 </div>
 
                 <!-- Right: SVG Hierarchy & Wiring Panel -->
-                <div id="wiring-inspector-drawer" style="width: 280px; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
-                    <div style="padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border-color); font-size: 0.75rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
-                        <span>SVG Hierarchy & Wiring</span>
+                <div id="wiring-inspector-drawer" style="width: 280px; display: flex; flex-direction: column; background: #ffffff; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                    <div style="padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border-color); font-size: 0.75rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
+                        <span style="color: #0f172a;">SVG Hierarchy & Wiring</span>
                         <span id="label-wiring-status" class="chip blue" style="font-size: 0.65rem;">Hierarchy</span>
                     </div>
-                    <div id="group-tree-container" style="flex: 1; overflow-y: auto; padding: 0.35rem; min-height: 160px;"></div>
-                    <div id="group-wiring-form" style="border-top: 1px solid var(--border-color); padding: 0.5rem; background: rgba(0,0,0,0.2);"></div>
+                    <div id="group-tree-container" style="flex: 1; overflow-y: auto; padding: 0.35rem; min-height: 160px; background: #ffffff;"></div>
+                    <div id="group-wiring-form" style="border-top: 1px solid var(--border-color); padding: 0.5rem; background: #ffffff;"></div>
                 </div>
             </div>
 

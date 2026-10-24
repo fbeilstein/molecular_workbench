@@ -9,9 +9,9 @@ import { BundleHighresManager } from './bundle/bundle_highres.js?v=2.0.3';
 import { BundleMoleculeModal } from './bundle/bundle_molecule_modal.js';
 import { exportMultiModelXyz, exportMaxCompBundleZip, purgeTemporaryCubes } from './bundle/bundle_export.js';
 import { BundleTransportController } from './bundle/bundle_transport.js?v=2.0.4';
-import { BundleWiringManager } from './bundle/bundle_wiring_ui.js';
+import { BundleWiringManager } from './bundle/bundle_wiring_ui.js?v=2.0.9';
 import { renderOrbitalTracksSidebar } from './bundle/bundle_orbital_panel.js';
-import { getBundleViewerTemplate } from './bundle/bundle_viewer_template.js?v=2.0.6';
+import { getBundleViewerTemplate } from './bundle/bundle_viewer_template.js?v=2.0.9';
 
 export const BundleViewerUI = {
     state: {
@@ -40,6 +40,7 @@ export const BundleViewerUI = {
         this.state.showCharges = false;
         this.state.showEspSurface = this.state.tracks.some(t => t.orbital_key === 'track_esp_charge');
         this.state.orbitalResolution = uiSchema.orbital_resolution || megajson.orbital_resolution || 32;
+        this.state.trajectoryCharges = uiSchema.trajectory_charges || (megajson && megajson.trajectory_charges) || [];
 
         const initialActive = new Set();
         this.state.tracks.forEach(trk => {
@@ -56,7 +57,7 @@ export const BundleViewerUI = {
         this.bindEvents(container);
         this.renderTracksList();
 
-        const initialSvg = megajson.mechanism_svg || '';
+        const initialSvg = uiSchema.mechanism_svg || megajson.mechanism_svg || '';
         if (initialSvg) {
             try {
                 this.state.svgManager.loadSvg(initialSvg);
@@ -218,11 +219,17 @@ export const BundleViewerUI = {
             });
         }
 
-        container.querySelector('#slider-bundle-isovalue').addEventListener('input', (e) => {
+        const handleIsovalue = (e) => {
             this.state.isovalue = parseFloat(e.target.value);
-            container.querySelector('#label-bundle-isovalue').textContent = this.state.isovalue;
+            const lbl = container.querySelector('#label-bundle-isovalue');
+            if (lbl) lbl.textContent = this.state.isovalue.toFixed(3);
             this.refreshViewer();
-        });
+        };
+        const isoSlider = container.querySelector('#slider-bundle-isovalue');
+        if (isoSlider) {
+            isoSlider.addEventListener('input', handleIsovalue);
+            isoSlider.addEventListener('change', handleIsovalue);
+        }
 
         container.querySelector('#btn-recompute-highres').addEventListener('click', () => {
             this.state.highresManager.renderModal(container, this.state.tracks);
@@ -314,7 +321,32 @@ export const BundleViewerUI = {
         const showEspSurface = this.state.showEspSurface || this.state.activeOrbitals.has('track_esp_charge');
         const showCharges = this.state.showCharges;
         const charges = (this.state.frameDataCache[f] && this.state.frameDataCache[f].charges) ||
-                        (this.state.megajson.trajectory_charges && this.state.megajson.trajectory_charges[f]) || null;
+                        (this.state.trajectoryCharges && this.state.trajectoryCharges[f]) ||
+                        (this.state.megajson && this.state.megajson.trajectory_charges && this.state.megajson.trajectory_charges[f]) ||
+                        (frame && frame.charges) || null;
+
+        if (!charges && (showCharges || showEspSurface)) {
+            if (!this._fetchingCharges) this._fetchingCharges = new Set();
+            if (!this._fetchingCharges.has(f)) {
+                this._fetchingCharges.add(f);
+                fetch(`/api/step/${this.state.stepId}/custom`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action_type: 'get_frame_charges', frame_index: f })
+                }).then(r => r.json()).then(data => {
+                    this._fetchingCharges.delete(f);
+                    if (data && data.charges) {
+                        if (!this.state.frameDataCache[f]) this.state.frameDataCache[f] = {};
+                        this.state.frameDataCache[f].charges = data.charges;
+                        if (this.state.currentFrame === f) this.refreshViewer();
+                    }
+                }).catch(() => { this._fetchingCharges.delete(f); });
+            }
+        }
+        if (this.state.svgManager) {
+            this.state.svgManager.updatePushArrows(f, this.state.playDirection);
+        }
+
         const activeTracks = this.state.tracks.filter(t => this.state.activeOrbitals.has(t.orbital_key));
         const moTracks = this.state.hideAllOrbitals ? [] : activeTracks.filter(t => t.orbital_key !== 'track_esp_charge');
 
@@ -329,14 +361,23 @@ export const BundleViewerUI = {
         for (const orb of moTracks) {
             const ok = orb.orbital_key || orb.key || orb;
             const ck = orb.chem_key || ok;
-            const hasData = this.state.viewer3D.meshCache[`${f}_${ok}`] || this.state.viewer3D.cubeCache[`${f}_${ok}`];
+            const isDefaultIso = Math.abs(this.state.isovalue - 0.03) < 0.003;
+            const isoKey = `${f}_${ok}_${Math.round(this.state.isovalue * 1000)}`;
+            const hasData = this.state.viewer3D.cubeCache[`${f}_${ok}`] ||
+                (isDefaultIso ? this.state.viewer3D.meshCache[`${f}_${ok}`] : this.state.viewer3D.meshCache[isoKey]);
+
             if (!hasData) {
                 this.fetchCube(f, ok, ck, this.state.isovalue).then(res => {
                     if (res && res.success) {
-                        if (res.pos || res.neg) {
-                            this.state.viewer3D.meshCache[`${f}_${ok}`] = { pos: res.pos, neg: res.neg };
-                        } else if (res.cube) {
+                        if (res.cube) {
                             this.state.viewer3D.cubeCache[`${f}_${ok}`] = res.cube;
+                        }
+                        if (res.pos || res.neg) {
+                            if (isDefaultIso) {
+                                this.state.viewer3D.meshCache[`${f}_${ok}`] = { pos: res.pos, neg: res.neg };
+                            } else {
+                                this.state.viewer3D.meshCache[isoKey] = { pos: res.pos, neg: res.neg };
+                            }
                         }
                         if (this.state.currentFrame === f) doRender();
                     }

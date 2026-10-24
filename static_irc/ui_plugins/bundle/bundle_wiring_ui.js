@@ -69,23 +69,23 @@ export class BundleWiringManager {
         const molName = cfg.moleculeName || cfg.molName || grpId;
 
         panel.innerHTML = `
-            <div style="font-weight: 700; color: #38bdf8; font-size: 0.8rem; margin-bottom: 0.35rem; display: flex; justify-content: space-between;">
-                <span>Element: <code>${grpId}</code></span>
-                <span class="chip blue" style="font-size: 0.68rem;">Role: ${currentRole.toUpperCase()}</span>
+            <div style="font-weight: 700; color: #0284c7; font-size: 0.8rem; margin-bottom: 0.4rem; display: flex; justify-content: space-between; align-items: center;">
+                <span>Element: <code style="color: #0f172a; background: #e2e8f0; padding: 2px 6px; border-radius: 3px; font-weight: 600;">${grpId}</code></span>
+                <span class="chip-mini blue" style="font-size: 0.68rem; font-weight: 700;">Role: ${currentRole.toUpperCase()}</span>
             </div>
 
             <!-- Role Selector Buttons -->
-            <div style="display: flex; gap: 0.3rem; margin-bottom: 0.6rem; flex-wrap: wrap;">
-                <button class="btn btn-xxs btn-role ${currentRole === 'none' ? 'active btn-primary' : 'btn-secondary'}" data-role="none">None</button>
-                <button class="btn btn-xxs btn-role ${currentRole === 'arrow' ? 'active btn-primary' : 'btn-secondary'}" data-role="arrow">Reaction Arrow</button>
-                <button class="btn btn-xxs btn-role ${currentRole === 'state' ? 'active btn-primary' : 'btn-secondary'}" data-role="state">State</button>
-                <button class="btn btn-xxs btn-role ${currentRole === 'state_molecule' ? 'active btn-primary' : 'btn-secondary'}" data-role="state_molecule">State + Mol</button>
-                <button class="btn btn-xxs btn-role ${currentRole === 'molecule' ? 'active btn-primary' : 'btn-secondary'}" data-role="molecule">Molecule</button>
-                <button class="btn btn-xxs btn-role ${currentRole === 'push_arrow' ? 'active btn-primary' : 'btn-secondary'}" data-role="push_arrow">Push Arrow</button>
+            <div style="display: flex; gap: 0.35rem; margin-bottom: 0.6rem; flex-wrap: wrap;">
+                <button class="btn btn-xxs btn-role ${currentRole === 'none' ? 'active' : ''}" data-role="none">None</button>
+                <button class="btn btn-xxs btn-role ${currentRole === 'arrow' ? 'active' : ''}" data-role="arrow">Reaction Arrow</button>
+                <button class="btn btn-xxs btn-role ${currentRole === 'state' ? 'active' : ''}" data-role="state">State</button>
+                <button class="btn btn-xxs btn-role ${currentRole === 'state_molecule' ? 'active' : ''}" data-role="state_molecule">State + Mol</button>
+                <button class="btn btn-xxs btn-role ${currentRole === 'molecule' ? 'active' : ''}" data-role="molecule">Molecule</button>
+                <button class="btn btn-xxs btn-role ${currentRole === 'push_arrow' ? 'active' : ''}" data-role="push_arrow">Push Arrow</button>
             </div>
 
             <!-- Dynamic Role Parameter Inputs -->
-            <div id="role-fields-container" style="background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 0.4rem;">
+            <div id="role-fields-container" class="role-fields-container">
                 ${this.renderRoleFieldsHtml(currentRole, { startFrame, endFrame, targetFrame, direction, molName })}
             </div>
 
@@ -97,8 +97,8 @@ export class BundleWiringManager {
         const fieldsBox = panel.querySelector('#role-fields-container');
         panel.querySelectorAll('.btn-role').forEach(btn => {
             btn.addEventListener('click', () => {
-                panel.querySelectorAll('.btn-role').forEach(b => b.classList.remove('active', 'btn-primary'));
-                btn.classList.add('active', 'btn-primary');
+                panel.querySelectorAll('.btn-role').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
                 const newRole = btn.dataset.role;
                 fieldsBox.innerHTML = this.renderRoleFieldsHtml(newRole, { startFrame, endFrame, targetFrame, direction, molName });
                 this.bindRoleFieldEvents(panel, grpId);
@@ -184,18 +184,20 @@ export class BundleWiringManager {
                 <div style="display: flex; gap: 0.8rem; align-items: center; font-size: 0.74rem;">
                     <div>
                         <label>Active Start:</label>
-                        <input type="number" id="inp-push-start" value="${data.startFrame}" class="input-xs" style="width: 60px;">
+                        <input type="number" id="inp-push-start" value="${data.startFrame}" class="input-xs" style="width: 55px;">
+                        <button class="btn btn-xxs btn-secondary" id="btn-use-cur-push-start">Cur</button>
                     </div>
                     <div>
                         <label>Active End:</label>
-                        <input type="number" id="inp-push-end" value="${data.endFrame}" class="input-xs" style="width: 60px;">
+                        <input type="number" id="inp-push-end" value="${data.endFrame}" class="input-xs" style="width: 55px;">
+                        <button class="btn btn-xxs btn-secondary" id="btn-use-cur-push-end">Cur</button>
                     </div>
                     <div>
                         <label>Direction:</label>
                         <select id="sel-push-dir" class="input-xs">
+                            <option value="both" ${data.direction === 'both' ? 'selected' : ''}>Both Directions ◀▶</option>
                             <option value="forward" ${data.direction === 'forward' ? 'selected' : ''}>Forward Only ▶</option>
                             <option value="reverse" ${data.direction === 'reverse' ? 'selected' : ''}>Reverse Only ◀</option>
-                            <option value="both" ${data.direction === 'both' ? 'selected' : ''}>Both Directions ◀▶</option>
                         </select>
                     </div>
                 </div>
@@ -213,6 +215,14 @@ export class BundleWiringManager {
             const inp = panel.querySelector('#inp-arrow-end');
             if (inp) inp.value = this.state.currentFrame;
         });
+        panel.querySelector('#btn-use-cur-push-start')?.addEventListener('click', () => {
+            const inp = panel.querySelector('#inp-push-start');
+            if (inp) inp.value = this.state.currentFrame;
+        });
+        panel.querySelector('#btn-use-cur-push-end')?.addEventListener('click', () => {
+            const inp = panel.querySelector('#inp-push-end');
+            if (inp) inp.value = this.state.currentFrame;
+        });
         panel.querySelector('#btn-use-cur-target')?.addEventListener('click', () => {
             const inp = panel.querySelector('#inp-state-target');
             if (inp) inp.value = this.state.currentFrame;
@@ -228,24 +238,28 @@ export class BundleWiringManager {
     gatherWiringForm(panel, role) {
         if (role === 'none') return { role: 'none' };
         if (role === 'arrow') {
+            const sf = parseInt(panel.querySelector('#inp-arrow-start')?.value, 10);
+            const ef = parseInt(panel.querySelector('#inp-arrow-end')?.value, 10);
             return {
                 role: 'arrow',
-                startFrame: parseInt(panel.querySelector('#inp-arrow-start')?.value || 0, 10),
-                endFrame: parseInt(panel.querySelector('#inp-arrow-end')?.value || 100, 10),
+                startFrame: isNaN(sf) ? 0 : sf,
+                endFrame: isNaN(ef) ? 100 : ef,
                 direction: panel.querySelector('#sel-arrow-dir')?.value || 'forward'
             };
         }
         if (role === 'state') {
+            const tf = parseInt(panel.querySelector('#inp-state-target')?.value, 10);
             return {
                 role: 'state',
-                targetFrame: parseInt(panel.querySelector('#inp-state-target')?.value || 0, 10)
+                targetFrame: isNaN(tf) ? 0 : tf
             };
         }
         if (role === 'state_molecule') {
+            const tf = parseInt(panel.querySelector('#inp-state-target')?.value, 10);
             const mVal = panel.querySelector('#inp-mol-name')?.value?.trim() || 'Molecule';
             return {
                 role: 'state_molecule',
-                targetFrame: parseInt(panel.querySelector('#inp-state-target')?.value || 0, 10),
+                targetFrame: isNaN(tf) ? 0 : tf,
                 moleculeName: mVal,
                 molName: mVal
             };
@@ -259,10 +273,12 @@ export class BundleWiringManager {
             };
         }
         if (role === 'push_arrow') {
+            const sf = parseInt(panel.querySelector('#inp-push-start')?.value, 10);
+            const ef = parseInt(panel.querySelector('#inp-push-end')?.value, 10);
             return {
                 role: 'push_arrow',
-                startFrame: parseInt(panel.querySelector('#inp-push-start')?.value || 0, 10),
-                endFrame: parseInt(panel.querySelector('#inp-push-end')?.value || 100, 10),
+                startFrame: isNaN(sf) ? 0 : sf,
+                endFrame: isNaN(ef) ? 100 : ef,
                 direction: panel.querySelector('#sel-push-dir')?.value || 'both'
             };
         }
