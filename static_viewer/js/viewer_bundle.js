@@ -1840,15 +1840,15 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
       const params = new URLSearchParams(window.location.search);
       const bundleParams = [];
       params.getAll("bundle").forEach((b) => {
-        b.split(",").forEach((item) => {
-          const tr = item.trim();
-          if (tr && !bundleParams.includes(tr)) bundleParams.push(tr);
-        });
+        const tr = b.trim();
+        if (tr && !bundleParams.includes(tr)) bundleParams.push(tr);
       });
-      if (params.get("bundles")) {
-        params.get("bundles").split(",").forEach((item) => {
-          const tr = item.trim();
-          if (tr && !bundleParams.includes(tr)) bundleParams.push(tr);
+      if (params.has("bundles")) {
+        params.getAll("bundles").forEach((bs) => {
+          bs.split(/[;|]/).forEach((item) => {
+            const tr = item.trim();
+            if (tr && !bundleParams.includes(tr)) bundleParams.push(tr);
+          });
         });
       }
       this.bundleList = bundleParams;
@@ -1882,7 +1882,13 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
       bundleUrls.forEach((url) => {
         const opt = document.createElement("option");
         opt.value = url;
-        const fname = url.split("/").pop().replace(/\.zip$/i, "").replace(/_/g, " ");
+        const rawName = url.split("/").pop().replace(/\.zip$/i, "");
+        let fname = rawName;
+        try {
+          fname = decodeURIComponent(rawName);
+        } catch (_) {
+        }
+        fname = fname.replace(/_/g, " ");
         opt.textContent = `\u{1F4E6} ${fname}`;
         if (url === this.currentBundleUrl) opt.selected = true;
         this.bundleSelector.appendChild(opt);
