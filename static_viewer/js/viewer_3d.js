@@ -8,13 +8,15 @@ const COV_RADII = {
   H: 0.31, C: 0.76, N: 0.71, O: 0.66, F: 0.57,
   P: 1.07, S: 1.05, Cl: 1.02, Br: 1.20, I: 1.39
 };
-const MAX_VALENCE = { H: 1, F: 1, Cl: 1, Br: 1, I: 1, O: 2, N: 4, C: 4, S: 6, P: 5 };
+const MAX_VALENCE = { H: 1, F: 1, Cl: 1, Br: 1, I: 1, O: 3, N: 4, C: 4, S: 6, P: 5 };
 
 function computeBonds(symbols, coords) {
   const bonds = [];
   const n = Math.min(symbols.length, coords.length);
   const valences = new Array(n).fill(0);
   const candidates = [];
+  const adj = Array.from({ length: n }, () => []);
+  const distMat = {};
 
   for (let i = 0; i < n; i++) {
     const s1 = symbols[i];
@@ -31,36 +33,143 @@ function computeBonds(symbols, coords) {
       const maxD = 1.28 * (r1 + r2);
 
       if (d >= 0.4 && d <= maxD) {
-        const pair = [s1, s2].sort().join('-');
-        let targetOrder = 1;
-        if (pair === 'C-O') {
-          if (d < 1.16) targetOrder = 3;
-          else if (d < 1.265) targetOrder = 2;
-        } else if (pair === 'C-C') {
-          if (d < 1.24) targetOrder = 3;
-          else if (d < 1.39) targetOrder = 2;
-        } else if (pair === 'C-N') {
-          if (d < 1.18) targetOrder = 3;
-          else if (d < 1.32) targetOrder = 2;
-        } else if (pair === 'N-N') {
-          if (d < 1.14) targetOrder = 3;
-          else if (d < 1.28) targetOrder = 2;
-        } else if (pair === 'N-O' || pair === 'O-O') {
-          if (d < 1.25) targetOrder = 2;
-        }
-        candidates.push({ d, i, j, s1, s2, targetOrder });
+        adj[i].push(j);
+        adj[j].push(i);
+        const key = `${i}_${j}`;
+        distMat[key] = d;
+        candidates.push({ i, j, s1, s2, d });
       }
     }
   }
 
-  // Shortest bonds assigned first
-  candidates.sort((a, b) => a.d - b.d);
+  const getDist = (u, v) => {
+    const key = u < v ? `${u}_${v}` : `${v}_${u}`;
+    return distMat[key] || 1.4;
+  };
+
+  // 1. Detect 6-membered aromatic/conjugated rings (primarily C, N)
+  const ringDoubleBonds = new Set();
+  const ringBondsAll = new Set();
+  const ringAtoms = [];
+  for (let i = 0; i < n; i++) {
+    if (symbols[i] === 'C' || symbols[i] === 'N') {
+      ringAtoms.push(i);
+    }
+  }
+
+  const cycles = [];
+  const visited = new Set();
+  const path = [];
+
+  const findCycles = (v, start, depth) => {
+    if (depth === 6) {
+      if (adj[v].includes(start)) {
+        cycles.push([...path]);
+      }
+      return;
+    }
+    for (const u of adj[v]) {
+      if ((symbols[u] === 'C' || symbols[u] === 'N') && !visited.has(u)) {
+        visited.add(u);
+        path.push(u);
+        findCycles(u, start, depth + 1);
+        path.pop();
+        visited.delete(u);
+      }
+    }
+  };
+
+  for (const startAtom of ringAtoms) {
+    visited.clear();
+    visited.add(startAtom);
+    path.length = 0;
+    path.push(startAtom);
+    findCycles(startAtom, startAtom, 1);
+  }
+
+  const uniqueRings = [];
+  const seenRings = new Set();
+  for (const c of cycles) {
+    const sorted = [...c].sort((a, b) => a - b).join(',');
+    if (!seenRings.has(sorted)) {
+      seenRings.add(sorted);
+      uniqueRings.push(c);
+    }
+  }
+
+  // Kekulize each 6-membered ring:
+  // A 6-cycle has two alternating matchings: edges0 and edges1.
+  // Pick matching with smaller total bond length sum.
+  for (const ring of uniqueRings) {
+    let isConjugated = true;
+    for (let k = 0; k < 6; k++) {
+      const u = ring[k];
+      const v = ring[(k + 1) % 6];
+      if (getDist(u, v) > 1.48) {
+        isConjugated = false;
+        break;
+      }
+    }
+    if (!isConjugated) continue;
+
+    const edges0 = [[ring[0], ring[1]], [ring[2], ring[3]], [ring[4], ring[5]]];
+    const edges1 = [[ring[1], ring[2]], [ring[3], ring[4]], [ring[5], ring[0]]];
+    const sum0 = edges0.reduce((acc, [u, v]) => acc + getDist(u, v), 0);
+    const sum1 = edges1.reduce((acc, [u, v]) => acc + getDist(u, v), 0);
+
+    const chosen = sum0 <= sum1 ? edges0 : edges1;
+    for (const [u, v] of chosen) {
+      const key = u < v ? `${u}_${v}` : `${v}_${u}`;
+      ringDoubleBonds.add(key);
+    }
+    for (let k = 0; k < 6; k++) {
+      const u = ring[k];
+      const v = ring[(k + 1) % 6];
+      const key = u < v ? `${u}_${v}` : `${v}_${u}`;
+      ringBondsAll.add(key);
+    }
+  }
 
   for (const c of candidates) {
-    bonds.push({ a1: c.i, a2: c.j, order: 1, target: c.targetOrder, s1: c.s1, s2: c.s2, d: c.d });
+    const pairKey = c.i < c.j ? `${c.i}_${c.j}` : `${c.j}_${c.i}`;
+    const pair = [c.s1, c.s2].sort().join('-');
+    let targetOrder = 1;
+
+    if (ringDoubleBonds.has(pairKey)) {
+      targetOrder = 2;
+    } else if (!ringBondsAll.has(pairKey)) {
+      if (pair === 'C-O') {
+        if (c.d < 1.16) targetOrder = 3;
+        else if (c.d < 1.265) targetOrder = 2;
+      } else if (pair === 'C-C') {
+        if (c.d < 1.24) targetOrder = 3;
+        else if (c.d < 1.39) targetOrder = 2;
+      } else if (pair === 'C-N') {
+        if (c.d < 1.18) targetOrder = 3;
+        else if (c.d < 1.32) targetOrder = 2;
+      } else if (pair === 'N-N') {
+        if (c.d < 1.14) targetOrder = 3;
+        else if (c.d < 1.28) targetOrder = 2;
+      } else if (pair === 'N-O' || pair === 'O-O') {
+        if (c.d < 1.25) targetOrder = 2;
+      }
+    }
+
+    bonds.push({
+      a1: c.i, a2: c.j, order: 1, target: targetOrder,
+      s1: c.s1, s2: c.s2, d: c.d, pairKey
+    });
     valences[c.i]++;
     valences[c.j]++;
   }
+
+  // Priority sort: triple bonds first (target 3), then ring double bonds, then other double bonds, then by length
+  bonds.sort((a, b) => {
+    const prioA = a.target === 3 ? 0 : (ringDoubleBonds.has(a.pairKey) ? 1 : (a.target === 2 ? 2 : 3));
+    const prioB = b.target === 3 ? 0 : (ringDoubleBonds.has(b.pairKey) ? 1 : (b.target === 2 ? 2 : 3));
+    if (prioA !== prioB) return prioA - prioB;
+    return a.d - b.d;
+  });
 
   // Promote to double/triple bond if atom valences allow
   for (const b of bonds) {

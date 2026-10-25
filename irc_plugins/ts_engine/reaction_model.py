@@ -66,6 +66,12 @@ class ReactionModel:
         if any(m is None for m in self.r_mols + self.p_mols):
             raise ValueError("Could not parse reaction SMILES")
 
+        for m in self.r_mols + self.p_mols:
+            try:
+                Chem.Kekulize(m, clearAromaticFlags=True)
+            except Exception:
+                pass
+
         self.offsets, off = [], 0
         for m in self.r_mols:
             self.offsets.append(off)
