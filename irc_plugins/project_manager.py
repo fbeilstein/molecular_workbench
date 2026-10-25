@@ -155,6 +155,30 @@ def init_project() -> Dict[str, Any]:
                 })
         proj["steps"].sort(key=lambda s: s.get("index", 1))
 
+        # Backfill any steps whose SMILES was empty in project.json but exists in state or trajectory
+        for s in proj.get("steps", []):
+            if not s.get("smiles"):
+                s_state_f = _step_state_path(s["id"])
+                s_traj_f = _step_traj_path(s["id"])
+                smi = ""
+                if os.path.exists(s_traj_f):
+                    try:
+                        with open(s_traj_f, 'r') as f:
+                            tj = json.load(f)
+                            smi = tj.get("reaction_smiles", "")
+                    except Exception:
+                        pass
+                if not smi and os.path.exists(s_state_f):
+                    try:
+                        with open(s_state_f, 'r') as f:
+                            st = json.load(f)
+                            smi = st.get("step_1_input", {}).get("raw_smiles", "")
+                    except Exception:
+                        pass
+                if smi:
+                    s["smiles"] = smi
+                    s["title"] = f"Step {s.get('index', 1)}: {smi}"
+
     save_project_meta(proj)
     return proj
 

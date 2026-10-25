@@ -113,6 +113,71 @@ def find_all_hero_overlaps(
                 used_next.add(r_idx)
                 break
 
+    if not candidates:
+        import collections
+        for p_idx, fp in enumerate(prods):
+            ip = fp.get("atom_indices", [])
+            sym_sub_p = [sym_p[i] for i in ip]
+            count_p = collections.Counter(sym_sub_p)
+            for r_idx, fr in enumerate(reacs):
+                ir = fr.get("atom_indices", [])
+                sym_sub_n = [sym_n[i] for i in ir]
+                count_r = collections.Counter(sym_sub_n)
+                common_heavy = sum(min(count_p.get(el, 0), count_r.get(el, 0)) for el in set(count_p) | set(count_r) if el != "H")
+                if common_heavy >= 3:
+                    rmsd_d, R_d, t_d, r_d, c_d = solve_optimal_element_alignment(p_last[ip], p_first[ir], sym_sub_p, sym_sub_n)
+                    p_f_m = p_first[ir].copy(); p_f_m[:, 0] = -p_f_m[:, 0]
+                    rmsd_m, R_m, t_m, r_m, c_m = solve_optimal_element_alignment(p_last[ip], p_f_m, sym_sub_p, sym_sub_n)
+                    use_m = (rmsd_m < rmsd_d - 0.05)
+                    rmsd, R, t, r_sub, c_sub = (rmsd_m, R_m, t_m, r_m, c_m) if use_m else (rmsd_d, R_d, t_d, r_d, c_d)
+                    if rmsd < 1.8:
+                        p_m, n_m = [ip[i] for i in r_sub], [ir[i] for i in c_sub]
+                        form = fr.get("formula") or fp.get("formula") or "Hero"
+                        tag = " [Enantiomer Inverted]" if use_m else ""
+                        candidates.append({
+                            "id": f"mol_{p_idx}_{r_idx}",
+                            "label": f"{form}{tag} (Hero Molecule, {len(p_m)} atoms, RMSD: {rmsd:.4f} Å)",
+                            "formula": f"{form}{tag}",
+                            "smiles": fr.get("smiles") or fp.get("smiles") or "",
+                            "prev_indices": p_m, "next_indices": n_m,
+                            "num_atoms": len(p_m), "rmsd": round(rmsd, 4), "R": R.tolist(), "t": t.tolist(),
+                            "is_joint": False, "is_reflected": use_m,
+                            "prev_frame": f_p_idx, "next_frame": f_n_idx
+                        })
+
+                        heavy_p = [i for i in p_m if sym_p[i] != "H"]
+                        heavy_n = [n_m[p_m.index(i)] for i in heavy_p]
+                        if len(heavy_p) >= 3:
+                            src_h = p_f_m[heavy_n] if use_m else p_first[heavy_n]
+                            R_h, t_h = kabsch_fit(p_last[heavy_p], src_h)
+                            rmsd_h = float(np.sqrt(np.mean((p_last[heavy_p] - (src_h @ R_h.T + t_h)) ** 2)))
+                            candidates.append({
+                                "id": f"mol_{p_idx}_{r_idx}_scaffold",
+                                "label": f"{form}{tag} [Scaffold] (Rotamer-Aware Scaffold, {len(heavy_p)} atoms, RMSD: {rmsd_h:.4f} Å)",
+                                "formula": f"{form} [Scaffold]{tag}",
+                                "smiles": fr.get("smiles") or fp.get("smiles") or "",
+                                "prev_indices": p_m, "next_indices": n_m,
+                                "num_atoms": len(heavy_p), "rmsd": round(rmsd_h, 4), "R": R_h.tolist(), "t": t_h.tolist(),
+                                "is_joint": False, "is_reflected": use_m,
+                                "prev_frame": f_p_idx, "next_frame": f_n_idx
+                            })
+
+    distinct = [c for c in candidates if not c["id"].endswith("_scaffold")]
+    if len(distinct) > 1:
+        jp, jn = [i for c in distinct for i in c["prev_indices"]], [i for c in distinct for i in c["next_indices"]]
+        has_ref = any(c.get("is_reflected") for c in distinct)
+        src_j = p_first.copy()
+        if has_ref: src_j[:, 0] = -src_j[:, 0]
+        R, t = kabsch_fit(p_last[jp], src_j[jn])
+        j_rmsd = float(np.sqrt(np.mean((p_last[jp] - (src_j[jn] @ R.T + t)) ** 2)))
+        # Append joint_all at end so individual hero molecule remains the primary default
+        candidates.append({
+            "id": "joint_all", "label": f"All {len(distinct)} Coinciding Molecules ({len(jp)} atoms, RMSD: {j_rmsd:.4f} Å)",
+            "formula": "Joint Complex", "smiles": " + ".join(c["smiles"] for c in distinct), "prev_indices": jp,
+            "next_indices": jn, "num_atoms": len(jp), "rmsd": round(j_rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": True, "is_reflected": has_ref,
+            "prev_frame": f_p_idx, "next_frame": f_n_idx
+        })
+
     if not candidates and len(sym_p) == len(sym_n) and sorted(sym_p) == sorted(sym_n):
         rmsd_d, R_d, t_d, r_d, c_d = solve_optimal_element_alignment(p_last, p_first, sym_p, sym_n)
         p_f_m = p_first.copy(); p_f_m[:, 0] = -p_f_m[:, 0]
@@ -126,21 +191,6 @@ def find_all_hero_overlaps(
             "next_indices": c_sub, "num_atoms": len(sym_p), "rmsd": round(rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": False, "is_reflected": use_m,
             "prev_frame": f_p_idx, "next_frame": f_n_idx
         })
-    else:
-        distinct = [c for c in candidates if not c["id"].endswith("_scaffold")]
-        if len(distinct) > 1:
-            jp, jn = [i for c in distinct for i in c["prev_indices"]], [i for c in distinct for i in c["next_indices"]]
-            has_ref = any(c.get("is_reflected") for c in distinct)
-            src_j = p_first.copy()
-            if has_ref: src_j[:, 0] = -src_j[:, 0]
-            R, t = kabsch_fit(p_last[jp], src_j[jn])
-            j_rmsd = float(np.sqrt(np.mean((p_last[jp] - (src_j[jn] @ R.T + t)) ** 2)))
-            candidates.insert(0, {
-                "id": "joint_all", "label": f"All {len(distinct)} Coinciding Molecules ({len(jp)} atoms, RMSD: {j_rmsd:.4f} Å)",
-                "formula": "Joint Complex", "smiles": " + ".join(c["smiles"] for c in distinct), "prev_indices": jp,
-                "next_indices": jn, "num_atoms": len(jp), "rmsd": round(j_rmsd, 4), "R": R.tolist(), "t": t.tolist(), "is_joint": True, "is_reflected": has_ref,
-                "prev_frame": f_p_idx, "next_frame": f_n_idx
-            })
     return candidates
 
 
@@ -237,20 +287,28 @@ def generate_bridge_frames(
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 idpp_interpolate(images, traj=None, log=None, fmax=0.05, steps=50)
+
+            candidate_frames = []
+            has_nan = False
             for i, img in enumerate(images[1:-1]):
+                pos = img.get_positions()
+                if np.isnan(pos).any() or np.isinf(pos).any():
+                    has_nan = True
+                    break
                 s = ((i + 1) / (n_frames + 1)) ** 2 * (3.0 - 2.0 * ((i + 1) / (n_frames + 1)))
-                frames.append({
-                    "coords": img.get_positions().round(4).tolist(),
+                candidate_frames.append({
+                    "coords": pos.round(4).tolist(),
                     "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2),
                     "is_bridge": True
                 })
-            return frames
+            if not has_nan and len(candidate_frames) == n_frames:
+                return candidate_frames
         except Exception:
             pass
 
     for i in range(1, n_frames + 1):
         s = (i / (n_frames + 1)) ** 2 * (3.0 - 2.0 * (i / (n_frames + 1)))
-        coords = (1.0 - s) * p_start + s * p_end
+        coords = ((1.0 - s) * p_start + s * p_end).copy()
         for _ in range(5):
             D = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=2)
             np.fill_diagonal(D, 99.0)
@@ -258,6 +316,7 @@ def generate_bridge_frames(
                 if a < b and (dist := float(np.linalg.norm(coords[b] - coords[a]))) > 1e-4:
                     shift = 0.5 * (1.15 - dist) * ((coords[b] - coords[a]) / dist)
                     coords[b] += shift; coords[a] -= shift
+        coords = np.nan_to_num(coords, nan=0.0, posinf=0.0, neginf=0.0)
         frames.append({"coords": coords.round(4).tolist(), "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2), "is_bridge": True})
     return frames
 
@@ -459,7 +518,7 @@ def stitch_multistep_trajectories(
         all_cands = find_all_hero_overlaps(prev_step, next_step, prev_frame_idx=p_cut, next_frame_idx=n_cut)
         cand = next((c for c in all_cands if c["id"] == choices.get(str(k))), None) if all_cands and choices.get(str(k)) else None
         if not cand and all_cands:
-            cand = next((c for c in all_cands if not c.get("is_joint")), all_cands[0])
+            cand = next((c for c in all_cands if c["id"].endswith("_scaffold")), None) or next((c for c in all_cands if not c.get("is_joint")), all_cands[0])
 
         out_next = aligned_steps[k]
         if cand:
@@ -477,7 +536,10 @@ def stitch_multistep_trajectories(
                         order.append(c)
                         used_c.add(c)
                     else:
-                        rem = [c for c in range(len(next_syms)) if c not in used_c]
+                        sym = prev_syms[r]
+                        rem = [c for c in range(len(next_syms)) if c not in used_c and next_syms[c] == sym]
+                        if not rem:
+                            rem = [c for c in range(len(next_syms)) if c not in used_c]
                         order.append(rem[0])
                         used_c.add(rem[0])
             else:

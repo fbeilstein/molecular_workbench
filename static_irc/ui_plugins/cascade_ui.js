@@ -40,7 +40,7 @@ export const CascadeUI = {
                 return;
             }
 
-            if (orderModified) {
+            if (orderModified || currentTrajs.length !== (ui.trajectories || []).length) {
                 const notice = document.createElement('div');
                 notice.style.fontSize = '11px';
                 notice.style.color = '#d97706';
@@ -49,7 +49,31 @@ export const CascadeUI = {
                 notice.style.borderRadius = '4px';
                 notice.style.padding = '4px 8px';
                 notice.style.marginBottom = '6px';
-                notice.textContent = 'Order changed. Click ⚡ Re-Stitch Pathway to apply.';
+                notice.style.display = 'flex';
+                notice.style.justifyContent = 'space-between';
+                notice.style.alignItems = 'center';
+
+                const noticeText = document.createElement('span');
+                noticeText.textContent = 'Sequence modified. Click ⚡ Re-Stitch Pathway to apply.';
+                notice.appendChild(noticeText);
+
+                const resetBtn = document.createElement('button');
+                resetBtn.textContent = '↺ Reset';
+                resetBtn.title = 'Reset to original project step sequence';
+                resetBtn.style.padding = '1px 6px';
+                resetBtn.style.fontSize = '10px';
+                resetBtn.style.border = '1px solid #d97706';
+                resetBtn.style.background = '#fff';
+                resetBtn.style.color = '#b45309';
+                resetBtn.style.borderRadius = '3px';
+                resetBtn.style.cursor = 'pointer';
+                resetBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    currentTrajs = [...(ui.trajectories || [])];
+                    orderModified = false;
+                    renderSequenceList();
+                };
+                notice.appendChild(resetBtn);
                 dom.seqList.appendChild(notice);
             }
 
@@ -158,9 +182,28 @@ export const CascadeUI = {
                     }
                 };
 
+                const delBtn = document.createElement('button');
+                delBtn.textContent = '✕';
+                delBtn.title = 'Exclude step from cascade sequence';
+                delBtn.style.padding = '2px 5px';
+                delBtn.style.fontSize = '10px';
+                delBtn.style.lineHeight = '1';
+                delBtn.style.border = '1px solid #fca5a5';
+                delBtn.style.background = '#fef2f2';
+                delBtn.style.color = '#dc2626';
+                delBtn.style.borderRadius = '3px';
+                delBtn.style.cursor = 'pointer';
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    currentTrajs.splice(i, 1);
+                    orderModified = true;
+                    renderSequenceList();
+                };
+
                 btnBox.appendChild(flipBtn);
                 btnBox.appendChild(upBtn);
                 btnBox.appendChild(downBtn);
+                btnBox.appendChild(delBtn);
 
                 sRow.appendChild(badge);
                 sRow.appendChild(sName);

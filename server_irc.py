@@ -54,7 +54,12 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+        raw = json.dumps(data)
+        if "NaN" in raw or "Infinity" in raw:
+            import re
+            raw = re.sub(r'\bNaN\b', '0.0', raw)
+            raw = re.sub(r'\b-?Infinity\b', '0.0', raw)
+        self.wfile.write(raw.encode())
 
     def _send_text(self, text, status=200):
         self.send_response(status)

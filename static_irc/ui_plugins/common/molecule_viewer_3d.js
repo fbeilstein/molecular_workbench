@@ -41,6 +41,23 @@ export class MoleculeViewer3D {
             const factor = e.deltaY < 0 ? 1.12 : 0.89;
             this.zoom(factor);
         }, { passive: false });
+
+        // Ensure WebGL viewport resizes properly after DOM layout reflow
+        requestAnimationFrame(() => {
+            if (this.viewer) {
+                this.viewer.resize();
+                this.viewer.render();
+            }
+        });
+        setTimeout(() => {
+            if (this.viewer) {
+                this.viewer.resize();
+                this.viewer.render();
+            }
+        }, 150);
+
+        this._resizeHandler = () => this.resize();
+        window.addEventListener('resize', this._resizeHandler);
     }
 
     zoom(factor) {
@@ -388,6 +405,7 @@ export class MoleculeViewer3D {
     resize() {
         if (this.viewer) {
             this.viewer.resize();
+            this.viewer.render();
         }
     }
 

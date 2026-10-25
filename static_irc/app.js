@@ -27,11 +27,11 @@ async function executeStepRun(stepId, userInput) {
     return await res.json();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+function boot() {
     let plugins = [];
     let state = {};
     let project = {};
-    let activeStepIndex = 0;
+    let activeStepIndex = null;
 
     const tabsContainer = document.getElementById('wizard-tabs');
     const schemaContainer = document.getElementById('schema-container');
@@ -137,16 +137,31 @@ document.addEventListener('DOMContentLoaded', () => {
             const idx = plugins.findIndex((p, i) => p.step_id === hash || String(i + 1) === hash || p.step_name.toLowerCase().includes(hash.toLowerCase()));
             if (idx !== -1) {
                 activeStepIndex = idx;
+                try { localStorage.setItem('irc_active_step', plugins[idx].step_id); } catch (e) {}
                 return;
             }
         }
         if (preferredIndex !== null) {
             activeStepIndex = Math.max(0, Math.min(preferredIndex, maxAvailable));
-        } else if (activeStepIndex !== null && activeStepIndex >= 0 && activeStepIndex <= maxAvailable) {
-            // Keep current user tab selection without forceful auto-redirects
-        } else {
-            activeStepIndex = maxAvailable;
+            try { localStorage.setItem('irc_active_step', plugins[activeStepIndex].step_id); } catch (e) {}
+            return;
         }
+        if (activeStepIndex !== null && activeStepIndex >= 0 && activeStepIndex <= maxAvailable) {
+            // Keep current user tab selection without forceful auto-redirects
+            return;
+        }
+        // Restore from localStorage across page reloads / reboots if valid
+        try {
+            const savedStep = localStorage.getItem('irc_active_step');
+            if (savedStep) {
+                const sIdx = plugins.findIndex(p => p.step_id === savedStep);
+                if (sIdx !== -1 && sIdx <= maxAvailable) {
+                    activeStepIndex = sIdx;
+                    return;
+                }
+            }
+        } catch (e) {}
+        activeStepIndex = maxAvailable;
     }
 
     function renderTabs() {
@@ -171,7 +186,10 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.onclick = () => {
                 if (isLocked) return;
                 activeStepIndex = index;
-                try { window.location.hash = plugin.step_id; } catch (e) {}
+                try {
+                    window.location.hash = plugin.step_id;
+                    localStorage.setItem('irc_active_step', plugin.step_id);
+                } catch (e) {}
                 renderTabs();
                 renderActiveStep();
             };
@@ -439,4 +457,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     loadPipeline();
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+} else {
+    boot();
+}

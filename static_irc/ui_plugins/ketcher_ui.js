@@ -1,21 +1,51 @@
 function loadPreviousKetcherData(iframe, rawRxnfile, rawSmiles) {
     if (!rawRxnfile && !rawSmiles) return;
-    const applyData = () => {
+    let attempts = 0;
+    const maxAttempts = 100; // 100 * 150ms = 15 seconds
+    let applied = false;
+
+    const tryApply = () => {
+        if (applied) return true;
         const ketcher = iframe.contentWindow?.ketcher;
-        if (ketcher) {
+        if (ketcher && typeof ketcher.setMolecule === 'function') {
             try {
-                if (rawRxnfile) ketcher.setMolecule(rawRxnfile);
-                else if (rawSmiles) ketcher.setMolecule(rawSmiles);
+                if (rawRxnfile) {
+                    const p = ketcher.setMolecule(rawRxnfile);
+                    if (p && typeof p.catch === 'function') {
+                        p.catch(() => {
+                            if (rawSmiles) {
+                                try { ketcher.setMolecule(rawSmiles); } catch (e) {}
+                            }
+                        });
+                    }
+                } else if (rawSmiles) {
+                    ketcher.setMolecule(rawSmiles);
+                }
+                applied = true;
+                return true;
             } catch (e) {
-                console.warn("Ketcher setMolecule notice:", e);
+                if (rawSmiles) {
+                    try {
+                        ketcher.setMolecule(rawSmiles);
+                        applied = true;
+                        return true;
+                    } catch (err) {}
+                }
             }
         }
+        return false;
     };
-    if (iframe.contentWindow?.ketcher) {
-        setTimeout(applyData, 250);
-    } else {
-        iframe.onload = () => setTimeout(applyData, 500);
-    }
+
+    const interval = setInterval(() => {
+        attempts++;
+        if (tryApply() || attempts >= maxAttempts) {
+            clearInterval(interval);
+        }
+    }, 150);
+
+    iframe.onload = () => {
+        setTimeout(tryApply, 200);
+    };
 }
 
 function renderKetcherUI(schemaContainer, ui, state, step_id) {
@@ -34,7 +64,9 @@ function renderKetcherUI(schemaContainer, ui, state, step_id) {
     schemaContainer.appendChild(wrapper);
 
     const prevData = state[step_id];
-    loadPreviousKetcherData(iframe, prevData?.raw_rxnfile, prevData?.raw_smiles);
+    const rawRxn = prevData?.raw_rxnfile || ui?.raw_rxnfile || '';
+    const rawSmi = prevData?.raw_smiles || ui?.raw_smiles || '';
+    loadPreviousKetcherData(iframe, rawRxn, rawSmi);
 }
 
 async function getKetcherData() {

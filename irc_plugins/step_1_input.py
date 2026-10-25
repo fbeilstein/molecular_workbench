@@ -23,9 +23,12 @@ class Step1Input(PipelineStep):
         return "1. Reaction Input"
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
+        s1 = current_state.get(self.step_id, {})
         return {
             "type": "ketcher",
-            "message": "Draw the reactants on the left and products on the right, separated by a reaction arrow. Multi-arrow reactions (A >> B >> C) are automatically decomposed into steps!"
+            "message": "Draw the reactants on the left and products on the right, separated by a reaction arrow. Multi-arrow reactions (A >> B >> C) are automatically decomposed into steps!",
+            "raw_smiles": s1.get("raw_smiles", ""),
+            "raw_rxnfile": s1.get("raw_rxnfile", "")
         }
 
     def run(self, global_state: Dict[str, Any], user_input: Dict[str, Any]) -> StepResult:
