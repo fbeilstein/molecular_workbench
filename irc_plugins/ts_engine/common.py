@@ -79,7 +79,12 @@ def positions_to_molblocks(mols, positions: np.ndarray):
 
 
 def molblocks_to_positions(molblocks):
-    mols = [Chem.MolFromMolBlock(mb, removeHs=False) for mb in molblocks]
+    mols = []
+    for mb in molblocks:
+        m = Chem.MolFromMolBlock(mb, removeHs=False) if mb else None
+        if m is None and mb:
+            m = Chem.MolFromMolBlock(mb, sanitize=False, removeHs=False)
+        mols.append(m)
     if any(m is None for m in mols):
         raise ValueError("Failed to parse molblocks")
     return mols, [m.GetConformer().GetPositions() for m in mols]

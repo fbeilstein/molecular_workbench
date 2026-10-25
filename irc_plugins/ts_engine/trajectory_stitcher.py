@@ -687,12 +687,22 @@ def extract_fragment_molblock(traj: Dict[str, Any], frag_meta: Dict[str, Any], f
 
     if target_mol is not None:
         try:
+            from rdkit.Chem import AllChem
             raw_m = Chem.MolFromMolBlock(raw_mb, removeHs=False)
-            if raw_m is not None and (match := target_mol.GetSubstructMatch(raw_m)) and len(match) == target_mol.GetNumAtoms():
-                inv = {ref_i: traj_i for traj_i, ref_i in enumerate(match)}
-                conf, t_conf = Chem.Conformer(target_mol.GetNumAtoms()), raw_m.GetConformer()
-                for ref_i in range(target_mol.GetNumAtoms()): conf.SetAtomPosition(ref_i, t_conf.GetAtomPosition(inv[ref_i]))
-                out_m = Chem.Mol(target_mol); out_m.RemoveAllConformers(); out_m.AddConformer(conf)
-                return Chem.MolToMolBlock(out_m)
+            if raw_m is None:
+                raw_m = Chem.MolFromMolBlock(raw_mb, sanitize=False, removeHs=False)
+            if raw_m is not None:
+                try:
+                    assigned = AllChem.AssignBondOrdersFromTemplate(target_mol, raw_m)
+                    if assigned is not None:
+                        return Chem.MolToMolBlock(assigned)
+                except Exception:
+                    pass
+                if (match := target_mol.GetSubstructMatch(raw_m)) and len(match) == target_mol.GetNumAtoms():
+                    inv = {ref_i: traj_i for traj_i, ref_i in enumerate(match)}
+                    conf, t_conf = Chem.Conformer(target_mol.GetNumAtoms()), raw_m.GetConformer()
+                    for ref_i in range(target_mol.GetNumAtoms()): conf.SetAtomPosition(ref_i, t_conf.GetAtomPosition(inv[ref_i]))
+                    out_m = Chem.Mol(target_mol); out_m.RemoveAllConformers(); out_m.AddConformer(conf)
+                    return Chem.MolToMolBlock(out_m)
         except Exception: pass
     return raw_mb

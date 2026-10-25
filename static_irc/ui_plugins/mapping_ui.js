@@ -81,10 +81,17 @@ function createWirePath(rKey, pKey, rEl, pEl, zoomRect, scale, isApproved, onTog
     line.style.pointerEvents = 'stroke';
     line.style.cursor = 'pointer';
 
+    const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    titleEl.textContent = isApproved
+        ? 'Click: Revert to draft | Right-click / Shift-click: Delete connection'
+        : 'Click: Approve connection (green) | Right-click / Shift-click: Delete connection';
+    line.appendChild(titleEl);
+
     line.addEventListener('mouseover', () => {
         line.setAttribute('stroke-width', '6');
-        rEl.setAttribute('stroke', 'red'); rEl.setAttribute('stroke-width', '3');
-        pEl.setAttribute('stroke', 'red'); pEl.setAttribute('stroke-width', '3');
+        const hlColor = isApproved ? '#10b981' : '#3b82f6';
+        rEl.setAttribute('stroke', hlColor); rEl.setAttribute('stroke-width', '3');
+        pEl.setAttribute('stroke', hlColor); pEl.setAttribute('stroke-width', '3');
     });
 
     line.addEventListener('mouseout', () => {
@@ -94,8 +101,11 @@ function createWirePath(rKey, pKey, rEl, pEl, zoomRect, scale, isApproved, onTog
     });
 
     line.addEventListener('click', (e) => {
-        if (e.shiftKey) { onToggleApproved(rKey); return; }
-        onDeleteMapping(rKey);
+        if (e.shiftKey || e.altKey || e.ctrlKey) {
+            onDeleteMapping(rKey);
+            return;
+        }
+        onToggleApproved(rKey);
     });
 
     line.addEventListener('contextmenu', (e) => {

@@ -23,6 +23,8 @@ def _refine_xtb(mol, p_orig, charge, mult):
 def refine_fragment_shape(mol_block: str, method="mmff", charge=0, mult=1) -> str:
     """Refine isolated molecule geometry in-place using MMFF94 or GFN2-xTB."""
     mol = Chem.MolFromMolBlock(mol_block, removeHs=False)
+    if mol is None and mol_block:
+        mol = Chem.MolFromMolBlock(mol_block, sanitize=False, removeHs=False)
     if mol is None:
         raise ValueError("Invalid molblock")
 

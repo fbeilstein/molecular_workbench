@@ -113,6 +113,8 @@ class Step3TS(PipelineStep):
         out, x_cursor = [], 0.0
         for mb in blocks:
             m = Chem.MolFromMolBlock(mb, removeHs=False) if mb else None
+            if m is None and mb:
+                m = Chem.MolFromMolBlock(mb, sanitize=False, removeHs=False)
             if m is None:
                 out.append(mb)
                 continue
@@ -299,6 +301,13 @@ class Step3TS(PipelineStep):
                     reordered = []
                     for r_idx, ref_m in enumerate(model.r_mols):
                         mt = ref_m.GetSubstructMatch(mols[r_idx])
+                        if not (mt and len(mt) == ref_m.GetNumAtoms()):
+                            from rdkit.Chem import AllChem
+                            try:
+                                assigned = AllChem.AssignBondOrdersFromTemplate(ref_m, mols[r_idx])
+                                mt = ref_m.GetSubstructMatch(assigned)
+                            except Exception:
+                                pass
                         if mt and len(mt) == ref_m.GetNumAtoms():
                             inv = {ref_i: tr_i for tr_i, ref_i in enumerate(mt)}
                             reordered.append(pos_list[r_idx][[inv[k] for k in range(len(ref_m.GetAtoms()))]])
