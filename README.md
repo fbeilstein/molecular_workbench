@@ -47,29 +47,16 @@ python server.py --port 4321
 ```
 Open [**http://localhost:4321**](http://localhost:4321) in your browser.
 
-### 2. Multistep Reaction Pathway Studio
-Build, align, and render complex multistep reaction mechanisms with synchronized 3D orbitals, Potential Energy Surfaces (PES), and interactive 2D SVG wiring:
-```bash
-python server_multistep.py --port 8083
-```
-Open [**http://localhost:8083**](http://localhost:8083) in your browser.
-- **Stage 1**: Ingest reaction step JSONs or IRC trajectories.
-- **Stage 2**: Automatic coordinate frame alignment across reaction steps.
-- **Stage 3**: Harmonized energy profiling and activation barrier calculation.
-- **Stage 4**: Synchronized orbital schedules and continuous Electrostatic Potential (ESP) surfaces.
-- **Stage 5**: Interactive SVG mechanism wiring and maximal-compression `.rxnbundle.zip` exporter.
 
-### 3. Transition State & IRC Workbench
-Find reaction transition states, analyze vibrational normal modes, and integrate full IRC reaction pathways:
+### 2. Transition State & IRC Workbench
+Find reaction transition states, analyze vibrational normal modes, integrate full IRC reaction pathways, calculate orbitals, and prepare bundle:
 ```bash
 python server_irc.py --port 8082
 ```
 Open [**http://localhost:8082**](http://localhost:8082) in your browser.
-- **Step 1**: Draw or input reactant and product SMILES.
-- **Step 2**: Interactive Ketcher atom mapping with automated graph validation.
-- **Step 3**: 3D TS search (Genetic Swarm, Universal IDPP, ORCA, or RitS), imaginary frequency validation, and IRC integration.
 
-### 4. Standalone 3D Web Viewer (`viewer.html`)
+
+### 3. Standalone 3D Web Viewer (`viewer.html`)
 A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly in the browser's memory using `JSZip` and renders them with `3Dmol.js`:
 - Open `viewer.html` directly or serve via GitHub Pages.
 - Drag & drop any `.zip` bundle, or pass it via URL query parameter: `viewer.html?bundle=<path-or-url>`.
@@ -102,20 +89,20 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 
 |Molecule|Name|Bundle|Notes|
 |--|--|--|--|
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/%5B18%5Dannulene.svg)|**cyclooctadecanonaene** or **[18]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/%5B18%5Dannulene.zip&download)|Aromatic: $4n+2$ electrons + planar. SMILES (NOT WORKING IN Ketcher!): C1([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C=1[H] |c:7,11,19,23,31,34,t:3,15,27||
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/all-cis-%5B10%5Dannulene.svg)|**cyclodecapentaene** or **[10]annulene**, or **all-cis-[10]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/all-cis-%5B10%5Dannulene.zip&download)|NOT Aromatic: $4n+2$ electrons BUT non-planar. SMILES: C1C=CC=CC=CC=CC=1 |c:1,3,5,7,9||
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/cloride_ion.svg)|**chloride ion** |[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/cloride_ion.zip&download)|Charge: -1. SMILES: [Cl-] |
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/%5B18%5Dannulene.svg)|**cyclooctadecanonaene** or **[18]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/%5B18%5Dannulene.zip&download)|Aromatic: $4n+2$ electrons + planar. <br>SMILES (NOT WORKING IN Ketcher!): C1([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C=1[H] |c:7,11,19,23,31,34,t:3,15,27||
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/all-cis-%5B10%5Dannulene.svg)|**cyclodecapentaene** or **[10]annulene**, or **all-cis-[10]annulene**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/all-cis-%5B10%5Dannulene.zip&download)|NOT Aromatic: $4n+2$ electrons BUT non-planar. <br>SMILES: C1C=CC=CC=CC=CC=1 |c:1,3,5,7,9||
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/cloride_ion.svg)|**chloride ion** |[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/cloride_ion.zip&download)|Charge: -1. <br>SMILES: [Cl-] |
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/ethanoic_methanoic_anhydride.svg)|**ethanoic methanoic anhydride** |[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/ethanoic_methanoic_anhydride.zip&download)|SMILES: CC(OC=O)=O |
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/methanoate_ion.svg)|**methanoate ion** |[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/methanoate_ion.zip&download)|Charge: -1. SMILES: C(=O)[O-] |
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/methanoate_ion.svg)|**methanoate ion** |[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/methanoate_ion.zip&download)|Charge: -1. <br>SMILES: C(=O)[O-] |
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/acetyl_chloride.svg)|**acetyl chloride** |[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/acetyl_chloride.zip&download)|SMILES: CC(=O)Cl |
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/1,1,1,3,3,3-hexafluoro-2-propanol.svg)|**1,1,1,3,3,3-hexafluoro-2-propanol** or **hexafluoroisopropanol**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoro-2-propanol.zip&download)|$pK_a = 9.3$ <br>SMILES: OC(C(F)(F)F)C(F)(F)F|
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-olate.svg)|**1,1,1,3,3,3-hexafluoropropan-2-olate** or **hexafluoroisopropoxide**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-olate.zip&download)|Charge: -1 SMILES: [O-]C(C(F)(F)F)C(F)(F)F|
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-olate.svg)|**1,1,1,3,3,3-hexafluoropropan-2-olate** or **hexafluoroisopropoxide**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-olate.zip&download)|Charge: -1 <br>SMILES: [O-]C(C(F)(F)F)C(F)(F)F|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/2,2,2-trifluoroethanol.svg)|**2,2,2-trifluoroethanol**, or **trifluoroethyl alcohol**, or **TFE**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/2,2,2-trifluoroethanol.zip&download)|$pK_a = 12.4$ <br>SMILES: FC(CO)(F)F|
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/2,2,2-trifluoroethoxide.svg)|**2,2,2-trifluoroethoxide** or **trifluoroethoxide**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/2,2,2-trifluoroethoxide.zip&download)|Charge: -1 SMILES: FC(C[O-])(F)F|
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/2,2,2-trifluoroethoxide.svg)|**2,2,2-trifluoroethoxide** or **trifluoroethoxide**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/2,2,2-trifluoroethoxide.zip&download)|Charge: -1 <br>SMILES: FC(C[O-])(F)F|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-ol.svg)|**1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-ol**, or **perfluoro-tert-butanol**, or **PFtB**, or **nonafluoro-tert-butyl alcohol**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-ol.zip&download)|$pK_a = 5.4$ <br>SMILES: OC(C(F)(F)F)(C(F)(F)F)C(F)(F)F|
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate.svg)|**1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate**, or **perfluoro-tert-butoxide**, or **nonafluoro-tert-butoxide**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate.zip&download)|Charge: -1 SMILES: [O-]C(C(F)(F)F)(C(F)(F)F)C(F)(F)F|
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate.svg)|**1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate**, or **perfluoro-tert-butoxide**, or **nonafluoro-tert-butoxide**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate.zip&download)|Charge: -1 <br>SMILES: [O-]C(C(F)(F)F)(C(F)(F)F)C(F)(F)F|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/methanol.svg)|**methanol**, or **methyl alcohol**, or **wood alcohol**, or **carbinol**, or **hydroxymethane**, or **wood spirit**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/methanol.zip&download)|$pK_a = 15.5$ <br>SMILES: CO|
-|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/methanolate.svg)|**methanolate**, or **methoxide**, or **methylate**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/methanolate.zip&download)|Charge: -1 SMILES: C[O-]|
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/methanolate.svg)|**methanolate**, or **methoxide**, or **methylate**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/methanolate.zip&download)|Charge: -1 <br>SMILES: C[O-]|
 
 
 
