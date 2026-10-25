@@ -202,15 +202,15 @@ document.addEventListener('DOMContentLoaded', () => {
             handlerType = 'fields';
         }
 
+        const applyFeedback = document.getElementById('apply-feedback');
+        if (applyFeedback) applyFeedback.style.display = 'none';
+
         const handler = UIRegistry[handlerType];
         if (handler) {
             handler.render(schemaContainer, ui, state, plugin.step_id);
-            if (activeStepIndex < plugins.length - 1) {
-                runBtn.style.display = 'inline-block';
-                runBtn.innerText = "Next";
-            } else {
-                runBtn.style.display = 'none';
-            }
+            runBtn.style.display = 'inline-flex';
+            runBtn.innerHTML = '💾 Apply';
+            runBtn.title = `Apply and save ${plugin.step_name}`;
         } else {
             const infoMsg = ui.message || (handlerType ? `Unknown UI schema type: ${handlerType}` : 'Prerequisite step required. Please complete previous steps.');
             schemaContainer.innerHTML = `
@@ -303,7 +303,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     runBtn.onclick = async () => {
         errorContainer.style.display = 'none';
+        const applyFeedback = document.getElementById('apply-feedback');
+        if (applyFeedback) applyFeedback.style.display = 'none';
         runBtn.disabled = true;
+        runBtn.innerHTML = '⏳ Applying...';
 
         const plugin = plugins[activeStepIndex];
         const ui = plugin.ui_schema;
@@ -316,6 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const handler = UIRegistry[handlerType];
         if (!handler) {
             runBtn.disabled = false;
+            runBtn.innerHTML = '💾 Apply';
             return;
         }
 
@@ -326,6 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
             errorContainer.innerText = e.message;
             errorContainer.style.display = 'block';
             runBtn.disabled = false;
+            runBtn.innerHTML = '💾 Apply';
             return;
         }
 
@@ -336,13 +341,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 errorContainer.style.display = 'block';
                 return;
             }
-            const nextIndex = Math.min(activeStepIndex + 1, plugins.length - 1);
-            await loadPipeline(nextIndex);
+
+            // Update local state without forcing navigation
+            state[plugin.step_id] = data.data;
+
+            // Refresh project status and tab headers
+            const [projRes, pluginsRes] = await Promise.all([
+                fetch('/api/project'),
+                fetch('/api/plugins')
+            ]);
+            project = await projRes.json();
+            plugins = await pluginsRes.json();
+            updateProjectUI(project);
+            renderTabs();
+
+            // Display clear green confirmation
+            if (applyFeedback) {
+                applyFeedback.textContent = `✓ ${plugin.step_name} Applied & Saved!`;
+                applyFeedback.style.display = 'inline-block';
+                applyFeedback.style.opacity = '1';
+                setTimeout(() => {
+                    applyFeedback.style.opacity = '0';
+                    setTimeout(() => { applyFeedback.style.display = 'none'; }, 300);
+                }, 3000);
+            }
         } catch (err) {
             errorContainer.innerText = err.message;
             errorContainer.style.display = 'block';
         } finally {
             runBtn.disabled = false;
+            runBtn.innerHTML = '💾 Apply';
         }
     };
 

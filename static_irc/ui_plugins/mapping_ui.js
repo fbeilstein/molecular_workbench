@@ -159,13 +159,19 @@ function updateAtomHighlight(rEl, pEl, isApproved) {
 }
 
 function renderMappingUI(schemaContainer, ui, state, step_id) {
-    window.currentMapping = ui.initial_mapping ? Object.assign({}, ui.initial_mapping) : {};
+    const saved = state?.[step_id]?.final_mapping;
+    window.currentMapping = (saved && Object.keys(saved).length > 0)
+        ? Object.assign({}, saved)
+        : (ui.initial_mapping ? Object.assign({}, ui.initial_mapping) : {});
     window.approvedMappings = {};
     let selectedNode = null;
     let hideApproved = false;
 
     const btnBar = document.createElement('div');
     btnBar.style.marginBottom = '10px';
+    btnBar.style.display = 'flex';
+    btnBar.style.alignItems = 'center';
+    btnBar.style.gap = '10px';
 
     const toggleBtn = document.createElement('button');
     toggleBtn.innerText = "Hide Approved Wires";
@@ -177,14 +183,25 @@ function renderMappingUI(schemaContainer, ui, state, step_id) {
 
     const approveAllBtn = document.createElement('button');
     approveAllBtn.innerText = "Approve All Remaining";
-    approveAllBtn.style.marginLeft = '10px';
     approveAllBtn.onclick = () => {
         for (let k in window.currentMapping) window.approvedMappings[k] = true;
         drawWires();
     };
 
+    const resetAutoBtn = document.createElement('button');
+    resetAutoBtn.innerText = "🔄 Reset to Auto-Mapping";
+    resetAutoBtn.style.marginLeft = 'auto';
+    resetAutoBtn.title = "Reset custom wire connections back to default automatic mapping";
+    resetAutoBtn.onclick = () => {
+        if (!confirm("Reset all custom wire connections back to default automatic mapping?")) return;
+        window.currentMapping = Object.assign({}, ui.auto_mapping || ui.initial_mapping || {});
+        window.approvedMappings = {};
+        drawWires();
+    };
+
     btnBar.appendChild(toggleBtn);
     btnBar.appendChild(approveAllBtn);
+    btnBar.appendChild(resetAutoBtn);
     schemaContainer.appendChild(btnBar);
 
     const container = document.createElement('div');

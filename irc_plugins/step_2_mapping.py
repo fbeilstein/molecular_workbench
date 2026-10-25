@@ -67,16 +67,15 @@ class Step2Mapping(PipelineStep):
         r_mols = [Chem.MolFromSmiles(s) for s in r_smi]
         p_mols = [Chem.MolFromSmiles(s) for s in p_smi]
         
-        # Auto-map without explicit Hs to avoid symmetrical explosion
-        mapping, _ = auto_map_atoms(r_smi, p_smi)
-        mapping = _validate_pt_mapping(mapping, r_smi, p_smi)
-        
         # Now add explicit Hs. RDKit preserves existing atom indices.
         r_mols_h = [Chem.AddHs(m) if m else None for m in r_mols]
         p_mols_h = [Chem.AddHs(m) if m else None for m in p_mols]
         
+        # Auto-map without explicit Hs to avoid symmetrical explosion
+        mapping, _ = auto_map_atoms(r_smi, p_smi)
+        mapping = _validate_pt_mapping(mapping, r_smi, p_smi)
+        
         # Extend mapping to the newly added attached hydrogens
-        # Convert mapping to list of keys so we can iterate safely
         heavy_keys = list(mapping.keys())
         for r_key in heavy_keys:
             p_key = mapping[r_key]
@@ -99,12 +98,18 @@ class Step2Mapping(PipelineStep):
         p_svgs, p_coords = self._generate_svg_and_coords(p_mols_h)
         
         # Convert tuple keys to strings for JSON
-        json_mapping = {}
+        default_mapping = {}
         for k, v in mapping.items():
             k_str = f"{k[0]}_{k[1]}_{k[2]}" # e.g. "R_0_4"
             v_str = f"{v[0]}_{v[1]}_{v[2]}" # e.g. "P_0_5"
-            json_mapping[k_str] = v_str
+            default_mapping[k_str] = v_str
             
+        saved_mapping = current_state.get("step_2_mapping", {}).get("final_mapping")
+        if saved_mapping and isinstance(saved_mapping, dict) and len(saved_mapping) > 0:
+            active_mapping = dict(saved_mapping)
+        else:
+            active_mapping = dict(default_mapping)
+
         return {
             "type": "mapping_ui",
             "reactants": {
@@ -117,7 +122,8 @@ class Step2Mapping(PipelineStep):
                 "svgs": p_svgs,
                 "coords": p_coords
             },
-            "initial_mapping": json_mapping,
+            "initial_mapping": active_mapping,
+            "auto_mapping": default_mapping,
             "message": "Verify and correct atom mappings. Click a wire to delete it. Click two atoms to create a new wire."
         }
 

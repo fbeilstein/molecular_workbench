@@ -11,12 +11,35 @@ def decompose_multistep_reaction(smiles: str, rxnfile: str = "") -> List[Dict[st
     """
     Decompose a multi-arrow reaction into sequential elementary reaction steps.
     Supports:
-    1. Spatial decomposition of MDL RXN files from Ketcher (where multiple arrows
-       are exported into a single RXN block with multiple products or stages).
-    2. Multi-arrow SMILES (e.g., "A.B >> C >> D.E").
-    3. Multi-line reaction SMILES.
+    1. Multi-arrow SMILES (e.g., "A.B >> C >> D.E").
+    2. Multi-line reaction SMILES ("A >> B\\nB >> C").
+    3. Spatial decomposition of MDL RXN files ONLY when SMILES does not define a single reaction.
     """
-    # 1. Attempt spatial decomposition from rxnfile
+    clean_smi = smiles.strip() if smiles else ""
+
+    # Multi-line reaction format: A >> B \n C >> D
+    lines = [l.strip() for l in clean_smi.splitlines() if ">>" in l]
+    if len(lines) > 1:
+        return [{"smiles": l, "rxnfile": rxnfile if i == 0 else ""} for i, l in enumerate(lines)]
+
+    # Multi-arrow in single line: A + B >> C >> D
+    if clean_smi.count(">>") > 1:
+        parts = [p.strip() for p in clean_smi.split(">>") if p.strip()]
+        steps = []
+        for i in range(len(parts) - 1):
+            steps.append({
+                "smiles": f"{parts[i]}>>{parts[i+1]}",
+                "rxnfile": rxnfile if i == 0 else ""
+            })
+        return steps
+
+    # If SMILES has exactly 1 ">>", it is strictly a single elementary reaction
+    # (even if it has multiple products or reactants like A >> B + C or A + B >> C + D).
+    # Never split single-arrow reactions into multiple steps!
+    if clean_smi.count(">>") == 1:
+        return [{"smiles": smiles, "rxnfile": rxnfile}]
+
+    # 1. Attempt spatial decomposition from rxnfile only if SMILES is absent or has no arrows
     if rxnfile and "$MOL" in rxnfile:
         try:
             from rdkit import Chem
