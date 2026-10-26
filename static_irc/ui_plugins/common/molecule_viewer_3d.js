@@ -422,7 +422,8 @@ export class MoleculeViewer3D {
             let multiSdf = '';
             traj.frames.forEach((frame, idx) => {
                 const coords = frame.coords || frame.positions || [];
-                multiSdf += this.buildMolBlock(this.symbols, coords);
+                const syms = frame.symbols || this.symbols;
+                multiSdf += this.buildMolBlock(syms, coords);
                 multiSdf += '$$$$\n';
             });
 
@@ -456,7 +457,8 @@ export class MoleculeViewer3D {
         if (this.currentTraj && this.currentTraj.frames && this.currentTraj.frames[idx]) {
             const frame = this.currentTraj.frames[idx];
             const coords = frame.coords || frame.positions || [];
-            this.renderMolecule(this.symbols, coords, frame.charges || null, false);
+            const syms = frame.symbols || this.symbols;
+            this.renderMolecule(syms, coords, frame.charges || null, false);
         }
     }
 

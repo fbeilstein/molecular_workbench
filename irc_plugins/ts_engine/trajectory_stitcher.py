@@ -306,19 +306,22 @@ def generate_bridge_frames(
         except Exception:
             pass
 
-    for i in range(1, n_frames + 1):
-        s = (i / (n_frames + 1)) ** 2 * (3.0 - 2.0 * (i / (n_frames + 1)))
-        coords = ((1.0 - s) * p_start + s * p_end).copy()
-        for _ in range(5):
-            D = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=2)
-            np.fill_diagonal(D, 99.0)
-            for a, b in zip(*np.where(D < 1.15)):
-                if a < b and (dist := float(np.linalg.norm(coords[b] - coords[a]))) > 1e-4:
-                    shift = 0.5 * (1.15 - dist) * ((coords[b] - coords[a]) / dist)
-                    coords[b] += shift; coords[a] -= shift
-        coords = np.nan_to_num(coords, nan=0.0, posinf=0.0, neginf=0.0)
-        frames.append({"coords": coords.round(4).tolist(), "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2), "is_bridge": True})
-    return frames
+    if len(p_start) == len(p_end) and len(p_start) >= 1:
+        for i in range(1, n_frames + 1):
+            s = (i / (n_frames + 1)) ** 2 * (3.0 - 2.0 * (i / (n_frames + 1)))
+            coords = ((1.0 - s) * p_start + s * p_end).copy()
+            for _ in range(5):
+                D = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=2)
+                np.fill_diagonal(D, 99.0)
+                for a, b in zip(*np.where(D < 1.15)):
+                    if a < b and (dist := float(np.linalg.norm(coords[b] - coords[a]))) > 1e-4:
+                        shift = 0.5 * (1.15 - dist) * ((coords[b] - coords[a]) / dist)
+                        coords[b] += shift; coords[a] -= shift
+            coords = np.nan_to_num(coords, nan=0.0, posinf=0.0, neginf=0.0)
+            frames.append({"coords": coords.round(4).tolist(), "energy_kcal": round(float((1.0 - s) * e_start + s * e_end), 2), "is_bridge": True})
+        return frames
+
+    return []
 
 
 def get_canonical_smiles_set(smiles_str: str) -> Set[str]:
@@ -578,12 +581,15 @@ def stitch_multistep_trajectories(
 
         prev_pos = np.array(prev_step["frames"][-1].get("coords", prev_step["frames"][-1].get("positions", [])))
         align_pos = np.array(out_next["frames"][0].get("coords", out_next["frames"][0].get("positions", [])))
-        bridge = generate_bridge_frames(
-            prev_pos, align_pos,
-            prev_step["frames"][-1].get("rel_energy_kcal", 0.0),
-            out_next["frames"][0].get("rel_energy_kcal", 0.0),
-            n_bridge_frames, bonds=prev_step.get("bonds", []), symbols=prev_step.get("symbols", [])
-        )
+        if len(prev_pos) == len(align_pos):
+            bridge = generate_bridge_frames(
+                prev_pos, align_pos,
+                prev_step["frames"][-1].get("rel_energy_kcal", 0.0),
+                out_next["frames"][0].get("rel_energy_kcal", 0.0),
+                n_bridge_frames, bonds=prev_step.get("bonds", []), symbols=prev_step.get("symbols", [])
+            )
+        else:
+            bridge = []
 
         is_trimmed = (p_cut < orig_p_len - 1 or n_cut > 0)
         j_info = {
@@ -594,7 +600,7 @@ def stitch_multistep_trajectories(
             "n_matched_atoms": len(idxs_p), "joint_rmsd_angstrom": b_rmsd, "rmsd": b_rmsd, "is_reflected": bool(cand and cand.get("is_reflected")),
             "prev_symbols": prev_step.get("symbols", []), "prev_coords": prev_pos.round(4).tolist(),
             "next_symbols": out_next.get("symbols", []), "next_coords_unaligned": unalign_pos.round(4).tolist(),
-            "next_coords_aligned": align_pos.round(4).tolist(), "bridge_frames": bridge, "n_bridge_frames": n_bridge_frames,
+            "next_coords_aligned": align_pos.round(4).tolist(), "bridge_frames": bridge, "n_bridge_frames": len(bridge),
             "matched_prev_indices": idxs_p, "matched_next_indices": idxs_n,
             # Trimming & sliding window parameters:
             "prev_total_frames": orig_p_len, "next_total_frames": orig_n_len,
@@ -634,17 +640,19 @@ def stitch_multistep_trajectories(
         for f_i, fr in enumerate(s_frames):
             c = fr.get("coords", fr.get("positions", []))
             fr["coords"], fr["positions"], fr["step_index"], fr["is_ts"] = c, c, k + 1, (f_i == ts_idx)
+            fr["symbols"] = step.get("symbols", [])
             e_k = fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0))
             fr["energy_kcal"], fr["rel_energy_kcal"], fr["s_arc"] = round(float(e_k), 2), round(float(e_k), 2), round(step_start_s + (raw_s[f_i] - s_base), 3)
             accum_s, max_energy, final_energy = fr["s_arc"], max(max_energy, e_k), e_k
             fr["bonds"] = [{"from": b.get("from", 0), "to": b.get("to", 0), "order": b.get("r_order", 1) if f_i <= ts_idx else b.get("p_order", 1), "type": b.get("type", "spectator")} for b in k_bonds if (b.get("r_order", 1) if f_i <= ts_idx else b.get("p_order", 1)) > 0]
             master_frames.append(fr); curr_idx += 1
 
-        if k < len(all_bridges):
+        if k < len(all_bridges) and all_bridges[k]:
             bridge_b = [{"from": b.get("from", 0), "to": b.get("to", 0), "order": b.get("p_order", 1), "type": b.get("type", "spectator")} for b in k_bonds if b.get("p_order", 1) > 0]
             for b_fr in all_bridges[k]:
                 c = b_fr.get("coords", b_fr.get("positions", []))
                 b_fr["coords"], b_fr["positions"], b_fr["step_index"], b_fr["is_ts"] = c, c, f"Bridge {k + 1}➔{k + 2}", False
+                b_fr["symbols"] = step.get("symbols", [])
                 accum_s += 0.15
                 b_fr["rel_energy_kcal"], b_fr["bonds"], b_fr["s_arc"] = b_fr["energy_kcal"], bridge_b, round(float(accum_s), 3)
                 max_energy = max(max_energy, b_fr["energy_kcal"])
@@ -652,7 +660,8 @@ def stitch_multistep_trajectories(
 
     return {
         "title": "Master Multistep IRC Trajectory", "n_steps": len(aligned_steps), "total_frames": len(master_frames),
-        "symbols": symbols, "bonds": list(master_bonds_dict.values()), "step_boundaries": step_boundaries,
+        "symbols": symbols, "step_symbols": [step.get("symbols", []) for step in aligned_steps],
+        "bonds": list(master_bonds_dict.values()), "step_boundaries": step_boundaries,
         "stitching_alignment_report": step_reports, "junction_previews": junction_previews,
         "overall_barrier_kcal": round(float(max_energy), 2), "overall_reaction_energy_kcal": round(float(final_energy), 2),
         "frames": master_frames

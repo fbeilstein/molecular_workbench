@@ -328,17 +328,28 @@ export const CascadeUI = {
             const nextCoords = isOverlapAligned ? (j.next_coords_aligned || j.next_coords) : (j.next_coords_unaligned || j.next_coords);
             const rmsd = j.rmsd || j.joint_rmsd_angstrom || 0.0;
 
+            let pSyms = j.prev_symbols, pCoords = j.prev_coords;
+            let nSyms = j.next_symbols || j.prev_symbols, nCoords = nextCoords;
+
+            if (isHeroOnly && j.matched_prev_indices && j.matched_prev_indices.length && j.matched_next_indices && j.matched_next_indices.length) {
+                pSyms = j.matched_prev_indices.map(i => j.prev_symbols[i]);
+                pCoords = j.matched_prev_indices.map(i => j.prev_coords[i]);
+                nSyms = j.matched_next_indices.map(i => (j.next_symbols || j.prev_symbols)[i]);
+                nCoords = j.matched_next_indices.map(i => nextCoords[i]);
+            }
+
             activeViewer.renderOverlap(
-                j.prev_symbols,
-                j.prev_coords,
-                j.next_symbols || j.prev_symbols,
-                nextCoords,
+                pSyms,
+                pCoords,
+                nSyms,
+                nCoords,
                 rmsd,
                 isOverlapAligned
             );
 
             dom.rmsdBadge.textContent = `RMSD: ${rmsd.toFixed(4)} Å`;
-            dom.hudOverlay.textContent = `Boundary Overlap | Junction ${activeJunctionIdx + 1}➔${activeJunctionIdx + 2}: ${j.hero_formula || 'Intermediate'} | RMSD: ${rmsd.toFixed(4)} Å (${isOverlapAligned ? 'Cyan: Step K, Magenta: Step K+1' : 'Cyan: Step K, Yellow: Step K+1 Unaligned'})`;
+            const focusTag = isHeroOnly ? `[Hero Only: ${j.hero_formula || 'Intermediate'}]` : '[Full System]';
+            dom.hudOverlay.textContent = `Boundary Overlap | Junction ${activeJunctionIdx + 1}➔${activeJunctionIdx + 2}: ${j.hero_formula || 'Intermediate'} | RMSD: ${rmsd.toFixed(4)} Å ${focusTag} (${isOverlapAligned ? 'Cyan: Step K, Magenta: Step K+1' : 'Cyan: Step K, Yellow: Step K+1 Unaligned'})`;
         }
 
         function setViewMode(mode) {
@@ -383,6 +394,8 @@ export const CascadeUI = {
             }
         }
 
+        let isHeroOnly = true;
+
         dom.btnModeCascade.onclick = () => setViewMode('cascade');
         dom.btnModeOverlap.onclick = () => setViewMode('overlap');
 
@@ -395,6 +408,13 @@ export const CascadeUI = {
             isOverlapAligned = !isOverlapAligned;
             dom.alignTypeBtn.textContent = isOverlapAligned ? 'Aligned (Fit)' : 'Raw Unaligned';
             dom.alignTypeBtn.style.color = isOverlapAligned ? '#0284c7' : '#d97706';
+            renderCurrentOverlap();
+        };
+
+        dom.heroFilterBtn.onclick = () => {
+            isHeroOnly = !isHeroOnly;
+            dom.heroFilterBtn.textContent = isHeroOnly ? 'Hero Only' : 'Show All';
+            dom.heroFilterBtn.style.color = isHeroOnly ? '#059669' : '#64748b';
             renderCurrentOverlap();
         };
 

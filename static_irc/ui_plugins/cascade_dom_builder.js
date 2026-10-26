@@ -226,8 +226,19 @@ export function buildCascadeLayout(container, ui, options = {}) {
     rmsdBadge.style.borderRadius = '4px';
     rmsdBadge.textContent = 'RMSD: --';
 
+    const heroFilterBtn = document.createElement('button');
+    heroFilterBtn.style.padding = '4px 8px';
+    heroFilterBtn.style.fontSize = '11.5px';
+    heroFilterBtn.style.borderRadius = '4px';
+    heroFilterBtn.style.border = '1px solid #cbd5e1';
+    heroFilterBtn.style.background = '#ffffff';
+    heroFilterBtn.style.color = '#059669';
+    heroFilterBtn.textContent = 'Hero Only';
+    heroFilterBtn.title = 'Toggle between showing only the shared hero intermediate or full system with spectator molecules';
+
     overlapSubControls.appendChild(juncSelect);
     overlapSubControls.appendChild(alignTypeBtn);
+    overlapSubControls.appendChild(heroFilterBtn);
     overlapSubControls.appendChild(rmsdBadge);
     viewModeBar.appendChild(overlapSubControls);
 
@@ -307,7 +318,7 @@ export function buildCascadeLayout(container, ui, options = {}) {
         root, seqList, juncList, bSlider, bVal,
         restitchBtn, viewerBox, hudOverlay,
         btnModeCascade, btnModeOverlap, overlapSubControls,
-        juncSelect, alignTypeBtn, rmsdBadge,
+        juncSelect, alignTypeBtn, heroFilterBtn, rmsdBadge,
         playBtn, prevBtn, nextBtn, frameSlider, frameLabel,
         energyCanvas, ctrlRow,
         mFrames: mFrames.val,
