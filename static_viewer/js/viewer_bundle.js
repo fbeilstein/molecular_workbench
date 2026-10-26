@@ -527,6 +527,12 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
       if (this.activeOrbitals.size > 0 && this.bundle.orbitalMeshes) {
         const CC = window.$3Dmol ? window.$3Dmol.CC : null;
         for (const orbKey of this.activeOrbitals) {
+          const sKey = String(orbKey).toLowerCase();
+          const isAnti = sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
+          const posColorHex = isAnti ? "#d946ef" : "#38bdf8";
+          const negColorHex = isAnti ? "#22c55e" : "#f97316";
+          const posColorInt = isAnti ? 14239471 : 3718648;
+          const negColorInt = isAnti ? 2278750 : 16347926;
           const meshPair = this.findOrbitalMesh(frameIdx, orbKey);
           if (meshPair) {
             const pV = meshPair.pos?.vertices || meshPair.pos?.vertexArr;
@@ -537,7 +543,7 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
                 vertexArr: pV,
                 faceArr: pF,
                 normalArr: pN,
-                color: CC ? CC.color("#38bdf8") : 3718648,
+                color: CC ? CC.color(posColorHex) : posColorInt,
                 opacity: 0.75
               });
             }
@@ -549,7 +555,7 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
                 vertexArr: nV,
                 faceArr: nF,
                 normalArr: nN,
-                color: CC ? CC.color("#f97316") : 16347926,
+                color: CC ? CC.color(negColorHex) : negColorInt,
                 opacity: 0.75
               });
             }
@@ -559,8 +565,8 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
               try {
                 const vdo = new window.$3Dmol.VolumeData(cubeData, "cube");
                 const iso = this.orbitalIsovalue || 0.035;
-                this.glViewer.addIsosurface(vdo, { isoval: iso, color: "#38bdf8", opacity: 0.72 });
-                this.glViewer.addIsosurface(vdo, { isoval: -iso, color: "#f97316", opacity: 0.72 });
+                this.glViewer.addIsosurface(vdo, { isoval: iso, color: posColorHex, opacity: 0.72 });
+                this.glViewer.addIsosurface(vdo, { isoval: -iso, color: negColorHex, opacity: 0.72 });
               } catch (_) {
               }
             }
@@ -1046,11 +1052,11 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
           label = key;
         } else if (upper.includes("SIGMASTAR") || upper.includes("SIGMA*") || key.includes("\u03C3*")) {
           cat = "\u03C3* Anti-Bonds";
-          color = "#ffaa00";
+          color = "#d946ef";
           label = key.replace(/sigmastar[_\s]*/i, "\u03C3*(").replace(/$/, ")");
         } else if (upper.includes("PISTAR") || upper.includes("PI*") || key.includes("\u03C0*")) {
           cat = "\u03C0* Anti-Bonds";
-          color = "#ff8800";
+          color = "#ec4899";
           label = key.replace(/pistar[_\s]*/i, "\u03C0*(").replace(/$/, ")");
         } else if (upper.includes("PI") || key.includes("\u03C0")) {
           cat = "\u03C0 Bonds";

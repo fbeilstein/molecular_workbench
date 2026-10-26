@@ -269,11 +269,11 @@ export class ViewerOrbitalsPanel {
         label = key;
       } else if (upper.includes('SIGMASTAR') || upper.includes('SIGMA*') || key.includes('σ*')) {
         cat = 'σ* Anti-Bonds';
-        color = '#ffaa00';
+        color = '#d946ef';
         label = key.replace(/sigmastar[_\s]*/i, 'σ*(').replace(/$/, ')');
       } else if (upper.includes('PISTAR') || upper.includes('PI*') || key.includes('π*')) {
         cat = 'π* Anti-Bonds';
-        color = '#ff8800';
+        color = '#ec4899';
         label = key.replace(/pistar[_\s]*/i, 'π*(').replace(/$/, ')');
       } else if (upper.includes('PI') || key.includes('π')) {
         cat = 'π Bonds';

@@ -271,6 +271,18 @@ export class Viewer3D {
     if (this.activeOrbitals.size > 0 && this.bundle.orbitalMeshes) {
       const CC = window.$3Dmol ? window.$3Dmol.CC : null;
       for (const orbKey of this.activeOrbitals) {
+        // Detect anti-bonding (*, star, lumo, antibond) vs bonding
+        const sKey = String(orbKey).toLowerCase();
+        const isAnti = sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
+
+        // Distinct color palettes:
+        // Bonding: Sky Blue (+, #38bdf8) & Warm Orange (-, #f97316)
+        // Anti-bonding: Vibrant Magenta (+, #d946ef) & Emerald Green (-, #22c55e)
+        const posColorHex = isAnti ? '#d946ef' : '#38bdf8';
+        const negColorHex = isAnti ? '#22c55e' : '#f97316';
+        const posColorInt = isAnti ? 0xd946ef : 0x38bdf8;
+        const negColorInt = isAnti ? 0x22c55e : 0xf97316;
+
         const meshPair = this.findOrbitalMesh(frameIdx, orbKey);
         if (meshPair) {
           const pV = meshPair.pos?.vertices || meshPair.pos?.vertexArr;
@@ -281,7 +293,7 @@ export class Viewer3D {
               vertexArr: pV,
               faceArr: pF,
               normalArr: pN,
-              color: CC ? CC.color('#38bdf8') : 0x38bdf8,
+              color: CC ? CC.color(posColorHex) : posColorInt,
               opacity: 0.75
             });
           }
@@ -293,7 +305,7 @@ export class Viewer3D {
               vertexArr: nV,
               faceArr: nF,
               normalArr: nN,
-              color: CC ? CC.color('#f97316') : 0xf97316,
+              color: CC ? CC.color(negColorHex) : negColorInt,
               opacity: 0.75
             });
           }
@@ -303,8 +315,8 @@ export class Viewer3D {
             try {
               const vdo = new window.$3Dmol.VolumeData(cubeData, 'cube');
               const iso = this.orbitalIsovalue || 0.035;
-              this.glViewer.addIsosurface(vdo, { isoval: iso, color: '#38bdf8', opacity: 0.72 });
-              this.glViewer.addIsosurface(vdo, { isoval: -iso, color: '#f97316', opacity: 0.72 });
+              this.glViewer.addIsosurface(vdo, { isoval: iso, color: posColorHex, opacity: 0.72 });
+              this.glViewer.addIsosurface(vdo, { isoval: -iso, color: negColorHex, opacity: 0.72 });
             } catch (_) {}
           }
         }
