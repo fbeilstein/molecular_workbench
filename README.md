@@ -111,5 +111,10 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/3-chlorobutanoate.svg)|**3-chlorobutanoate**, or **$\beta$-chlorobutyrate**, or **3-chlorobutyrate**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/3-chlorobutanoate.zip&download)|Charge: -1 <br>SMILES: CC(CC([O-])=O)Cl|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/2-chlorobutanoic_acid.svg)|**2-chlorobutanoic acid**, or **$\alpha$-chlorobutyric acid**, or **2-chlorobutyric acid**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/2-chlorobutanoic_acid.zip&download)|$pK_a = 2.8$ <br>SMILES: CCC(C(O)=O)Cl|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/2-chlorobutanoate.svg)|**2-chlorobutanoate**, or **$\alpha$-chlorobutyrate**, or **2-chlorobutyrate**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/2-chlorobutanoate.zip&download)|Charge: -1 <br>SMILES: CCC(C([O-])=O)Cl|
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/ethane.svg)|**ethane**, or **bimethyl**, or **dimethyl**, or **methylmethane**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/ethane.zip&download)|SMILES: CC|
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/ethene.svg)|**ethene** or **ethylene**, or **olefiant gas**, or **elayl**, or **bicarburetted hydrogen**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/ethene.zip&download)|SMILES: C=C|
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/ethyne.svg)|**ethyne** or **acetylene**, or **narcylen**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/ethyne.zip&download)|SMILES: C#C|
+
+
 
 </details>
