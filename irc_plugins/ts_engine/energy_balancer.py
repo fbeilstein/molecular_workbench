@@ -230,19 +230,30 @@ def balance_pathway_energies(
                 ts_f = b.get("ts_frame", (start + end) // 2)
                 balanced_ev[ts_f] += delta_g_assoc
     else:
-        # 1. Base electronic energy in chosen solvent
+        # 1. Base electronic energy normalized from IRC trajectory frames
         active_e = np.zeros(n_frames)
-        if symbols:
-            init_chg = sum(r.get("charge", 0) for r in stoich["steps"][0]["reactants"])
-            calc = make_xtb(charge=init_chg, multiplicity=1, solvent=solvent)
-            atoms = Atoms(symbols=symbols)
-            atoms.calc = calc
-            for i, fr in enumerate(master_frames):
-                atoms.set_positions(fr.get("positions", fr.get("coords", [])))
-                active_e[i] = float(atoms.get_potential_energy())
-        else:
-            for i, fr in enumerate(master_frames):
-                active_e[i] = float(fr.get("energy_ev", fr.get("energy_kcal", 0.0) / 23.0605))
+        for k, b in enumerate(boundaries):
+            start, end = b["start_frame"], b["end_frame"]
+            traj = trajectories[k] if k < len(trajectories) else {}
+            e_base = traj.get("barriers", {}).get("e_reactant_ev", 0.0)
+            for idx in range(start, min(end + 1, n_frames)):
+                fr = master_frames[idx]
+                e_fr = float(fr.get("energy_ev", 0.0))
+                if abs(e_fr) < 100.0 and abs(e_base) > 100.0:
+                    active_e[idx] = e_base + e_fr
+                else:
+                    active_e[idx] = e_fr
+
+        # Interpolate active_e for inter-step bridge frames
+        for k in range(len(boundaries) - 1):
+            b_curr, b_next = boundaries[k], boundaries[k + 1]
+            b_start, b_end = b_curr["end_frame"] + 1, b_next["start_frame"] - 1
+            if b_start <= b_end:
+                n_b = b_end - b_start + 1
+                e0 = active_e[b_curr["end_frame"]]
+                e1 = active_e[b_next["start_frame"]]
+                tau = np.linspace(0, 1, n_b + 2)[1:-1]
+                active_e[b_start : b_end + 1] = (1.0 - tau) * e0 + tau * e1
 
         balanced_ev = np.copy(active_e)
 
@@ -252,6 +263,7 @@ def balance_pathway_energies(
             start, end = b["start_frame"], b["end_frame"]
             traj = trajectories[k] if k < len(trajectories) else {}
             bonds = traj.get("bonds", [])
+            step_symbols = traj.get("symbols", [])
 
             # Hess's Law offset for waiting reagents and past departed byproducts
             s_offset = sum(frag_energies.get(_clean_smiles(r["smiles"]), 0.0) for r in s_info["waiting_reagents"])
@@ -265,21 +277,21 @@ def balance_pathway_energies(
             breaking_bonds = [bd for bd in bonds if bd.get("type") == "breaking"]
 
             # Case A: Associative Step (incoming reagent arrives)
-            if inc_frags and forming_bonds:
+            if inc_frags and forming_bonds and step_symbols:
                 bi, bj = forming_bonds[0]["from"], forming_bonds[0]["to"]
-                d0_form = rcov(symbols[bi]) + rcov(symbols[bj])
+                d0_form = rcov(step_symbols[bi]) + rcov(step_symbols[bj])
                 d_contact, d_cov = d0_form + 1.35, d0_form * 1.15
 
                 inc_atom_set = set(inc_frags[0].get("atom_indices", []))
                 if not inc_atom_set:
                     inc_atom_set = {bj}
-                core_idxs = [i for i in range(len(symbols)) if i not in inc_atom_set]
+                core_idxs = [i for i in range(len(step_symbols)) if i not in inc_atom_set]
 
                 q_inc = inc_frags[0].get("charge", 0)
                 tot_step_chg = sum(r.get("charge", 0) for r in s_info["reactants"])
                 q_core = tot_step_chg - q_inc
 
-                core_atoms = Atoms(symbols=[symbols[i] for i in core_idxs])
+                core_atoms = Atoms(symbols=[step_symbols[i] for i in core_idxs])
                 core_calc = make_xtb(charge=q_core, multiplicity=1, solvent=solvent)
                 core_atoms.calc = core_calc
                 e_inc_iso = frag_energies.get(_clean_smiles(inc_frags[0]["smiles"]), 0.0)
@@ -305,31 +317,34 @@ def balance_pathway_energies(
                         balanced_ev[idx] = ((1.0 - assoc_w) * e_decoupled + assoc_w * e_bound) + s_offset
 
             # Case B: Dissociative Step (leaving group departs)
-            elif leaving_frags and breaking_bonds:
+            elif leaving_frags and breaking_bonds and step_symbols:
                 bi, bj = breaking_bonds[0]["from"], breaking_bonds[0]["to"]
-                d0_break = rcov(symbols[bi]) + rcov(symbols[bj])
+                d0_break = rcov(step_symbols[bi]) + rcov(step_symbols[bj])
                 d_tight, d_free = d0_break * 1.25, d0_break * 1.65
 
                 leaving_atom_set = set(leaving_frags[0].get("atom_indices", []))
                 if not leaving_atom_set:
                     leaving_atom_set = {bj}
-                hero_idxs = [i for i in range(len(symbols)) if i not in leaving_atom_set]
+                hero_idxs = [i for i in range(len(step_symbols)) if i not in leaving_atom_set]
 
                 q_leaving = leaving_frags[0].get("charge", 0)
                 tot_step_chg = sum(r.get("charge", 0) for r in s_info["reactants"])
                 q_hero = tot_step_chg - q_leaving
 
-                hero_atoms = Atoms(symbols=[symbols[i] for i in hero_idxs])
+                hero_atoms = Atoms(symbols=[step_symbols[i] for i in hero_idxs])
                 hero_calc = make_xtb(charge=q_hero, multiplicity=1, solvent=solvent)
                 hero_atoms.calc = hero_calc
-                e_leaving_iso = frag_energies.get(leaving_frags[0]["smiles"], 0.0)
+                e_leaving_iso = frag_energies.get(_clean_smiles(leaving_frags[0]["smiles"]), 0.0)
 
                 for idx in range(start, end + 1):
                     pos = np.array(master_frames[idx].get("coords", master_frames[idx].get("positions", [])))
                     d_val = float(np.linalg.norm(pos[bi] - pos[bj]))
                     e_bound = active_e[idx] + delta_g_assoc
-                    hero_atoms.set_positions(pos[hero_idxs])
-                    e_hero = float(hero_atoms.get_potential_energy())
+                    try:
+                        hero_atoms.set_positions(pos[hero_idxs])
+                        e_hero = float(hero_atoms.get_potential_energy())
+                    except Exception:
+                        e_hero = active_e[idx] - e_leaving_iso
                     e_decoupled = e_hero + e_leaving_iso
 
                     if d_val <= d_tight:
@@ -348,7 +363,7 @@ def balance_pathway_energies(
         for k in range(len(boundaries) - 1):
             b_curr, b_next = boundaries[k], boundaries[k + 1]
             shift = balanced_ev[b_curr["end_frame"]] - balanced_ev[b_next["start_frame"]]
-            balanced_ev[b_next["start_frame"] : b_next["end_frame"] + 1] += shift
+            balanced_ev[b_next["start_frame"] :] += shift
 
             b_start, b_end = b_curr["end_frame"] + 1, b_next["start_frame"] - 1
             if b_start <= b_end:
@@ -378,7 +393,9 @@ def balance_pathway_energies(
         b.update(m)
 
     for i, fr in enumerate(master_frames):
-        fr["energy_kcal"], fr["balanced_energy_ev"] = round(float(rel_kcal[i]), 3), round(float(balanced_ev[i]), 5)
+        fr["energy_kcal"] = round(float(rel_kcal[i]), 3)
+        fr["rel_energy_kcal"] = round(float(rel_kcal[i]), 3)
+        fr["balanced_energy_ev"] = round(float(balanced_ev[i]), 5)
 
     megajson["overall_barrier_kcal"] = round(float(max(np.max(rel_kcal), 0.0)), 2)
     megajson["overall_reaction_energy_kcal"] = round(float(rel_kcal[-1]), 2)

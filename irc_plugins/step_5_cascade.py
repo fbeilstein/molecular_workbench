@@ -129,6 +129,14 @@ class Step5Cascade(PipelineStep):
                     b_smiles = [b.get("reaction_smiles") for b in boundaries]
                     a_smiles = [a.get("reaction_smiles") for a in available]
                     if len(boundaries) == len(available) and b_smiles == a_smiles and b_smiles:
+                        if "energy_profile" not in cand_mj:
+                            try:
+                                from .ts_engine.energy_balancer import balance_pathway_energies
+                                cand_mj = balance_pathway_energies(cand_mj, [a["data"] for a in available], solvent="water")
+                                with open(PROLONGED_PATH, "w") as f:
+                                    json.dump(cand_mj, f, indent=2)
+                            except Exception:
+                                pass
                         megajson = cand_mj
             except Exception:
                 pass
@@ -139,7 +147,8 @@ class Step5Cascade(PipelineStep):
                 megajson = stitch_multistep_trajectories(
                     [a["data"] for a in available],
                     n_bridge_frames=8,
-                    auto_sort=False
+                    auto_sort=False,
+                    balance_energies=True
                 )
                 os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
                 with open(PROLONGED_PATH, "w") as f:
@@ -214,7 +223,8 @@ class Step5Cascade(PipelineStep):
                 to_stitch,
                 junction_choices=junction_choices,
                 n_bridge_frames=n_bridge,
-                auto_sort=False
+                auto_sort=False,
+                balance_energies=True
             )
             os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
             with open(PROLONGED_PATH, "w") as f:

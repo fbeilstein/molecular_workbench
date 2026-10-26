@@ -447,9 +447,11 @@ def stitch_multistep_trajectories(
     n_bridge_frames: int = 8,
     junction_trims: Optional[Dict[str, Dict[str, int]]] = None,
     auto_trim: bool = False,
-    auto_sort: bool = False
+    auto_sort: bool = False,
+    balance_energies: bool = True,
+    solvent: str = "water"
 ) -> Dict[str, Any]:
-    """Stitch IRC trajectories with optimal element alignment, monotonic s_arc, step-aware bond orders, and sliding-window frame trimming."""
+    """Stitch IRC trajectories with optimal element alignment, monotonic s_arc, step-aware bond orders, sliding-window frame trimming, and Hess reservoir energy balancing."""
     if not trajectories:
         return {}
     if len(trajectories) == 1:
@@ -658,7 +660,7 @@ def stitch_multistep_trajectories(
                 max_energy = max(max_energy, b_fr["energy_kcal"])
                 master_frames.append(b_fr); curr_idx += 1
 
-    return {
+    res = {
         "title": "Master Multistep IRC Trajectory", "n_steps": len(aligned_steps), "total_frames": len(master_frames),
         "symbols": symbols, "step_symbols": [step.get("symbols", []) for step in aligned_steps],
         "bonds": list(master_bonds_dict.values()), "step_boundaries": step_boundaries,
@@ -666,6 +668,16 @@ def stitch_multistep_trajectories(
         "overall_barrier_kcal": round(float(max_energy), 2), "overall_reaction_energy_kcal": round(float(final_energy), 2),
         "frames": master_frames
     }
+
+    if balance_energies and len(trajectories) >= 1:
+        try:
+            from .energy_balancer import balance_pathway_energies
+            res = balance_pathway_energies(res, trajectories, solvent=solvent, recalculate_with_xtb=True)
+        except Exception as eb_err:
+            import logging
+            logging.getLogger("irc_workbench").warning(f"Failed to balance pathway energies: {eb_err}")
+
+    return res
 
 
 def extract_fragment_molblock(traj: Dict[str, Any], frag_meta: Dict[str, Any], frame_idx: int = -1, target_mol: Any = None) -> str:
