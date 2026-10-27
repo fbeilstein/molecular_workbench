@@ -12,10 +12,9 @@ import { fetchFrameData, fetchOrbitalCube, postTimeline } from './orbitals/orbit
 
 export const OrbitalsUI = {
     state: {
-        stepId: 'step_6_orbitals', uiSchema: null, totalFrames: 0, currentFrame: 0,
-        isPlaying: false, playTimer: null, loadTimer: null, hideAllOrbitals: false,
-        showCharges: false, isovalue: 0.03, viewer3D: null, pool: null,
-        timeline: null, precompute: null, frameDataCache: {}, trajectory: [],
+        stepId: 'step_6_orbitals', uiSchema: null, totalFrames: 0, currentFrame: 0, isPlaying: false,
+        playTimer: null, loadTimer: null, hideAllOrbitals: false, showCharges: false, isovalue: 0.03,
+        viewer3D: null, pool: null, timeline: null, precompute: null, frameDataCache: {}, trajectory: [],
         trajectorySymbols: [], trajectoryBonds: [], trajectoryCharges: [], cubePromises: new Map()
     },
 
@@ -128,19 +127,23 @@ export const OrbitalsUI = {
 
     _getActiveOrbitals(f) {
         const auditioned = this.state.pool ? this.state.pool.getAuditionedOrbitals() : [];
-        const fd = this.state.frameDataCache[f];
+        const fd = this.state.frameDataCache[f], curStep = fd?.step_index;
         const getLiveMeta = key => fd?.all_ibos?.find(i => (i.key || i.name) === key);
         if (auditioned.length > 0) {
-            return auditioned.map(a => {
-                const aKey = a.orbital_key || a.key, isAnti = isAntiBondingOrbital(a);
-                const live = getLiveMeta(aKey), liveLabel = live ? (live.label || live.key) : (a.label || aKey);
+            const activeAud = [];
+            for (const a of auditioned) {
+                const isFrontier = a.key && (a.key.startsWith('HOMO') || a.key.startsWith('LUMO') || a.key === 'track_esp_charge');
+                if (!isFrontier && a.step_index != null && curStep != null && a.step_index !== curStep) continue;
+                const aKey = a.orbital_key || a.key, isAnti = isAntiBondingOrbital(a), live = getLiveMeta(aKey);
+                if (!isFrontier && !live) continue;
                 const liveType = live ? (live.type || a.type) : a.type, isLiveAnti = (liveType && liveType.includes('star')) || isAnti;
-                return {
-                    id: 'audition_' + aKey, orbital_key: aKey, chem_key: a.chem_key || aKey,
+                activeAud.push({
+                    id: 'audition_' + aKey, orbital_key: aKey, chem_key: a.chem_key || aKey, step_index: a.step_index,
                     orbital_class: live ? (isLiveAnti ? 'antibonding' : (liveType.includes('lone') ? 'lone_pairs' : 'bonding')) : (a.orbital_class || (isAnti ? 'antibonding' : 'bonding')),
-                    type: liveType, palette: a.palette, title: liveLabel, color: a.color || (isAnti ? '#fb923c' : '#38bdf8')
-                };
-            });
+                    type: liveType, palette: a.palette, title: live ? (live.label || live.key) : (a.label || aKey), color: a.color || (isAnti ? '#fb923c' : '#38bdf8')
+                });
+            }
+            return activeAud;
         }
         const muted = new Set(this.state.timeline ? this.state.timeline.getMutedOrbitalKeys() : []);
         return (this.state.timeline ? this.state.timeline.getActiveOrbitalsAtFrame(f) : []).filter(t => !muted.has(t.orbital_key)).map(t => {
@@ -161,10 +164,9 @@ export const OrbitalsUI = {
         const charges = (fd && fd.charges) || this.state.trajectoryCharges[f] || null;
 
         await this.state.viewer3D.renderScene({
-            symbols, coords, charges, bonds,
-            showCharges: this.state.showCharges || espActive, activeOrbitals: moTracks,
-            isovalue: this.state.isovalue, frameIdx: f, hideAllOrbitals: this.state.hideAllOrbitals,
-            fetchCubeFn: (fi, ok, ck, iso) => this.fetchCube(fi, ok, ck, iso)
+            symbols, coords, charges, bonds, showCharges: this.state.showCharges || espActive,
+            activeOrbitals: moTracks, isovalue: this.state.isovalue, frameIdx: f,
+            hideAllOrbitals: this.state.hideAllOrbitals, fetchCubeFn: (fi, ok, ck, iso) => this.fetchCube(fi, ok, ck, iso)
         });
     },
 
@@ -209,9 +211,7 @@ export const OrbitalsUI = {
         }
     },
 
-    stepFrame(delta) {
-        this.seekFrame(Math.max(0, Math.min(this.state.totalFrames - 1, this.state.currentFrame + delta)), this.state.isPlaying);
-    },
+    stepFrame(delta) { this.seekFrame(Math.max(0, Math.min(this.state.totalFrames - 1, this.state.currentFrame + delta)), this.state.isPlaying); },
 
     togglePlay() {
         this.state.isPlaying = !this.state.isPlaying;
@@ -240,7 +240,7 @@ export const OrbitalsUI = {
     onAddToTimeline(orbital) {
         if (this.state.timeline) {
             this.state.timeline.addTrack(orbital);
-            if (this.state.pool && orbital) { this.state.pool.auditionKeys.delete(orbital.key); this.state.pool.render(); }
+            if (this.state.pool && orbital) { this.state.pool.auditionKeys.delete(orbital.audition_id || orbital.key); this.state.pool.render(); }
             this.refreshViewer(); this.preloadAllCachedCubes();
         }
     },

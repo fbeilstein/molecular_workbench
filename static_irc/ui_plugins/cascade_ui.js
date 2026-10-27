@@ -80,7 +80,10 @@ export const CascadeUI = {
                 return;
             }
             const j = reports[activeJunctionIdx] || reports[0];
-            if (!j || !j.prev_symbols || !j.prev_coords) return;
+            if (!j || !j.prev_symbols || !j.prev_coords) {
+                dom.hudOverlay.textContent = 'Junction overlap coordinates missing. Please click "⚡ Re-Stitch Pathway".';
+                return;
+            }
 
             const nextCoords = isOverlapAligned ? (j.next_coords_aligned || j.next_coords) : (j.next_coords_unaligned || j.next_coords);
             const rmsd = j.rmsd || j.joint_rmsd_angstrom || 0.0;
@@ -148,6 +151,7 @@ export const CascadeUI = {
             currentMegajson = mj;
             const n = mj.frames.length;
 
+            populateJunctions(dom, getJunctionReports(), currentJunctionChoices);
             dom.frameSlider.max = (n - 1).toString();
             dom.frameSlider.disabled = dom.playBtn.disabled = dom.prevBtn.disabled = dom.nextBtn.disabled = false;
             dom.mFrames.textContent = `${n}`;

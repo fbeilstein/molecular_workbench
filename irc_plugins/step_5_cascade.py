@@ -112,7 +112,8 @@ class Step5Cascade(PipelineStep):
         megajson = step_state.get("megajson")
 
         # Validate cached prolonged_pathway.json against available sequence
-        if not megajson and os.path.exists(PROLONGED_PATH):
+        has_coords = bool(megajson and megajson.get("stitching_alignment_report") and "prev_symbols" in megajson["stitching_alignment_report"][0])
+        if (not megajson or not has_coords) and os.path.exists(PROLONGED_PATH):
             try:
                 with open(PROLONGED_PATH, "r") as f:
                     cand_mj = json.load(f)
@@ -121,19 +122,12 @@ class Step5Cascade(PipelineStep):
                     b_smiles = [b.get("reaction_smiles") for b in boundaries]
                     a_smiles = [a.get("reaction_smiles") for a in available]
                     if len(boundaries) == len(available) and b_smiles == a_smiles and b_smiles:
-                        if "energy_profile" not in cand_mj:
-                            try:
-                                from .ts_engine.energy_balancer import balance_pathway_energies
-                                cand_mj = balance_pathway_energies(cand_mj, [a["data"] for a in available], solvent="water")
-                                with open(PROLONGED_PATH, "w") as f:
-                                    json.dump(cand_mj, f, indent=2)
-                            except Exception:
-                                pass
                         megajson = cand_mj
             except Exception:
                 pass
 
-        if not megajson and len(available) >= 1:
+        has_coords = bool(megajson and megajson.get("stitching_alignment_report") and "prev_symbols" in megajson["stitching_alignment_report"][0])
+        if (not megajson or not has_coords) and len(available) >= 1:
             try:
                 megajson = stitch_multistep_trajectories([a["data"] for a in available], n_bridge_frames=8, auto_sort=False, balance_energies=True)
                 os.makedirs(TRAJECTORIES_DIR, exist_ok=True)

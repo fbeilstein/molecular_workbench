@@ -46,21 +46,21 @@ def resolve_orbital_key(d: Dict[str, Any], orb_name: str, chem_key: Optional[str
     """Resolve an orbital or chem_key against available molecular orbital metadata."""
     if not d or "vecs" not in d:
         return None
-    if orb_name in d.get("vecs", {}):
-        return orb_name
     all_metas = {
         **d.get("ibos_meta", {}),
         **d.get("canonical_pi_meta", {}),
         **d.get("antibonds_meta", {}),
         **d.get("meta", {})
     }
-    for target in [orb_name, chem_key]:
-        if not target:
-            continue
+    if orb_name in d.get("meta", {}):
+        return orb_name
+    if chem_key and chem_key not in ("HOMO", "LUMO", "esp_charge", orb_name):
         for k, meta in all_metas.items():
-            if (meta.get("key") == target or meta.get("name") == target or
-                meta.get("chem_key") == target or meta.get("label") == target) and k in d.get("vecs", {}):
+            if (meta.get("chem_key") == chem_key or meta.get("label") == chem_key) and k in d.get("vecs", {}):
                 return k
+        return None
+    if orb_name in d.get("vecs", {}):
+        return orb_name
     return None
 
 

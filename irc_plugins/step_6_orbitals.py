@@ -117,13 +117,17 @@ class Step6Orbitals(PipelineStep):
             ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols, ref_dict)
             f_meta, c_meta, f_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, prev_data["mol"], prev_data["vecs"], ibos_m, star_m, ibos_v)
 
+        st_idx = fr.get("step_index")
+        for m in (ibos_m, star_m, c_meta):
+            for itm in m.values():
+                itm["step_index"] = st_idx
         tag_orbital_classes(f_meta, ibos_m, star_m, c_meta)
 
         frame_dict = {
             "mol": mol, "mf": mf, "meta": f_meta, "ibos_meta": ibos_m,
             "antibonds_meta": star_m, "canonical_pi_meta": c_meta,
             "ibo_pops": pops, "val_pops": pops[n_c:], "ibo_coeff": ibo_c, "vecs": {**ibos_v, **f_vecs},
-            "charges": mull, "n_core": n_c, "symbols": symbols
+            "charges": mull, "n_core": n_c, "symbols": symbols, "step_index": st_idx
         }
         _SCF_CACHE[fi] = frame_dict
         return frame_dict
@@ -171,7 +175,8 @@ class Step6Orbitals(PipelineStep):
                 "frontier_orbitals": data["meta"], "all_ibos": list(data["ibos_meta"].values()),
                 "antibonds": list(data.get("antibonds_meta", {}).values()),
                 "canonical_pi": list(data.get("canonical_pi_meta", {}).values()),
-                "coords": coords, "symbols": symbols, "bonds": bonds
+                "coords": coords, "symbols": symbols, "bonds": bonds,
+                "step_index": fr.get("step_index")
             }
 
 
