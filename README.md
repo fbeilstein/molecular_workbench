@@ -114,7 +114,6 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/ethane.svg)|**ethane**, or **bimethyl**, or **dimethyl**, or **methylmethane**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/ethane.zip&download)|SMILES: CC|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/ethene.svg)|**ethene** or **ethylene**, or **olefiant gas**, or **elayl**, or **bicarburetted hydrogen**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/ethene.zip&download)|SMILES: C=C|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/ethyne.svg)|**ethyne** or **acetylene**, or **narcylen**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/ethyne.zip&download)|SMILES: C#C|
-
-
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/benzene.svg)|**benzene**, or **cyclohexa-1,3,5-triene**, or **benzol**, or **[6]annulene**, or **phene**, or **bicarburet of hydrogen**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/benzene.zip&download)|Simplest aromatic molecule <br>SMILES: C1C=CC=CC=1|
 
 </details>
