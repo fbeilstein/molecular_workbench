@@ -77,6 +77,9 @@ class Step2Mapping(PipelineStep):
         
         # Extend mapping to the newly added attached hydrogens
         heavy_keys = list(mapping.keys())
+        donor_hs = []
+        acceptor_hs = []
+
         for r_key in heavy_keys:
             p_key = mapping[r_key]
             r_fi, r_ai = r_key[1], r_key[2]
@@ -90,9 +93,22 @@ class Step2Mapping(PipelineStep):
             p_atom = p_mols_h[p_fi].GetAtomWithIdx(p_ai)
             p_hs = [n.GetIdx() for n in p_atom.GetNeighbors() if n.GetAtomicNum() == 1]
             
-            # Map up to the minimum number of Hs on both sides
-            for rh, ph in zip(r_hs, p_hs):
+            # Map common non-transferred spectator hydrogens
+            n_common = min(len(r_hs), len(p_hs))
+            for rh, ph in zip(r_hs[:n_common], p_hs[:n_common]):
                 mapping[('R', r_fi, rh)] = ('P', p_fi, ph)
+                
+            # Collect transferred protons from donor/acceptor heavy atoms
+            if len(r_hs) > n_common:
+                for rh in r_hs[n_common:]:
+                    donor_hs.append(('R', r_fi, rh))
+            elif len(p_hs) > n_common:
+                for ph in p_hs[n_common:]:
+                    acceptor_hs.append(('P', p_fi, ph))
+
+        # Explicitly map transferred protons across donor and acceptor fragments
+        for (r_tag, r_fi, rh), (p_tag, p_fi, ph) in zip(donor_hs, acceptor_hs):
+            mapping[('R', r_fi, rh)] = ('P', p_fi, ph)
         
         r_svgs, r_coords = self._generate_svg_and_coords(r_mols_h)
         p_svgs, p_coords = self._generate_svg_and_coords(p_mols_h)

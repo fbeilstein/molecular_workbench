@@ -195,17 +195,12 @@ def _hermite_spline(t: np.ndarray, y0: float, y1: float, g0: float, g1: float) -
 def balance_pathway_energies(
     megajson: Dict[str, Any],
     trajectories: List[Dict[str, Any]],
-    recalculate_with_xtb: bool = True,
+    recalculate_with_xtb: bool = False,
     solvent: str = "water",
     fragment_roles: Optional[Dict[str, str]] = None,
     truncate_at_minimum: bool = False
 ) -> Dict[str, Any]:
     """Calculate Hess's Law balanced Free Energy (G) profile with dynamic association entropy and leaving group exclusion."""
-    stoich = analyze_pathway_stoichiometry(trajectories, fragment_roles)
-    init_reactants = stoich["steps"][0]["reactants"] if stoich["steps"] else []
-    all_ext = stoich["all_external_reactants"] + stoich["all_external_byproducts"] + init_reactants
-    frag_energies = compute_isolated_fragment_energies(all_ext, solvent=solvent, relax=True)
-
     boundaries = megajson.get("step_boundaries", [])
     master_frames = megajson.get("frames", [])
     symbols = megajson.get("symbols", [])
@@ -213,22 +208,24 @@ def balance_pathway_energies(
     if n_frames == 0:
         return megajson
 
+    # Detect disparate calculation engines / reference levels (e.g. ORCA DFT vs xTB)
+    base_energies = [t.get("barriers", {}).get("e_reactant_ev", 0.0) for t in trajectories if t.get("barriers")]
+    if len(base_energies) > 1 and (max(base_energies) - min(base_energies)) > 50.0:
+        recalculate_with_xtb = False
+
+    stoich = analyze_pathway_stoichiometry(trajectories, fragment_roles)
+    init_reactants = stoich["steps"][0]["reactants"] if stoich["steps"] else []
+    all_ext = stoich["all_external_reactants"] + stoich["all_external_byproducts"] + init_reactants
+    frag_energies = compute_isolated_fragment_energies(all_ext, solvent=solvent, relax=True) if recalculate_with_xtb else {}
+
     # Combined translational/rotational entropy loss + 1M solution standard-state correction (~13.76 kcal/mol)
     delta_g_assoc = 13.76 / 23.0605
 
     if not recalculate_with_xtb:
         rel_kcal = np.array([float(fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0))) for fr in master_frames])
+        if len(rel_kcal) > 0:
+            rel_kcal = rel_kcal - rel_kcal[0]
         balanced_ev = rel_kcal / 23.0605
-        # Apply Hess offsets and association penalty even if using pre-computed energies
-        for k, b in enumerate(boundaries):
-            s_info = stoich["steps"][k]
-            start, end = b["start_frame"], b["end_frame"]
-            s_offset = sum(frag_energies.get(_clean_smiles(r["smiles"]), 0.0) for r in s_info["waiting_reagents"])
-            s_offset += sum(frag_energies.get(_clean_smiles(p["smiles"]), 0.0) for p in s_info["departed_byproducts"])
-            balanced_ev[start : end + 1] += s_offset
-            if s_info.get("incoming_external"):
-                ts_f = b.get("ts_frame", (start + end) // 2)
-                balanced_ev[ts_f] += delta_g_assoc
     else:
         # 1. Base electronic energy normalized from IRC trajectory frames
         active_e = np.zeros(n_frames)

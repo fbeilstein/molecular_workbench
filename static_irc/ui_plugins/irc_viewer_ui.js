@@ -44,11 +44,7 @@ export const IRCViewerUI = {
             const n = traj.frames.length;
 
             dom.frameSlider.max = (n - 1).toString();
-            dom.frameSlider.disabled = false;
-            dom.playBtn.disabled = false;
-            dom.prevBtn.disabled = false;
-            dom.nextBtn.disabled = false;
-            dom.downloadBtn.disabled = false;
+            dom.frameSlider.disabled = dom.playBtn.disabled = dom.prevBtn.disabled = dom.nextBtn.disabled = dom.downloadBtn.disabled = false;
 
             const b = traj.barriers || {};
             const isGibbs = b.energy_type === 'gibbs';
@@ -58,22 +54,15 @@ export const IRCViewerUI = {
             dom.revBadge.textContent = `${unitTag}‡ rev: ${b.reverse_barrier_kcal != null ? b.reverse_barrier_kcal.toFixed(1) : '--'} kcal`;
             dom.rxnBadge.textContent = `${unitTag} rxn: ${b.reaction_energy_kcal != null ? (b.reaction_energy_kcal > 0 ? '+' : '') + b.reaction_energy_kcal.toFixed(1) : '--'} kcal`;
 
-            if (isGibbs) {
-                dom.fwdBadge.title = 'Standard-State Gibbs Free Energy Barrier (298.15 K, 1 M in solvent)';
-                dom.chartTitle.textContent = 'Gibbs Free Energy Profile ΔG (kcal/mol) vs Reaction Coordinate s:';
-            } else {
-                dom.fwdBadge.title = 'Electronic Energy Barrier';
-                dom.chartTitle.textContent = 'Energy Profile ΔE (kcal/mol) vs Reaction Coordinate s:';
-            }
+            dom.fwdBadge.title = isGibbs ? 'Standard-State Gibbs Free Energy Barrier (298.15 K, 1 M in solvent)' : 'Electronic Energy Barrier';
+            dom.chartTitle.textContent = `${isGibbs ? 'Gibbs Free Energy Profile ΔG' : 'Energy Profile ΔE'} (kcal/mol) vs Reaction Coordinate s:`;
 
             if (dom.freqBadge) {
                 const imFreqs = b.imaginary_freq_cm || [];
+                dom.freqBadge.style.display = imFreqs.length > 0 ? 'inline-block' : 'none';
                 if (imFreqs.length > 0) {
-                    dom.freqBadge.style.display = 'inline-block';
                     dom.freqBadge.textContent = `ν‡: ${imFreqs[0].toFixed(1)} cm⁻¹`;
                     dom.freqBadge.title = `Imaginary vibrational mode (${imFreqs[0].toFixed(1)} cm⁻¹) confirming TS saddle point`;
-                } else {
-                    dom.freqBadge.style.display = 'none';
                 }
             }
 
@@ -84,6 +73,7 @@ export const IRCViewerUI = {
 
         // Timeline controls
         dom.frameSlider.oninput = () => setFrame(parseInt(dom.frameSlider.value));
+        dom.frameSlider.onchange = () => setFrame(parseInt(dom.frameSlider.value));
         dom.prevBtn.onclick = () => setFrame(currentFrameIndex - 1);
         dom.nextBtn.onclick = () => setFrame(currentFrameIndex + 1);
 

@@ -99,19 +99,11 @@ class Step5Cascade(PipelineStep):
             if traj_data and traj_data.get("frames"):
                 smi = traj_data.get("reaction_smiles") or s.get("smiles", "")
                 results.append({
-                    "step_id": sid,
-                    "step_index": s_idx,
-                    "title": s.get("title", f"Step {s_idx}"),
-                    "path": t_path,
-                    "filename": f"{sid}_irc_trajectory.json",
-                    "reaction_smiles": smi,
-                    "n_frames": len(traj_data.get("frames", [])),
-                    "n_atoms": len(traj_data.get("symbols", [])),
-                    "n_steps": 1,
-                    "barriers": traj_data.get("barriers", {}),
-                    "data": traj_data
+                    "step_id": sid, "step_index": s_idx, "title": s.get("title", f"Step {s_idx}"),
+                    "path": t_path, "filename": f"{sid}_irc_trajectory.json", "reaction_smiles": smi,
+                    "n_frames": len(traj_data.get("frames", [])), "n_atoms": len(traj_data.get("symbols", [])),
+                    "n_steps": 1, "barriers": traj_data.get("barriers", {}), "data": traj_data
                 })
-
         return results
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -141,15 +133,9 @@ class Step5Cascade(PipelineStep):
             except Exception:
                 pass
 
-        # If not cached, auto-stitch in project order (works for 1 or more steps!)
         if not megajson and len(available) >= 1:
             try:
-                megajson = stitch_multistep_trajectories(
-                    [a["data"] for a in available],
-                    n_bridge_frames=8,
-                    auto_sort=False,
-                    balance_energies=True
-                )
+                megajson = stitch_multistep_trajectories([a["data"] for a in available], n_bridge_frames=8, auto_sort=False, balance_energies=True)
                 os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
                 with open(PROLONGED_PATH, "w") as f:
                     json.dump(megajson, f, indent=2)
@@ -158,26 +144,16 @@ class Step5Cascade(PipelineStep):
 
         stitching_report = megajson.get("stitching_alignment_report", []) if megajson else []
         step_boundaries = megajson.get("step_boundaries", []) if megajson else []
-
         traj_meta = [{
-            "step_id": a.get("step_id", f"step_{i+1}"),
-            "step_index": a.get("step_index", i + 1),
-            "title": a.get("title", f"Step {i+1}"),
-            "filename": a["filename"],
-            "path": a["path"],
-            "reaction_smiles": a["reaction_smiles"],
-            "n_frames": a["n_frames"],
-            "n_atoms": a["n_atoms"]
+            "step_id": a.get("step_id", f"step_{i+1}"), "step_index": a.get("step_index", i + 1),
+            "title": a.get("title", f"Step {i+1}"), "filename": a["filename"], "path": a["path"],
+            "reaction_smiles": a["reaction_smiles"], "n_frames": a["n_frames"], "n_atoms": a["n_atoms"]
         } for i, a in enumerate(available)]
 
         return {
-            "type": "cascade_ui",
-            "trajectories": traj_meta,
-            "megajson": megajson,
-            "has_cascade": bool(megajson),
-            "stitching_report": stitching_report,
-            "step_boundaries": step_boundaries,
-            "n_bridge_frames": step_state.get("n_bridge_frames", 8),
+            "type": "cascade_ui", "trajectories": traj_meta, "megajson": megajson,
+            "has_cascade": bool(megajson), "stitching_report": stitching_report,
+            "step_boundaries": step_boundaries, "n_bridge_frames": step_state.get("n_bridge_frames", 8),
             "junction_choices": step_state.get("junction_choices", {}),
             "message": "Inspect aligned reaction sequence, select rotamer/scaffold modes, and tune bridge interpolation."
         }
@@ -195,10 +171,8 @@ class Step5Cascade(PipelineStep):
 
         to_stitch = []
         if ordered_files:
-            # Map identifiers strictly in the order requested by user
-            id_map = {}
+            id_map = {a.get("step_id"): a["data"] for a in available_list}
             for a in available_list:
-                id_map[a.get("step_id")] = a["data"]
                 id_map[a.get("filename")] = a["data"]
                 id_map[str(a.get("step_index"))] = a["data"]
                 id_map[a.get("path")] = a["data"]
@@ -206,41 +180,29 @@ class Step5Cascade(PipelineStep):
             for identifier in ordered_files:
                 if identifier in id_map:
                     t_data = id_map[identifier]
-                    # Check if this step should be inverted
                     if identifier in reversed_steps:
                         t_data = invert_trajectory_direction(t_data)
                     to_stitch.append(t_data)
 
         if not to_stitch:
             to_stitch = [a["data"] for a in available_list]
-
         if not to_stitch:
             return {"error": "No trajectories available to stitch."}
 
         try:
-            # Strictly obey user order (auto_sort=False)
-            megajson = stitch_multistep_trajectories(
-                to_stitch,
-                junction_choices=junction_choices,
-                n_bridge_frames=n_bridge,
-                auto_sort=False,
-                balance_energies=True
-            )
+            megajson = stitch_multistep_trajectories(to_stitch, junction_choices=junction_choices, n_bridge_frames=n_bridge, auto_sort=False, balance_energies=True)
             os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
             with open(PROLONGED_PATH, "w") as f:
                 json.dump(megajson, f, indent=2)
 
-            # Sync master out/irc_trajectory.json
             try:
-                out_traj = os.path.join(OUT_DIR, "irc_trajectory.json")
-                with open(out_traj, "w") as f:
+                with open(os.path.join(OUT_DIR, "irc_trajectory.json"), "w") as f:
                     json.dump(megajson, f, indent=2)
             except Exception:
                 pass
 
             return {
-                "success": True,
-                "megajson": megajson,
+                "success": True, "megajson": megajson,
                 "stitching_report": megajson.get("stitching_alignment_report", []),
                 "step_boundaries": megajson.get("step_boundaries", []),
                 "message": f"Successfully stitched {megajson.get('n_steps', len(to_stitch))} step{'s' if megajson.get('n_steps', len(to_stitch)) != 1 else ''} ({megajson.get('total_frames', len(megajson['frames']))} frames)!"
@@ -249,10 +211,9 @@ class Step5Cascade(PipelineStep):
             return {"error": f"Stitching failed: {e}"}
 
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
-        global_state = global_state or {}
-        action = user_input.get("action_type")
+        action = (user_input or {}).get("action_type")
         if action == "stitch_cascade":
-            return self._handle_stitch_cascade(global_state, user_input)
+            return self._handle_stitch_cascade(global_state or {}, user_input)
         return {"error": f"Unknown action: {action}"}
 
     def run(self, global_state: Dict[str, Any], user_input: Dict[str, Any]) -> StepResult:

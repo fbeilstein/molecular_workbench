@@ -1,6 +1,12 @@
+/**
+ * Step 5: Master Cascade Stitcher and Boundary Overlap Inspector UI.
+ * Sequence list and junction builders delegated to cascade_preview.js.
+ */
+
 import { MoleculeViewer3D } from './common/molecule_viewer_3d.js';
 import { renderEnergyProfile } from './irc_profile_plot.js';
 import { buildCascadeLayout } from './cascade_dom_builder.js';
+import { renderSequenceList, populateJunctions } from './cascade_preview.js';
 
 let activeViewer = null;
 let currentMegajson = null;
@@ -9,9 +15,10 @@ let currentFrameIndex = 0;
 let isPlaying = false;
 let currentJunctionChoices = {};
 let currentBridgeFrames = 8;
-let currentViewMode = 'cascade'; // 'cascade' | 'overlap'
+let currentViewMode = 'cascade';
 let activeJunctionIdx = 0;
 let isOverlapAligned = true;
+let isHeroOnly = true;
 
 export const CascadeUI = {
     render: (container, ui, state, stepId) => {
@@ -25,277 +32,27 @@ export const CascadeUI = {
 
         const dom = buildCascadeLayout(container, ui, { initialBridgeFrames: currentBridgeFrames });
 
-        // Populate Sequence List with Reordering Controls
-        let currentTrajs = [...(ui.trajectories || [])];
-        let orderModified = false;
+        const seqState = {
+            currentTrajs: [...(ui.trajectories || [])],
+            originalTrajs: [...(ui.trajectories || [])],
+            orderModified: false
+        };
 
-        function renderSequenceList() {
-            dom.seqList.innerHTML = '';
-            if (currentTrajs.length === 0) {
-                const noSeq = document.createElement('div');
-                noSeq.style.fontSize = '12px';
-                noSeq.style.color = '#64748b';
-                noSeq.textContent = 'No previous trajectories found. Complete Step 4 first.';
-                dom.seqList.appendChild(noSeq);
-                return;
-            }
-
-            if (orderModified || currentTrajs.length !== (ui.trajectories || []).length) {
-                const notice = document.createElement('div');
-                notice.style.fontSize = '11px';
-                notice.style.color = '#d97706';
-                notice.style.background = '#fef3c7';
-                notice.style.border = '1px solid #fde68a';
-                notice.style.borderRadius = '4px';
-                notice.style.padding = '4px 8px';
-                notice.style.marginBottom = '6px';
-                notice.style.display = 'flex';
-                notice.style.justifyContent = 'space-between';
-                notice.style.alignItems = 'center';
-
-                const noticeText = document.createElement('span');
-                noticeText.textContent = 'Sequence modified. Click ⚡ Re-Stitch Pathway to apply.';
-                notice.appendChild(noticeText);
-
-                const resetBtn = document.createElement('button');
-                resetBtn.textContent = '↺ Reset';
-                resetBtn.title = 'Reset to original project step sequence';
-                resetBtn.style.padding = '1px 6px';
-                resetBtn.style.fontSize = '10px';
-                resetBtn.style.border = '1px solid #d97706';
-                resetBtn.style.background = '#fff';
-                resetBtn.style.color = '#b45309';
-                resetBtn.style.borderRadius = '3px';
-                resetBtn.style.cursor = 'pointer';
-                resetBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    currentTrajs = [...(ui.trajectories || [])];
-                    orderModified = false;
-                    renderSequenceList();
-                };
-                notice.appendChild(resetBtn);
-                dom.seqList.appendChild(notice);
-            }
-
-            currentTrajs.forEach((t, i) => {
-                const sRow = document.createElement('div');
-                sRow.style.display = 'flex';
-                sRow.style.alignItems = 'center';
-                sRow.style.gap = '6px';
-                sRow.style.fontSize = '12px';
-                sRow.style.padding = '6px 8px';
-                sRow.style.background = '#ffffff';
-                sRow.style.border = '1px solid #e2e8f0';
-                sRow.style.borderRadius = '6px';
-
-                const badge = document.createElement('span');
-                badge.style.padding = '2px 6px';
-                badge.style.borderRadius = '4px';
-                badge.style.fontSize = '11px';
-                badge.style.fontWeight = '600';
-                badge.style.background = '#dbeafe';
-                badge.style.color = '#1e40af';
-                badge.textContent = `Step ${i + 1}`;
-
-                const sName = document.createElement('span');
-                sName.style.flex = '1';
-                sName.style.fontFamily = 'monospace';
-                sName.style.overflow = 'hidden';
-                sName.style.textOverflow = 'ellipsis';
-                sName.style.whiteSpace = 'nowrap';
-                const label = (t.reaction_smiles || t.filename || '').replace('>>', ' ➔ ');
-                sName.title = label;
-                sName.textContent = label;
-
-                const fCount = document.createElement('span');
-                fCount.style.color = '#64748b';
-                fCount.style.fontSize = '11px';
-                fCount.textContent = `${t.n_frames}f`;
-
-                // Reorder controls
-                const btnBox = document.createElement('div');
-                btnBox.style.display = 'flex';
-                btnBox.style.gap = '2px';
-
-                const flipBtn = document.createElement('button');
-                flipBtn.textContent = t.is_reversed ? '⇄ Inv' : '⇄';
-                flipBtn.title = t.is_reversed ? 'Reaction is inverted (Product ➔ Reactant)' : 'Invert reaction direction (Reactant ↔ Product)';
-                flipBtn.style.padding = '2px 5px';
-                flipBtn.style.fontSize = '10px';
-                flipBtn.style.lineHeight = '1';
-                flipBtn.style.border = t.is_reversed ? '1px solid #f59e0b' : '1px solid #cbd5e1';
-                flipBtn.style.background = t.is_reversed ? '#fef3c7' : '#f8fafc';
-                flipBtn.style.color = t.is_reversed ? '#b45309' : '#334155';
-                flipBtn.style.fontWeight = t.is_reversed ? '700' : 'normal';
-                flipBtn.style.borderRadius = '3px';
-                flipBtn.style.cursor = 'pointer';
-                flipBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    t.is_reversed = !t.is_reversed;
-                    orderModified = true;
-                    renderSequenceList();
-                };
-
-                const upBtn = document.createElement('button');
-                upBtn.textContent = '▲';
-                upBtn.title = 'Move step earlier';
-                upBtn.style.padding = '2px 5px';
-                upBtn.style.fontSize = '10px';
-                upBtn.style.lineHeight = '1';
-                upBtn.style.border = '1px solid #cbd5e1';
-                upBtn.style.background = '#f8fafc';
-                upBtn.style.borderRadius = '3px';
-                upBtn.style.cursor = i > 0 ? 'pointer' : 'default';
-                upBtn.style.opacity = i > 0 ? '1' : '0.3';
-                upBtn.disabled = i === 0;
-                upBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    if (i > 0) {
-                        const temp = currentTrajs[i];
-                        currentTrajs[i] = currentTrajs[i - 1];
-                        currentTrajs[i - 1] = temp;
-                        orderModified = true;
-                        renderSequenceList();
-                    }
-                };
-
-                const downBtn = document.createElement('button');
-                downBtn.textContent = '▼';
-                downBtn.title = 'Move step later';
-                downBtn.style.padding = '2px 5px';
-                downBtn.style.fontSize = '10px';
-                downBtn.style.lineHeight = '1';
-                downBtn.style.border = '1px solid #cbd5e1';
-                downBtn.style.background = '#f8fafc';
-                downBtn.style.borderRadius = '3px';
-                downBtn.style.cursor = i < currentTrajs.length - 1 ? 'pointer' : 'default';
-                downBtn.style.opacity = i < currentTrajs.length - 1 ? '1' : '0.3';
-                downBtn.disabled = i === currentTrajs.length - 1;
-                downBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    if (i < currentTrajs.length - 1) {
-                        const temp = currentTrajs[i];
-                        currentTrajs[i] = currentTrajs[i + 1];
-                        currentTrajs[i + 1] = temp;
-                        orderModified = true;
-                        renderSequenceList();
-                    }
-                };
-
-                const delBtn = document.createElement('button');
-                delBtn.textContent = '✕';
-                delBtn.title = 'Exclude step from cascade sequence';
-                delBtn.style.padding = '2px 5px';
-                delBtn.style.fontSize = '10px';
-                delBtn.style.lineHeight = '1';
-                delBtn.style.border = '1px solid #fca5a5';
-                delBtn.style.background = '#fef2f2';
-                delBtn.style.color = '#dc2626';
-                delBtn.style.borderRadius = '3px';
-                delBtn.style.cursor = 'pointer';
-                delBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    currentTrajs.splice(i, 1);
-                    orderModified = true;
-                    renderSequenceList();
-                };
-
-                btnBox.appendChild(flipBtn);
-                btnBox.appendChild(upBtn);
-                btnBox.appendChild(downBtn);
-                btnBox.appendChild(delBtn);
-
-                sRow.appendChild(badge);
-                sRow.appendChild(sName);
-                sRow.appendChild(fCount);
-                sRow.appendChild(btnBox);
-                dom.seqList.appendChild(sRow);
-            });
-        }
-        renderSequenceList();
+        const refreshSeq = () => renderSequenceList(dom, seqState);
+        refreshSeq();
 
         function getJunctionReports() {
             return (currentMegajson && (currentMegajson.stitching_alignment_report || currentMegajson.junction_previews)) || ui.stitching_report || [];
         }
 
-        // Populate Junctions
-        function populateJunctions(reports) {
-            dom.juncList.innerHTML = '';
-            dom.juncSelect.innerHTML = '';
-
-            if (!reports || reports.length === 0) {
-                const noJ = document.createElement('div');
-                noJ.style.fontSize = '12px';
-                noJ.style.color = '#94a3b8';
-                noJ.textContent = 'No intermediate junctions detected.';
-                dom.juncList.appendChild(noJ);
-
-                const opt = document.createElement('option');
-                opt.textContent = 'No junctions';
-                dom.juncSelect.appendChild(opt);
-                return;
-            }
-
-            reports.forEach((rep, jIdx) => {
-                const jBox = document.createElement('div');
-                jBox.style.padding = '8px';
-                jBox.style.background = '#ffffff';
-                jBox.style.border = '1px solid #cbd5e1';
-                jBox.style.borderRadius = '6px';
-
-                const jHdr = document.createElement('div');
-                jHdr.style.display = 'flex';
-                jHdr.style.justifyContent = 'space-between';
-                jHdr.style.fontSize = '12px';
-                jHdr.style.fontWeight = '600';
-                jHdr.style.marginBottom = '4px';
-                jHdr.textContent = `Junction ${jIdx + 1}➔${jIdx + 2}: ${rep.hero_formula || 'Intermediate'}`;
-
-                const sel = document.createElement('select');
-                sel.style.width = '100%';
-                sel.style.padding = '5px 8px';
-                sel.style.fontSize = '11.5px';
-                sel.style.borderRadius = '4px';
-                sel.style.border = '1px solid #cbd5e1';
-
-                (rep.all_candidates || []).forEach(cand => {
-                    const opt = document.createElement('option');
-                    opt.value = cand.id;
-                    opt.textContent = `${cand.label} (RMSD: ${cand.rmsd != null ? cand.rmsd.toFixed(4) : '--'} Å)`;
-                    if (currentJunctionChoices[jIdx] === cand.id || (!currentJunctionChoices[jIdx] && cand.id.includes('scaffold'))) {
-                        opt.selected = true;
-                        currentJunctionChoices[jIdx] = cand.id;
-                    }
-                    sel.appendChild(opt);
-                });
-
-                sel.onchange = () => {
-                    currentJunctionChoices[jIdx] = sel.value;
-                };
-
-                jBox.appendChild(jHdr);
-                jBox.appendChild(sel);
-                dom.juncList.appendChild(jBox);
-
-                // Option for Boundary Overlap Dropdown
-                const jOpt = document.createElement('option');
-                jOpt.value = jIdx.toString();
-                jOpt.textContent = `Junction ${jIdx + 1}➔${jIdx + 2} (${rep.hero_formula || 'Intermediate'})`;
-                dom.juncSelect.appendChild(jOpt);
-            });
-        }
-
-        populateJunctions(getJunctionReports());
+        populateJunctions(dom, getJunctionReports(), currentJunctionChoices);
 
         dom.bSlider.oninput = () => {
             currentBridgeFrames = parseInt(dom.bSlider.value);
             dom.bVal.textContent = `${currentBridgeFrames} Frames`;
         };
 
-        // Wire Unified 3D Viewer
-        activeViewer = new MoleculeViewer3D(dom.viewerBox, {
-            statusEl: dom.hudOverlay
-        });
+        activeViewer = new MoleculeViewer3D(dom.viewerBox, { statusEl: dom.hudOverlay });
         activeViewer.init();
 
         function setFrame(idx) {
@@ -331,22 +88,14 @@ export const CascadeUI = {
             let pSyms = j.prev_symbols, pCoords = j.prev_coords;
             let nSyms = j.next_symbols || j.prev_symbols, nCoords = nextCoords;
 
-            if (isHeroOnly && j.matched_prev_indices && j.matched_prev_indices.length && j.matched_next_indices && j.matched_next_indices.length) {
+            if (isHeroOnly && j.matched_prev_indices?.length && j.matched_next_indices?.length) {
                 pSyms = j.matched_prev_indices.map(i => j.prev_symbols[i]);
                 pCoords = j.matched_prev_indices.map(i => j.prev_coords[i]);
                 nSyms = j.matched_next_indices.map(i => (j.next_symbols || j.prev_symbols)[i]);
                 nCoords = j.matched_next_indices.map(i => nextCoords[i]);
             }
 
-            activeViewer.renderOverlap(
-                pSyms,
-                pCoords,
-                nSyms,
-                nCoords,
-                rmsd,
-                isOverlapAligned
-            );
-
+            activeViewer.renderOverlap(pSyms, pCoords, nSyms, nCoords, rmsd, isOverlapAligned);
             dom.rmsdBadge.textContent = `RMSD: ${rmsd.toFixed(4)} Å`;
             const focusTag = isHeroOnly ? `[Hero Only: ${j.hero_formula || 'Intermediate'}]` : '[Full System]';
             dom.hudOverlay.textContent = `Boundary Overlap | Junction ${activeJunctionIdx + 1}➔${activeJunctionIdx + 2}: ${j.hero_formula || 'Intermediate'} | RMSD: ${rmsd.toFixed(4)} Å ${focusTag} (${isOverlapAligned ? 'Cyan: Step K, Magenta: Step K+1' : 'Cyan: Step K, Yellow: Step K+1 Unaligned'})`;
@@ -355,46 +104,22 @@ export const CascadeUI = {
         function setViewMode(mode) {
             currentViewMode = mode;
             if (mode === 'cascade') {
-                dom.btnModeCascade.style.background = '#0284c7';
-                dom.btnModeCascade.style.color = '#ffffff';
-                dom.btnModeCascade.style.border = 'none';
-
-                dom.btnModeOverlap.style.background = '#f1f5f9';
-                dom.btnModeOverlap.style.color = '#334155';
-                dom.btnModeOverlap.style.border = '1px solid #cbd5e1';
-
+                dom.btnModeCascade.style.cssText = 'background:#0284c7;color:#ffffff;border:none;';
+                dom.btnModeOverlap.style.cssText = 'background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;';
                 dom.overlapSubControls.style.display = 'none';
                 dom.ctrlRow.style.display = 'flex';
                 dom.energyCanvas.style.display = 'block';
-
-                if (currentMegajson) {
-                    activeViewer.loadTrajectory(currentMegajson);
-                    setFrame(currentFrameIndex);
-                }
+                if (currentMegajson) { activeViewer.loadTrajectory(currentMegajson); setFrame(currentFrameIndex); }
             } else {
-                if (isPlaying) {
-                    clearInterval(playbackTimer);
-                    isPlaying = false;
-                    dom.playBtn.textContent = '▶ Play';
-                }
-
-                dom.btnModeCascade.style.background = '#f1f5f9';
-                dom.btnModeCascade.style.color = '#334155';
-                dom.btnModeCascade.style.border = '1px solid #cbd5e1';
-
-                dom.btnModeOverlap.style.background = '#0284c7';
-                dom.btnModeOverlap.style.color = '#ffffff';
-                dom.btnModeOverlap.style.border = 'none';
-
+                if (isPlaying) { clearInterval(playbackTimer); isPlaying = false; dom.playBtn.textContent = '▶ Play'; }
+                dom.btnModeCascade.style.cssText = 'background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;';
+                dom.btnModeOverlap.style.cssText = 'background:#0284c7;color:#ffffff;border:none;';
                 dom.overlapSubControls.style.display = 'flex';
                 dom.ctrlRow.style.display = 'none';
                 dom.energyCanvas.style.display = 'none';
-
                 renderCurrentOverlap();
             }
         }
-
-        let isHeroOnly = true;
 
         dom.btnModeCascade.onclick = () => setViewMode('cascade');
         dom.btnModeOverlap.onclick = () => setViewMode('overlap');
@@ -424,25 +149,18 @@ export const CascadeUI = {
             const n = mj.frames.length;
 
             dom.frameSlider.max = (n - 1).toString();
-            dom.frameSlider.disabled = false;
-            dom.playBtn.disabled = false;
-            dom.prevBtn.disabled = false;
-            dom.nextBtn.disabled = false;
-
+            dom.frameSlider.disabled = dom.playBtn.disabled = dom.prevBtn.disabled = dom.nextBtn.disabled = false;
             dom.mFrames.textContent = `${n}`;
             dom.mSteps.textContent = `${mj.n_steps || 2}`;
             if (mj.overall_barrier_kcal != null) dom.mBar.textContent = `+${mj.overall_barrier_kcal} kcal`;
             if (mj.overall_reaction_energy_kcal != null) dom.mRxn.textContent = `${mj.overall_reaction_energy_kcal} kcal`;
 
-            if (currentViewMode === 'cascade') {
-                activeViewer.loadTrajectory(mj);
-                setFrame(0);
-            } else {
-                renderCurrentOverlap();
-            }
+            if (currentViewMode === 'cascade') { activeViewer.loadTrajectory(mj); setFrame(0); }
+            else { renderCurrentOverlap(); }
         }
 
         dom.frameSlider.oninput = () => setFrame(parseInt(dom.frameSlider.value));
+        dom.frameSlider.onchange = () => setFrame(parseInt(dom.frameSlider.value));
         dom.prevBtn.onclick = () => setFrame(currentFrameIndex - 1);
         dom.nextBtn.onclick = () => setFrame(currentFrameIndex + 1);
 
@@ -474,16 +192,16 @@ export const CascadeUI = {
                         action_type: 'stitch_cascade',
                         junction_choices: currentJunctionChoices,
                         n_bridge_frames: currentBridgeFrames,
-                        ordered_files: currentTrajs.map(t => t.step_id || t.filename),
-                        reversed_steps: currentTrajs.filter(t => t.is_reversed).map(t => t.step_id || t.filename)
+                        ordered_files: seqState.currentTrajs.map(t => t.step_id || t.filename),
+                        reversed_steps: seqState.currentTrajs.filter(t => t.is_reversed).map(t => t.step_id || t.filename)
                     })
                 });
                 const r = await res.json();
                 if (r.success && r.megajson) {
-                    orderModified = false;
-                    renderSequenceList();
+                    seqState.orderModified = false;
+                    refreshSeq();
                     loadMegajson(r.megajson);
-                    if (r.stitching_report) populateJunctions(r.stitching_report);
+                    if (r.stitching_report) populateJunctions(dom, r.stitching_report, currentJunctionChoices);
                 } else {
                     alert('Stitching Error: ' + (r.error || 'Failed to stitch'));
                 }
@@ -504,4 +222,3 @@ export const CascadeUI = {
         megajson: currentMegajson
     })
 };
-
