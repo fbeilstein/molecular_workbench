@@ -46,21 +46,27 @@ def resolve_orbital_key(d: Dict[str, Any], orb_name: str, chem_key: Optional[str
     """Resolve an orbital or chem_key against available molecular orbital metadata."""
     if not d or "vecs" not in d:
         return None
+    if orb_name in d.get("meta", {}):
+        return orb_name
     all_metas = {
         **d.get("ibos_meta", {}),
         **d.get("canonical_pi_meta", {}),
         **d.get("antibonds_meta", {}),
         **d.get("meta", {})
     }
-    if orb_name in d.get("meta", {}):
+    syms = set(d.get("symbols", []))
+    if chem_key:
+        target_syms = set(re.findall(r'[A-Z][a-z]?', chem_key))
+        if target_syms and not target_syms.issubset(syms):
+            return None
+
+    if orb_name in d.get("vecs", {}):
         return orb_name
+
     if chem_key and chem_key not in ("HOMO", "LUMO", "esp_charge", orb_name):
         for k, meta in all_metas.items():
             if (meta.get("chem_key") == chem_key or meta.get("label") == chem_key) and k in d.get("vecs", {}):
                 return k
-        return None
-    if orb_name in d.get("vecs", {}):
-        return orb_name
     return None
 
 
@@ -116,67 +122,42 @@ def tag_orbital_classes(f_meta: Dict[str, Any], ibos_m: Dict[str, Any], star_m: 
         m["palette"] = {"pos": "#38bdf8", "neg": "#1d4ed8"}
 
 
-def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, scf_cache: Optional[Dict[int, Dict[str, Any]]] = None) -> list:
-    """Enrich orbital timeline tracks with normal chemical nomenclature and role transitions."""
+def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, scf_cache: Optional[Dict[int, Dict[str, Any]]] = None, ensure_fn: Optional[Any] = None) -> list:
+    """Enrich orbital timeline tracks with normal chemical nomenclature, role transitions, and frame maps."""
     if not tracks:
         return tracks
-
-    cache = scf_cache or {}
-    n_frames = len(megajson.get("frames", []))
-    f0 = cache.get(0) if n_frames > 0 else None
-    flast = cache.get(n_frames - 1) if n_frames > 0 else None
+    from .orbital_indexer import build_track_frame_map, resolve_track_roles, get_or_build_catalog
+    catalog = get_or_build_catalog(megajson, scf_cache, ensure_fn)
 
     for trk in tracks:
         if not isinstance(trk, dict):
             continue
-        ok = trk.get("orbital_key", "")
-        if ok == "track_esp_charge" or trk.get("id") == "trk_esp_charge":
-            trk["label"] = "ESP Surface"
-            trk["title"] = "ESP Surface"
-            trk["short_label"] = "ESP"
-            trk["role_transition"] = "ESP"
-            trk["category"] = "ESP"
+        tid = trk.get("track_id") or trk.get("id") or trk.get("orbital_key", "")
+        if tid in catalog:
+            c = catalog[tid]
+            trk["track_id"] = tid
+            trk["frame_map"] = c["frame_map"]
+            trk["label"] = trk["title"] = c["label"]
+            trk["role_transition"] = trk["short_label"] = c.get("role_transition", "")
+            trk["category"] = c["category"]
+            trk["orbital_class"] = c["orbital_class"]
             continue
 
-        start_role = trk.get("start_role")
-        end_role = trk.get("end_role")
+        ok = trk.get("orbital_key", "")
+        if ok in ("track_esp_charge", "trk_esp") or trk.get("id") in ("trk_esp_charge", "trk_esp"):
+            trk["track_id"] = "trk_esp"
+            trk["label"] = trk["title"] = "ESP Surface"
+            trk["short_label"] = trk["role_transition"] = trk["category"] = "ESP"
+            continue
 
-        if (not start_role or not end_role) and f0 is not None and flast is not None:
-            r0 = resolve_orbital_key(f0, ok, trk.get("chem_key"))
-            m0 = {**f0.get("ibos_meta", {}), **f0.get("canonical_pi_meta", {}), **f0.get("antibonds_meta", {})}.get(r0, {}) if r0 else {}
-            rlast = resolve_orbital_key(flast, ok, trk.get("chem_key"))
-            mlast = {**flast.get("ibos_meta", {}), **flast.get("canonical_pi_meta", {}), **flast.get("antibonds_meta", {})}.get(rlast, {}) if rlast else {}
-            start_role = clean_role_label(m0)
-            end_role = clean_role_label(mlast)
-
-        ck = trk.get("chem_key", "")
-        if not start_role and ck:
-            if ck.startswith("lp_"):
-                start_role = f"LP({ck.replace('lp_', '')})"
-            elif ck.startswith("sigma_"):
-                start_role = f"σ({ck.replace('sigma_', '')})"
-            elif ck.startswith("pi_"):
-                start_role = f"π({ck.replace('pi_', '')})"
-            elif "pistar" in ck:
-                start_role = f"π*({ck.split('_')[1] if '_' in ck else ''})"
-
-        if start_role and end_role and start_role != end_role:
-            label = f"{start_role} → {end_role}"
-            role_trans = f"{start_role.split('(')[0]} → {end_role.split('(')[0]}"
-        else:
-            label = start_role or end_role or trk.get("title") or ok
-            label = re.sub(r"^Non-Bonding\s+", "", label)
-            label = re.sub(r"\[Antibond\]", "", label).strip()
-            role_trans = label.split("(")[0] if "(" in label else label
-
-        trk["label"] = label
-        trk["title"] = label
-        trk["role_transition"] = role_trans
-        trk["short_label"] = role_trans
-        if start_role:
-            trk["start_role"] = start_role
-        if end_role:
-            trk["end_role"] = end_role
-        trk["category"] = role_trans
+        ref_f = int(trk.get("ref_frame", 0) or 0)
+        is_star = "STAR" in ok or trk.get("orbital_class") == "antibonding"
+        frame_map, g_keys = build_track_frame_map(megajson, ref_f, ok, scf_cache, ensure_fn, is_star=is_star)
+        trk["frame_map"] = frame_map
+        label, trans, s_role, e_role = resolve_track_roles(megajson, frame_map, trk.get("title", ok), scf_cache, ensure_fn)
+        trk["label"] = trk["title"] = label
+        trk["role_transition"] = trk["short_label"] = trk["category"] = trans
+        if s_role: trk["start_role"] = s_role
+        if e_role: trk["end_role"] = e_role
 
     return tracks

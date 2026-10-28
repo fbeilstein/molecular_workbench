@@ -15,8 +15,9 @@ export async function fetchFrameData(stepId, frameIdx) {
     }
 }
 
-export async function fetchOrbitalCube(stepId, cubePromises, cubeCache, frameIdx, orbKey, chemKey, isovalue) {
-    const k = `${frameIdx}_${orbKey}`;
+export async function fetchOrbitalCube(stepId, cubePromises, cubeCache, frameIdx, orbKey, chemKey, isovalue, trackId) {
+    const tid = trackId || orbKey;
+    const k = `${frameIdx}_${tid}`;
     if (cubeCache && cubeCache[k]) return { success: true, cube: cubeCache[k] };
     if (cubePromises.has(k)) return await cubePromises.get(k);
 
@@ -25,11 +26,14 @@ export async function fetchOrbitalCube(stepId, cubePromises, cubeCache, frameIdx
             const res = await fetch(`/api/step/${stepId}/custom`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action_type: 'get_cube', frame_index: frameIdx, orbital: orbKey, chem_key: chemKey, isovalue })
+                body: JSON.stringify({ action_type: 'get_cube', frame_index: frameIdx, track_id: tid, orbital: orbKey, chem_key: chemKey, isovalue })
             });
             const data = await res.json();
             if (data && data.success && data.cube && cubeCache) {
                 cubeCache[k] = data.cube;
+                if (data.resolved_orbital && data.resolved_orbital !== tid) {
+                    cubeCache[`${frameIdx}_${data.resolved_orbital}`] = data.cube;
+                }
             }
             return data;
         } catch (err) {
@@ -46,10 +50,14 @@ export async function fetchOrbitalCube(stepId, cubePromises, cubeCache, frameIdx
 
 export async function postTimeline(stepId, timeline) {
     try {
-        await fetch(`/api/step/${stepId}/custom`, {
+        const res = await fetch(`/api/step/${stepId}/custom`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action_type: 'save_timeline', timeline })
         });
-    } catch (e) {}
+        return await res.json();
+    } catch (err) {
+        console.error('Failed to save timeline:', err);
+        return { success: false, error: err.message };
+    }
 }

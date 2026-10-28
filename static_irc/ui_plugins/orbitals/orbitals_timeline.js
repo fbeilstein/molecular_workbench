@@ -1,6 +1,6 @@
 /**
  * Reaction Orbital Selection & Real-Time Electron Tracking Panel.
- * Streamlined orbital choice: toggles orbitals ON/OFF via simple checkboxes.
+ * Uses decoupled invariant track_ids to reliably follow electron pairs across cascade steps.
  * Real-time electron tracking displays electron population distribution across atoms per frame.
  * Visually distinguishes bonding (Cyan/Blue) vs anti-bonding (Orange/Magenta) tracks.
  */
@@ -31,8 +31,9 @@ export class OrbitalsTimeline {
 
     addTrack(orbital) {
         if (!orbital) return;
-        if (orbital.key === 'track_esp_charge') { this.addEspTrack(); return; }
-        const exists = this.tracks.find(t => t.orbital_key === orbital.key && t.step_index === orbital.step_index);
+        const tid = orbital.track_id || orbital.key || orbital.orbital_key;
+        if (tid === 'trk_esp' || tid === 'track_esp_charge') { this.addEspTrack(); return; }
+        const exists = this.tracks.find(t => (t.track_id && t.track_id === tid) || t.id === tid || t.orbital_key === tid);
         if (exists) {
             this.manualOverrides.set(exists.id, true);
             this.render();
@@ -41,15 +42,14 @@ export class OrbitalsTimeline {
         }
         const isAnti = isAntiBondingOrbital(orbital);
         const color = orbital.color || (isAnti ? '#fb923c' : (COLOR_PALETTE[this.tracks.length % COLOR_PALETTE.length]));
-        const isFrontier = orbital.key.startsWith('HOMO') || orbital.key.startsWith('LUMO');
+        const isFrontier = tid.startsWith('HOMO') || tid.startsWith('LUMO') || tid.startsWith('trk_');
         const newTrack = {
-            id: `trk_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-            orbital_key: orbital.key, chem_key: orbital.chem_key || orbital.key,
-            step_index: isFrontier ? null : orbital.step_index,
+            id: tid, track_id: tid, orbital_key: tid, local_key: orbital.local_key || tid,
+            chem_key: orbital.chem_key || tid, ref_frame: this.currentFrame, step_index: isFrontier ? null : orbital.step_index,
             orbital_class: orbital.orbital_class || (isAnti ? 'antibonding' : 'bonding'),
-            type: orbital.type, palette: orbital.palette, title: orbital.label || orbital.key,
+            type: orbital.type, palette: orbital.palette, title: orbital.label || orbital.name || tid,
             color: color, default_on: true,
-            clips: [{ id: `c_${Date.now()}`, start: 0, end: Math.max(0, this.totalFrames - 1), title: orbital.label || orbital.key }]
+            clips: [{ id: `c_${Date.now()}`, start: 0, end: Math.max(0, this.totalFrames - 1), title: orbital.label || orbital.name || tid }]
         };
         this.tracks.push(newTrack);
         this.manualOverrides.set(newTrack.id, true);
@@ -59,9 +59,9 @@ export class OrbitalsTimeline {
     }
 
     addEspTrack() {
-        if (this.tracks.some(t => t.orbital_key === 'track_esp_charge')) return;
+        if (this.tracks.some(t => t.track_id === 'trk_esp' || t.orbital_key === 'track_esp_charge')) return;
         const espTrack = {
-            id: 'trk_esp_charge', orbital_key: 'track_esp_charge', chem_key: 'esp_charge',
+            id: 'trk_esp', track_id: 'trk_esp', orbital_key: 'track_esp_charge', chem_key: 'esp_charge',
             orbital_class: 'esp', title: '⚡ Electrostatic Surface & Charges', color: '#38bdf8', default_on: true,
             clips: [{ id: 'c_esp', start: 0, end: Math.max(0, this.totalFrames - 1), title: 'ESP Surface' }]
         };
@@ -73,7 +73,7 @@ export class OrbitalsTimeline {
     }
 
     removeTrack(trackId) {
-        this.tracks = this.tracks.filter(t => t.id !== trackId);
+        this.tracks = this.tracks.filter(t => t.id !== trackId && t.track_id !== trackId);
         this.manualOverrides.delete(trackId);
         this.render();
         if (this.options.onTimelineChange) this.options.onTimelineChange(this.getTimelineObject());
@@ -81,10 +81,10 @@ export class OrbitalsTimeline {
     }
 
     toggleTrackVisibility(trackId) {
-        const trk = this.tracks.find(t => t.id === trackId);
+        const trk = this.tracks.find(t => t.id === trackId || t.track_id === trackId);
         if (trk) {
-            const cur = this.manualOverrides.has(trackId) ? this.manualOverrides.get(trackId) : trk.default_on;
-            this.manualOverrides.set(trackId, !cur);
+            const cur = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
+            this.manualOverrides.set(trk.id, !cur);
             this.render();
             if (this.options.onVisibilityChange) this.options.onVisibilityChange();
         }
@@ -92,13 +92,20 @@ export class OrbitalsTimeline {
 
     getActiveOrbitalsAtFrame(frameIdx) {
         const active = [];
-        const curStep = this.lastFrameData?.step_index;
         for (const trk of this.tracks) {
             const isVisible = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
             if (!isVisible) continue;
-            const isFrontier = trk.orbital_key && (trk.orbital_key.startsWith('HOMO') || trk.orbital_key.startsWith('LUMO') || trk.orbital_key === 'track_esp_charge');
-            if (!isFrontier && trk.step_index != null && curStep != null && trk.step_index !== curStep) continue;
-            active.push(trk);
+            const tid = trk.track_id || trk.orbital_key || trk.id;
+            if (tid === 'trk_esp' || tid === 'track_esp_charge') {
+                active.push({ ...trk, track_id: 'trk_esp', orbital_key: 'track_esp_charge' });
+                continue;
+            }
+            let activeKey = trk.orbital_key;
+            if (trk.frame_map && Array.isArray(trk.frame_map)) {
+                activeKey = trk.frame_map[frameIdx];
+                if (!activeKey) continue;
+            }
+            active.push({ ...trk, track_id: tid, orbital_key: tid, local_key: activeKey });
         }
         return active;
     }
@@ -107,14 +114,12 @@ export class OrbitalsTimeline {
         const muted = [];
         for (const trk of this.tracks) {
             const isVisible = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
-            if (!isVisible && trk.orbital_key) muted.push(trk.orbital_key);
+            if (!isVisible) muted.push(trk.track_id || trk.orbital_key || trk.id);
         }
         return muted;
     }
 
-    getTimelineObject() {
-        return { default_isovalue: this.options.isovalue || 0.03, tracks: this.tracks };
-    }
+    getTimelineObject() { return { default_isovalue: this.options.isovalue || 0.03, tracks: this.tracks }; }
 
     updatePopulations(frameIdx, frameData, symbols) {
         this.currentFrame = frameIdx;
@@ -122,37 +127,33 @@ export class OrbitalsTimeline {
         if (symbols && symbols.length) this.symbols = symbols;
         if (!frameData || !this.containerEl) return;
 
-        const iboMap = new Map();
-        if (frameData.all_ibos) {
-            for (const ibo of frameData.all_ibos) {
-                if (ibo.key) iboMap.set(ibo.key, ibo);
-                if (ibo.name) iboMap.set(ibo.name, ibo);
-                if (ibo.chem_key) iboMap.set(ibo.chem_key, ibo);
-            }
-        }
-
-        const curStep = frameData.step_index;
+        const allIbos = frameData.all_ibos || [];
         for (const trk of this.tracks) {
-            const el = this.containerEl.querySelector(`#pop-readout-${trk.orbital_key}`);
+            const tid = trk.track_id || trk.orbital_key || trk.id;
+            const el = this.containerEl.querySelector(`#pop-readout-${tid}`) || this.containerEl.querySelector(`#pop-readout-${trk.orbital_key}`);
             if (!el) continue;
-            if (trk.orbital_key === 'track_esp_charge') {
+            if (tid === 'trk_esp' || trk.orbital_key === 'track_esp_charge') {
                 el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <strong style="color: #0284c7;">Electrostatic Surface mapped with partial charges</strong>`;
                 continue;
             }
-            const isFrontier = trk.orbital_key && (trk.orbital_key.startsWith('HOMO') || trk.orbital_key.startsWith('LUMO'));
-            if (!isFrontier && trk.step_index != null && curStep != null && trk.step_index !== curStep) {
-                el.innerHTML = `<span style="color: #94a3b8; font-style: italic;">Not present in Step ${curStep} (formed in Step ${trk.step_index})</span>`;
-                continue;
+            let activeKey = trk.orbital_key;
+            if (trk.frame_map && Array.isArray(trk.frame_map)) {
+                activeKey = trk.frame_map[frameIdx];
+                if (!activeKey) {
+                    el.innerHTML = `<span style="color: #94a3b8; font-style: italic;">Not present at frame ${frameIdx}</span>`;
+                    continue;
+                }
             }
-            const ibo = (trk.orbital_key && iboMap.get(trk.orbital_key)) || (trk.chem_key && iboMap.get(trk.chem_key));
+            const ibo = allIbos.find(i => (i.track_id && i.track_id === tid) || i.key === activeKey || i.local_key === activeKey);
             if (ibo && ibo.pop && this.symbols.length) {
                 const major = [];
                 for (let i = 0; i < this.symbols.length; i++) {
                     const p = ibo.pop[i] || 0;
                     if (p > 0.15) major.push(`${this.symbols[i]}${i}: ${(p * 50).toFixed(0)}%`);
                 }
-                el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> <strong style="color: #0f172a;">${major.join(' · ') || 'delocalized'}</strong>`;
-            } else if (isFrontier || trk.orbital_key.includes('STAR')) {
+                const roleTag = (ibo.label && ibo.label !== trk.title) ? ` <span style="font-size:0.68rem;color:#0284c7;">[${ibo.label}]</span>` : '';
+                el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> <strong style="color: #0f172a;">${major.join(' · ') || 'delocalized'}</strong>${roleTag}`;
+            } else if (tid.startsWith('trk_homo') || tid.startsWith('trk_lumo') || trk.orbital_key.includes('STAR')) {
                 el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #334155; font-weight: 500;">Active across reaction</span>`;
             } else {
                 el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #64748b; font-style: italic;">Bond not formed at this frame</span>`;
@@ -170,7 +171,8 @@ export class OrbitalsTimeline {
             cardsHtml = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.5rem; padding: 0.2rem;">`;
             for (const trk of this.tracks) {
                 const isChecked = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
-                const isEsp = trk.orbital_key === 'track_esp_charge', isAnti = isAntiBondingOrbital(trk), badgeInfo = getOrbitalTypeBadge(trk);
+                const tid = trk.track_id || trk.orbital_key || trk.id;
+                const isEsp = tid === 'trk_esp' || trk.orbital_key === 'track_esp_charge', isAnti = isAntiBondingOrbital(trk), badgeInfo = getOrbitalTypeBadge(trk);
                 const badgeIndicator = isEsp ? `
                     <div style="display: flex; align-items: center; gap: 2px; font-size: 0.65rem; font-weight: 700; flex-shrink: 0;" title="ESP Surface">
                         <span style="background: #ef4444; color: #fff; padding: 1px 4px; border-radius: 3px 0 0 3px;">δ−</span>
@@ -191,10 +193,10 @@ export class OrbitalsTimeline {
                             <div style="display: flex; flex-direction: column; min-width: 0; flex: 1;">
                                 <div style="display: flex; align-items: center; gap: 0.35rem;">
                                     <span style="font-weight: 700; font-size: 0.82rem; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${trk.title}</span>
-                                    <span style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; ${badgeInfo.style}">${badgeInfo.label}</span>
+                                    <span class="badge ${badgeInfo.cls}" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; ${badgeInfo.style}">${badgeInfo.label}</span>
                                     ${stepTag}
                                 </div>
-                                <div id="pop-readout-${trk.orbital_key}" style="font-size: 0.72rem; color: ${isAnti ? '#c2410c' : '#0284c7'}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                <div id="pop-readout-${tid}" style="font-size: 0.72rem; color: ${isAnti ? '#c2410c' : '#0284c7'}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                     ${isEsp ? 'Electrostatic Surface mapped with atomic charges' : (isAnti ? 'Tracking antibonding acceptor orbital...' : 'Tracking bonding electron pair...')}
                                 </div>
                             </div>
