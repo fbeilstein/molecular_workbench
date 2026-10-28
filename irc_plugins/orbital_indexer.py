@@ -159,12 +159,24 @@ def resolve_track_roles(
     s_role = clean_role_label(_get_m(fd_first, frame_map[f_first]))
     e_role = clean_role_label(_get_m(fd_last, frame_map[f_last]))
 
-    if s_role and e_role and s_role != e_role:
-        label = f"{s_role} → {e_role}"
-        trans = f"{s_role.split('(')[0]} → {e_role.split('(')[0]}"
+    groups = get_frame_groups(megajson)
+    g_from = next((i for i, (gs, ge) in enumerate(groups) if gs <= f_last <= ge), 0)
+    g_to = next((i for i, (gs, ge) in enumerate(groups) if gs <= f_first <= ge), 0)
+    if e_role and g_from > g_to:
+        cands = [r["all_candidates"][0] for r in megajson.get("stitching_alignment_report", []) if r.get("all_candidates")]
+        n2p_c: Dict[int, int] = {}
+        for g in range(g_from, g_to, -1):
+            if (g - 1) < len(cands):
+                n2p = dict(zip(cands[g - 1].get("next_indices", []), cands[g - 1].get("prev_indices", [])))
+                n2p_c = {k: n2p.get(v, v) for k, v in n2p_c.items()} if n2p_c else n2p
+        e_role = re.sub(r'([A-Za-z]+)(\d+)', lambda m: f"{m.group(1)}{n2p_c.get(int(m.group(2)), int(m.group(2)))}", e_role)
+
+    s_type, e_type = s_role.split('(')[0].strip() if s_role else "", e_role.split('(')[0].strip() if e_role else ""
+    if s_role and e_role and s_type != e_type:
+        label, trans = f"{s_role} → {e_role}", f"{s_type} → {e_type}"
     else:
         label = s_role or e_role or default_title
-        trans = label.split("(")[0] if "(" in label else label
+        trans = s_type or e_type or (label.split("(")[0] if "(" in label else label)
     return label, trans, s_role, e_role
 
 
@@ -224,7 +236,7 @@ def build_global_track_catalog(
                     track_count = len([k for k in catalog.keys() if k.startswith("trk_") and k[4:].isdigit()]) + 1
                     tid = f"trk_{track_count:03d}"
                     catalog[tid] = {
-                        "track_id": tid, "name": lbl, "label": lbl, "role_transition": trans,
+                        "id": tid, "track_id": tid, "orbital_key": tid, "default_on": True, "name": lbl, "label": lbl, "role_transition": trans,
                         "category": cat, "orbital_class": "core" if cat == "core" else ("antibonding" if cat == "antibonding" else "bonding"),
                         "atoms": m.get("atoms", []), "color": col, "palette": m.get("palette"), "group_keys": g_keys, "frame_map": f_map
                     }

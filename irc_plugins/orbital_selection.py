@@ -133,9 +133,12 @@ def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, scf_cache: Op
         if not isinstance(trk, dict):
             continue
         tid = trk.get("track_id") or trk.get("id") or trk.get("orbital_key", "")
+        trk["id"] = tid
+        trk["track_id"] = tid
+        trk["orbital_key"] = tid
+        trk.setdefault("default_on", True)
         if tid in catalog:
             c = catalog[tid]
-            trk["track_id"] = tid
             trk["frame_map"] = c["frame_map"]
             trk["label"] = trk["title"] = c["label"]
             trk["role_transition"] = trk["short_label"] = c.get("role_transition", "")

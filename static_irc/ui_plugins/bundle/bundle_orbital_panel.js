@@ -19,14 +19,20 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
         const left = document.createElement('div');
         left.style.cssText = 'display: flex; align-items: center; gap: 0.45rem; overflow: hidden; min-width: 0; flex: 1;';
 
+        const tid = trk.track_id || trk.orbital_key || trk.id;
         const cb = document.createElement('input');
         cb.type = 'checkbox';
-        cb.checked = activeOrbitals.has(trk.orbital_key);
+        cb.checked = activeOrbitals.has(tid) || (trk.orbital_key && activeOrbitals.has(trk.orbital_key));
         cb.style.accentColor = trk.color || '#38bdf8';
 
         cb.onchange = (e) => {
-            if (e.target.checked) activeOrbitals.add(trk.orbital_key);
-            else activeOrbitals.delete(trk.orbital_key);
+            if (e.target.checked) {
+                if (tid) activeOrbitals.add(tid);
+                if (trk.orbital_key) activeOrbitals.add(trk.orbital_key);
+            } else {
+                if (tid) activeOrbitals.delete(tid);
+                if (trk.orbital_key) activeOrbitals.delete(trk.orbital_key);
+            }
             if (callbacks.onChanged) callbacks.onChanged();
         };
 

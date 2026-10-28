@@ -53,6 +53,8 @@ export const BundleViewerUI = {
 
         const initialActive = new Set();
         this.state.tracks.forEach(trk => {
+            const tid = trk.track_id || trk.orbital_key || trk.id;
+            if (trk.default_on !== false && tid) initialActive.add(tid);
             if ((trk.default_on || trk.orbital_key === 'track_esp_charge') && trk.orbital_key) initialActive.add(trk.orbital_key);
         });
         this.state.activeOrbitals = initialActive;
@@ -178,7 +180,10 @@ export const BundleViewerUI = {
         }
         if (this.state.svgManager) this.state.svgManager.updatePushArrows(f, this.state.playDirection);
 
-        const activeTracks = this.state.tracks.filter(t => this.state.activeOrbitals.has(t.orbital_key));
+        const activeTracks = this.state.tracks.filter(t => {
+            const tid = t.track_id || t.orbital_key || t.id;
+            return this.state.activeOrbitals.has(tid) || (t.orbital_key && this.state.activeOrbitals.has(t.orbital_key));
+        });
         const moTracks = this.state.hideAllOrbitals ? [] : activeTracks.filter(t => t.orbital_key !== 'track_esp_charge');
         const doRender = () => this.state.viewer3D.renderFastFrame(this.state.megajson.symbols, frame.coords, moTracks, this.state.isovalue, f, charges, showCharges, showEspSurface);
         doRender();

@@ -20,6 +20,11 @@ export class OrbitalsTimeline {
 
     setTimelineData(timeline, totalFrames) {
         this.tracks = (timeline && timeline.tracks) ? JSON.parse(JSON.stringify(timeline.tracks)) : [];
+        for (const t of this.tracks) {
+            const tid = t.track_id || t.id || t.orbital_key;
+            if (tid) { t.id = t.id || tid; t.track_id = t.track_id || tid; t.orbital_key = t.orbital_key || tid; }
+            if (t.default_on === undefined) t.default_on = true;
+        }
         if (totalFrames) this.totalFrames = totalFrames;
         this.render();
     }
@@ -73,7 +78,7 @@ export class OrbitalsTimeline {
     }
 
     removeTrack(trackId) {
-        this.tracks = this.tracks.filter(t => t.id !== trackId && t.track_id !== trackId);
+        this.tracks = this.tracks.filter(t => t.id !== trackId && t.track_id !== trackId && t.orbital_key !== trackId);
         this.manualOverrides.delete(trackId);
         this.render();
         if (this.options.onTimelineChange) this.options.onTimelineChange(this.getTimelineObject());
@@ -81,10 +86,11 @@ export class OrbitalsTimeline {
     }
 
     toggleTrackVisibility(trackId) {
-        const trk = this.tracks.find(t => t.id === trackId || t.track_id === trackId);
+        const trk = this.tracks.find(t => t.id === trackId || t.track_id === trackId || t.orbital_key === trackId);
         if (trk) {
-            const cur = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
-            this.manualOverrides.set(trk.id, !cur);
+            const trkId = trk.id || trk.track_id || trk.orbital_key;
+            const cur = this.manualOverrides.has(trkId) ? this.manualOverrides.get(trkId) : (trk.default_on !== false);
+            this.manualOverrides.set(trkId, !cur);
             this.render();
             if (this.options.onVisibilityChange) this.options.onVisibilityChange();
         }
@@ -93,7 +99,8 @@ export class OrbitalsTimeline {
     getActiveOrbitalsAtFrame(frameIdx) {
         const active = [];
         for (const trk of this.tracks) {
-            const isVisible = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
+            const trkId = trk.id || trk.track_id || trk.orbital_key;
+            const isVisible = this.manualOverrides.has(trkId) ? this.manualOverrides.get(trkId) : (trk.default_on !== false);
             if (!isVisible) continue;
             const tid = trk.track_id || trk.orbital_key || trk.id;
             if (tid === 'trk_esp' || tid === 'track_esp_charge') {
@@ -113,8 +120,9 @@ export class OrbitalsTimeline {
     getMutedOrbitalKeys() {
         const muted = [];
         for (const trk of this.tracks) {
-            const isVisible = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
-            if (!isVisible) muted.push(trk.track_id || trk.orbital_key || trk.id);
+            const trkId = trk.id || trk.track_id || trk.orbital_key;
+            const isVisible = this.manualOverrides.has(trkId) ? this.manualOverrides.get(trkId) : (trk.default_on !== false);
+            if (!isVisible) muted.push(trkId);
         }
         return muted;
     }
@@ -170,7 +178,8 @@ export class OrbitalsTimeline {
         } else {
             cardsHtml = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.5rem; padding: 0.2rem;">`;
             for (const trk of this.tracks) {
-                const isChecked = this.manualOverrides.has(trk.id) ? this.manualOverrides.get(trk.id) : trk.default_on;
+                const trkId = trk.id || trk.track_id || trk.orbital_key;
+                const isChecked = this.manualOverrides.has(trkId) ? this.manualOverrides.get(trkId) : (trk.default_on !== false);
                 const tid = trk.track_id || trk.orbital_key || trk.id;
                 const isEsp = tid === 'trk_esp' || trk.orbital_key === 'track_esp_charge', isAnti = isAntiBondingOrbital(trk), badgeInfo = getOrbitalTypeBadge(trk);
                 const badgeIndicator = isEsp ? `
@@ -188,7 +197,7 @@ export class OrbitalsTimeline {
                 cardsHtml += `
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.65rem; background: ${bgCol}; border: 1px solid ${borderCol}; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
                         <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0;">
-                            <input type="checkbox" class="track-vis-checkbox" data-id="${trk.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; accent-color: ${isAnti ? '#ea580c' : '#0284c7'}; margin: 0;">
+                            <input type="checkbox" class="track-vis-checkbox" data-id="${trkId}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; accent-color: ${isAnti ? '#ea580c' : '#0284c7'}; margin: 0;">
                             ${badgeIndicator}
                             <div style="display: flex; flex-direction: column; min-width: 0; flex: 1;">
                                 <div style="display: flex; align-items: center; gap: 0.35rem;">
@@ -201,7 +210,7 @@ export class OrbitalsTimeline {
                                 </div>
                             </div>
                         </div>
-                        <button class="btn-track-remove" data-id="${trk.id}" title="Remove Orbital" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem; padding: 2px 5px; opacity: 0.8;">✕</button>
+                        <button class="btn-track-remove" data-id="${trkId}" title="Remove Orbital" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem; padding: 2px 5px; opacity: 0.8;">✕</button>
                     </div>`;
             }
             cardsHtml += `</div>`;
