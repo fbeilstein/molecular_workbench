@@ -211,7 +211,7 @@ def build_global_track_catalog(
                 f_map, g_keys = build_track_frame_map(megajson, fi, k, scf_cache, None, is_star=is_star)
 
                 matched_trk = None
-                for tid, trk in catalog.items():
+                for tid, trk in list(catalog.items()):
                     if tid in ("trk_esp", "trk_homo", "trk_lumo"): continue
                     trk_gk = trk.get("group_keys", [])
                     if any(gk is not None and len(trk_gk) > gi and trk_gk[gi] == gk for gi, gk in enumerate(g_keys)):
@@ -224,7 +224,7 @@ def build_global_track_catalog(
                     for gi, gk in enumerate(g_keys):
                         if gk: mgk[gi] = gk
                     for f_i, fk in enumerate(f_map):
-                        if fk: mfm[f_i] = fk
+                        if fk and not mfm[f_i]: mfm[f_i] = fk
                     lbl, trans, _, _ = resolve_track_roles(megajson, mfm, matched_trk.get("label", m.get("label", k)), scf_cache, None)
                     matched_trk["label"] = matched_trk["name"] = lbl
                     matched_trk["role_transition"] = trans

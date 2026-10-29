@@ -96,7 +96,8 @@ def compute_frame_ibos(
             adj = {i: set() for i in range(n_val)}
             for i in range(n_val):
                 for j in range(i + 1, n_val):
-                    if max(abs(O_val[i, j]), abs(O_val[j, i])) > 0.20 and abs(eps_val[i] - eps_val[j]) < 1.5:
+                    same_at = (np.argmax(val_pops[i]) == np.argmax(val_pops[j])) and max(val_pops[i]) > 1.0
+                    if max(abs(O_val[i, j]), abs(O_val[j, i])) > 0.15 and (abs(eps_val[i] - eps_val[j]) < 4.5 or same_at):
                         adj[i].add(j); adj[j].add(i)
 
             visited = set()
