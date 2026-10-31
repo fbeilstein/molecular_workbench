@@ -71,7 +71,7 @@ export function bindBundleEvents(container, ui) {
         s.showEspSurface = e.target.checked;
         if (e.target.checked) {
             s.activeOrbitals.add('track_esp_charge');
-            s.viewer3D?.prewarmEspCache(s.megajson.symbols, s.megajson.frames, s.megajson.trajectory_charges);
+            s.viewer3D?.prewarmEspCache(s.trajectorySymbols || s.megajson.symbols, s.megajson.frames, s.megajson.trajectory_charges);
         } else s.activeOrbitals.delete('track_esp_charge');
         ui.renderTracksList(); ui.refreshViewer();
     });

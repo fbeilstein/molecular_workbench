@@ -4,17 +4,18 @@
 
 export function exportMultiModelXyz(megajson) {
     if (!megajson || !megajson.frames) return;
-    const symbols = megajson.symbols || [];
-    const nAtoms = symbols.length;
     let xyzContent = '';
 
     megajson.frames.forEach((frame, idx) => {
+        const symbols = frame.symbols || megajson.trajectory_symbols?.[idx] || megajson.symbols || [];
+        const nAtoms = Math.min(symbols.length, (frame.coords || []).length);
         const e = frame.rel_energy_kcal !== undefined ? frame.rel_energy_kcal.toFixed(2) : '0.00';
         xyzContent += `${nAtoms}\nFrame ${idx} | E = ${e} kcal/mol\n`;
-        frame.coords.forEach((coord, atomIdx) => {
+        for (let atomIdx = 0; atomIdx < nAtoms; atomIdx++) {
             const sym = symbols[atomIdx] || 'X';
+            const coord = frame.coords[atomIdx];
             xyzContent += `${sym.padEnd(2)} ${coord[0].toFixed(5).padStart(12)} ${coord[1].toFixed(5).padStart(12)} ${coord[2].toFixed(5).padStart(12)}\n`;
-        });
+        }
     });
 
     const blob = new Blob([xyzContent], { type: 'chemical/x-xyz' });

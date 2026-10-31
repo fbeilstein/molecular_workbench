@@ -87,6 +87,8 @@ class Step7Bundle(PipelineStep):
             "overall_barrier_kcal": megajson.get("overall_barrier_kcal", 0.0),
             "overall_reaction_energy_kcal": megajson.get("overall_reaction_energy_kcal", 0.0),
             "energy_profile": megajson.get("energy_profile", {}), "symbols": megajson.get("symbols", []),
+            "trajectory_symbols": [f.get("symbols") or megajson.get("symbols", []) for f in frames],
+            "trajectory_bonds": [f.get("bonds", []) for f in frames],
             "trajectory_charges": megajson.get("trajectory_charges", []), "orbital_timeline": timeline,
             "orbital_schedule": megajson.get("orbital_schedule", {}),
             "landmarks": current_state.get("step_6_orbitals", {}).get("landmarks", []),

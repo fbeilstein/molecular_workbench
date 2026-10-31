@@ -16,19 +16,22 @@ export async function prewarmEspCache(symbols, frames, trajectoryCharges, espMes
             _bgViewer = $3Dmol.createViewer(_bgDiv);
         }
         const bg = _bgViewer;
-        const total = frames.length, n = symbols.length;
+        const total = frames.length;
 
         for (let f = 0; f < total; f++) {
             if (espMeshCache[f]) continue;
             const coords = frames[f]?.coords || frames[f]?.positions;
             const charges = trajectoryCharges?.[f] || frames[f]?.charges;
-            if (!coords || !charges || charges.length < n) continue;
+            const syms = Array.isArray(symbols?.[f]) ? symbols[f] : (frames[f]?.symbols || symbols);
+            if (!coords || !charges || !syms) continue;
+            const n = Math.min(syms.length, coords.length);
+            if (charges.length < n) continue;
 
             bg.clear();
             let mdl = `${n}\nFrame Model\n`;
             for (let i = 0; i < n; i++) {
                 const [x, y, z] = coords[i];
-                mdl += `${symbols[i]} ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`;
+                mdl += `${syms[i]} ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`;
             }
             bg.addModel(mdl, 'xyz');
             const atoms = bg.selectedAtoms({});
