@@ -182,8 +182,8 @@ export class ViewerUI {
       this.elSlider.value = frameIdx;
     }
     if (this.elFrameInfo) {
-      const eStr = energy !== undefined ? ` | ${energy >= 0 ? '+' : ''}${energy.toFixed(2)} kcal/mol` : '';
-      this.elFrameInfo.innerHTML = `Frame <strong>${frameIdx + 1}</strong> / ${totalFrames}${eStr}`;
+      const eStr = energy !== undefined ? `<span class="frame-energy"> | ${energy >= 0 ? '+' : ''}${energy.toFixed(2)} kcal/mol</span>` : '';
+      this.elFrameInfo.innerHTML = `<span class="frame-prefix">Frame </span><strong>${frameIdx + 1}</strong> / ${totalFrames}${eStr}`;
     }
 
     // Step 5 SVG updates: push arrow pulse and state highlight
@@ -196,12 +196,16 @@ export class ViewerUI {
   updatePlayState(isPlaying, direction = 'forward') {
     if (this.elBtnPlayFwd) {
       const isFwd = isPlaying && direction === 'forward';
-      this.elBtnPlayFwd.textContent = isFwd ? '❚❚ Pause' : '▶ Play Fwd';
+      this.elBtnPlayFwd.innerHTML = isFwd
+        ? '<span class="btn-icon">❚❚</span><span class="btn-text"> Pause</span>'
+        : '<span class="btn-icon">▶</span><span class="btn-text"> Play Fwd</span>';
       this.elBtnPlayFwd.classList.toggle('active', isFwd);
     }
     if (this.elBtnPlayRev) {
       const isRev = isPlaying && direction === 'reverse';
-      this.elBtnPlayRev.textContent = isRev ? '❚❚ Pause' : '◀ Play Rev';
+      this.elBtnPlayRev.innerHTML = isRev
+        ? '<span class="btn-icon">❚❚</span><span class="btn-text"> Pause</span>'
+        : '<span class="btn-icon">◀</span><span class="btn-text"> Play Rev</span>';
       this.elBtnPlayRev.classList.toggle('active', isRev);
     }
   }

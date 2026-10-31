@@ -69,6 +69,19 @@ class ReactionViewerApp {
     const autoplay = params.get('autoplay') === '1' || params.get('autoplay') === 'true';
     const targetMolecule = params.get('molecule');
 
+    // Controls parameter overrides (e.g. ?controls=compact, ?controls=minimal, ?controls=none, ?compact=1)
+    const controlsParam = (params.get('controls') || (params.get('compact') === '1' ? 'compact' : '')).toLowerCase();
+    const dock = document.getElementById('bottom-dock');
+    if (dock && controlsParam) {
+      if (controlsParam === 'none') {
+        dock.style.display = 'none';
+      } else if (controlsParam === 'compact') {
+        dock.classList.add('dock-force-compact');
+      } else if (controlsParam === 'minimal') {
+        dock.classList.add('dock-force-minimal');
+      }
+    }
+
     if (this.bundleList.length > 0) {
       this.loadUrl(this.bundleList[0], initialFrame, autoplay, targetMolecule);
     } else {

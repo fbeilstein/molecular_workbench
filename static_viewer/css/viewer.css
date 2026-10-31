@@ -176,18 +176,22 @@ html, body {
 
 /* Bottom Playback Dock */
 #bottom-dock {
+  container-type: inline-size;
+  container-name: dock;
   height: 64px; background-color: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 16px; gap: 16px; z-index: 10; flex-shrink: 0;
+  box-sizing: border-box;
 }
-.playback-buttons { display: flex; align-items: center; gap: 6px; }
+.playback-buttons { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .btn {
   background-color: var(--bg-tertiary); color: var(--text-primary);
   border: 1px solid var(--border-color); border-radius: 4px;
   padding: 6px 12px; font-size: 13px; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   font-weight: 500; transition: background-color 0.15s, border-color 0.15s;
+  white-space: nowrap;
 }
 .btn:hover { background-color: #2b394e; border-color: var(--accent-color); }
 .btn-sm { padding: 3px 8px; font-size: 12px; }
@@ -203,6 +207,7 @@ html, body {
   border: 1px solid #3b82f6; border-radius: 9999px;
   padding: 6px 14px; font-weight: 600;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
 }
 .btn-play-fwd:hover { background-color: #2563eb; border-color: #2563eb; }
 .btn-play-fwd.active {
@@ -215,6 +220,7 @@ html, body {
   border: 1px solid #cbd5e1; border-radius: 9999px;
   padding: 6px 14px; font-weight: 600;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
 }
 .btn-play-rev:hover { background-color: #cbd5e1; border-color: #94a3b8; }
 .btn-play-rev.active {
@@ -222,13 +228,93 @@ html, body {
   box-shadow: 0 0 10px rgba(226, 232, 240, 0.6);
 }
 
-.slider-container { flex: 1; display: flex; align-items: center; gap: 12px; }
-#frame-slider { flex: 1; accent-color: var(--accent-color); cursor: pointer; height: 6px; }
+.slider-container { flex: 1; min-width: 60px; display: flex; align-items: center; gap: 12px; }
+#frame-slider { flex: 1; min-width: 50px; accent-color: var(--accent-color); cursor: pointer; height: 6px; }
 .frame-info {
   font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text-secondary); white-space: nowrap;
+  flex-shrink: 0;
 }
 .frame-info strong { color: var(--text-primary); }
-.dock-actions { display: flex; align-items: center; gap: 8px; }
+.dock-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* ========================================================
+   Responsive & Adaptive Dock Styling (Container & Media Queries)
+   ======================================================== */
+
+/* Level 1: Medium / Embedded (< 720px) */
+@container dock (max-width: 720px) {
+  #bottom-dock { padding: 0 10px; gap: 10px; }
+  #btn-first, #btn-last { display: none !important; }
+  .btn-play-fwd .btn-text, .btn-play-rev .btn-text { display: none !important; }
+  .btn-play-fwd, .btn-play-rev {
+    padding: 6px 10px;
+    min-width: 34px;
+    height: 32px;
+  }
+  .frame-energy { display: none !important; }
+  .slider-container { gap: 8px; }
+}
+
+@media (max-width: 720px) {
+  #bottom-dock { padding: 0 10px; gap: 10px; }
+  #btn-first, #btn-last { display: none !important; }
+  .btn-play-fwd .btn-text, .btn-play-rev .btn-text { display: none !important; }
+  .btn-play-fwd, .btn-play-rev {
+    padding: 6px 10px;
+    min-width: 34px;
+    height: 32px;
+  }
+  .frame-energy { display: none !important; }
+  .slider-container { gap: 8px; }
+}
+
+/* Level 2: Compact / Narrow (< 500px) */
+@container dock (max-width: 500px) {
+  #bottom-dock { padding: 0 8px; gap: 8px; }
+  #btn-prev, #btn-next { display: none !important; }
+  .dock-actions { display: none !important; }
+  .frame-prefix { display: none !important; }
+  .slider-container { gap: 6px; }
+}
+
+@media (max-width: 500px) {
+  #bottom-dock { padding: 0 8px; gap: 8px; }
+  #btn-prev, #btn-next { display: none !important; }
+  .dock-actions { display: none !important; }
+  .frame-prefix { display: none !important; }
+  .slider-container { gap: 6px; }
+}
+
+/* Explicit class overrides (?controls=compact or ?controls=minimal) */
+#bottom-dock.dock-force-compact #btn-first,
+#bottom-dock.dock-force-compact #btn-last,
+#bottom-dock.dock-force-compact .btn-text,
+#bottom-dock.dock-force-compact .frame-energy {
+  display: none !important;
+}
+#bottom-dock.dock-force-compact .btn-play-fwd,
+#bottom-dock.dock-force-compact .btn-play-rev {
+  padding: 6px 10px;
+  min-width: 34px;
+  height: 32px;
+}
+
+#bottom-dock.dock-force-minimal #btn-first,
+#bottom-dock.dock-force-minimal #btn-last,
+#bottom-dock.dock-force-minimal #btn-prev,
+#bottom-dock.dock-force-minimal #btn-next,
+#bottom-dock.dock-force-minimal .btn-text,
+#bottom-dock.dock-force-minimal .frame-energy,
+#bottom-dock.dock-force-minimal .frame-prefix,
+#bottom-dock.dock-force-minimal .dock-actions {
+  display: none !important;
+}
+#bottom-dock.dock-force-minimal .btn-play-fwd,
+#bottom-dock.dock-force-minimal .btn-play-rev {
+  padding: 6px 10px;
+  min-width: 34px;
+  height: 32px;
+}
 
 /* In-Page Molecule Modal Dialog */
 .custom-modal-backdrop {

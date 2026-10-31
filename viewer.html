@@ -67,15 +67,15 @@
       <div class="playback-buttons">
         <button class="btn" id="btn-first" title="First Frame">|◀</button>
         <button class="btn" id="btn-prev" title="Previous Frame">◀</button>
-        <button class="btn btn-play-fwd" id="btn-play-fwd" title="Play Forward">▶ Play Fwd</button>
-        <button class="btn btn-play-rev" id="btn-play-rev" title="Play Reverse">◀ Play Rev</button>
+        <button class="btn btn-play-fwd" id="btn-play-fwd" title="Play Forward"><span class="btn-icon">▶</span><span class="btn-text"> Play Fwd</span></button>
+        <button class="btn btn-play-rev" id="btn-play-rev" title="Play Reverse"><span class="btn-icon">◀</span><span class="btn-text"> Play Rev</span></button>
         <button class="btn" id="btn-next" title="Next Frame">▶</button>
         <button class="btn" id="btn-last" title="Last Frame">▶|</button>
       </div>
 
       <div class="slider-container">
         <input type="range" id="frame-slider" min="0" max="0" value="0">
-        <div class="frame-info" id="frame-info">Frame <strong>0</strong> / 0</div>
+        <div class="frame-info" id="frame-info"><span class="frame-prefix">Frame </span><strong>0</strong> / 0<span class="frame-energy"></span></div>
       </div>
 
       <div class="dock-actions">

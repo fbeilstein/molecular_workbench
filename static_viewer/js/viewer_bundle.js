@@ -278,7 +278,7 @@
     };
   }
 
-  // static_viewer/js/viewer_3d.js
+  // static_viewer/js/viewer_bonds.js
   var COV_RADII = {
     H: 0.31,
     C: 0.76,
@@ -314,32 +314,20 @@
         if (d >= 0.4 && d <= maxD) {
           adj[i].push(j);
           adj[j].push(i);
-          const key = `${i}_${j}`;
-          distMat[key] = d;
+          distMat[`${i}_${j}`] = d;
           candidates.push({ i, j, s1, s2, d });
         }
       }
     }
-    const getDist = (u, v) => {
-      const key = u < v ? `${u}_${v}` : `${v}_${u}`;
-      return distMat[key] || 1.4;
-    };
+    const getDist = (u, v) => distMat[u < v ? `${u}_${v}` : `${v}_${u}`] || 1.4;
     const ringDoubleBonds = /* @__PURE__ */ new Set();
     const ringBondsAll = /* @__PURE__ */ new Set();
-    const ringAtoms = [];
-    for (let i = 0; i < n; i++) {
-      if (symbols[i] === "C" || symbols[i] === "N") {
-        ringAtoms.push(i);
-      }
-    }
     const cycles = [];
     const visited = /* @__PURE__ */ new Set();
     const path = [];
     const findCycles = (v, start, depth) => {
       if (depth === 6) {
-        if (adj[v].includes(start)) {
-          cycles.push([...path]);
-        }
+        if (adj[v].includes(start)) cycles.push([...path]);
         return;
       }
       for (const u of adj[v]) {
@@ -352,12 +340,14 @@
         }
       }
     };
-    for (const startAtom of ringAtoms) {
-      visited.clear();
-      visited.add(startAtom);
-      path.length = 0;
-      path.push(startAtom);
-      findCycles(startAtom, startAtom, 1);
+    for (let i = 0; i < n; i++) {
+      if (symbols[i] === "C" || symbols[i] === "N") {
+        visited.add(i);
+        path.push(i);
+        findCycles(i, i, 1);
+        path.pop();
+        visited.delete(i);
+      }
     }
     const uniqueRings = [];
     const seenRings = /* @__PURE__ */ new Set();
@@ -371,9 +361,7 @@
     for (const ring of uniqueRings) {
       let isConjugated = true;
       for (let k = 0; k < 6; k++) {
-        const u = ring[k];
-        const v = ring[(k + 1) % 6];
-        if (getDist(u, v) > 1.48) {
+        if (getDist(ring[k], ring[(k + 1) % 6]) > 1.48) {
           isConjugated = false;
           break;
         }
@@ -384,66 +372,36 @@
       const sum0 = edges0.reduce((acc, [u, v]) => acc + getDist(u, v), 0);
       const sum1 = edges1.reduce((acc, [u, v]) => acc + getDist(u, v), 0);
       const chosen = sum0 <= sum1 ? edges0 : edges1;
-      for (const [u, v] of chosen) {
-        const key = u < v ? `${u}_${v}` : `${v}_${u}`;
-        ringDoubleBonds.add(key);
-      }
-      for (let k = 0; k < 6; k++) {
-        const u = ring[k];
-        const v = ring[(k + 1) % 6];
-        const key = u < v ? `${u}_${v}` : `${v}_${u}`;
-        ringBondsAll.add(key);
-      }
+      for (const [u, v] of chosen) ringDoubleBonds.add(u < v ? `${u}_${v}` : `${v}_${u}`);
+      for (let k = 0; k < 6; k++) ringBondsAll.add(ring[k] < ring[(k + 1) % 6] ? `${ring[k]}_${ring[(k + 1) % 6]}` : `${ring[(k + 1) % 6]}_${ring[k]}`);
     }
     for (const c of candidates) {
       const pairKey = c.i < c.j ? `${c.i}_${c.j}` : `${c.j}_${c.i}`;
       const pair = [c.s1, c.s2].sort().join("-");
       let targetOrder = 1;
-      if (ringDoubleBonds.has(pairKey)) {
-        targetOrder = 2;
-      } else if (!ringBondsAll.has(pairKey)) {
-        if (pair === "C-O") {
-          if (c.d < 1.16) targetOrder = 3;
-          else if (c.d < 1.265) targetOrder = 2;
-        } else if (pair === "C-C") {
-          if (c.d < 1.24) targetOrder = 3;
-          else if (c.d < 1.39) targetOrder = 2;
-        } else if (pair === "C-N") {
-          if (c.d < 1.18) targetOrder = 3;
-          else if (c.d < 1.32) targetOrder = 2;
-        } else if (pair === "N-N") {
-          if (c.d < 1.14) targetOrder = 3;
-          else if (c.d < 1.28) targetOrder = 2;
-        } else if (pair === "N-O" || pair === "O-O") {
-          if (c.d < 1.25) targetOrder = 2;
-        }
+      if (ringDoubleBonds.has(pairKey)) targetOrder = 2;
+      else if (!ringBondsAll.has(pairKey)) {
+        if (pair === "C-O") targetOrder = c.d < 1.16 ? 3 : c.d < 1.265 ? 2 : 1;
+        else if (pair === "C-C") targetOrder = c.d < 1.24 ? 3 : c.d < 1.39 ? 2 : 1;
+        else if (pair === "C-N") targetOrder = c.d < 1.18 ? 3 : c.d < 1.32 ? 2 : 1;
+        else if (pair === "N-N") targetOrder = c.d < 1.14 ? 3 : c.d < 1.28 ? 2 : 1;
+        else if (pair === "N-O" || pair === "O-O") targetOrder = c.d < 1.25 ? 2 : 1;
       }
-      bonds.push({
-        a1: c.i,
-        a2: c.j,
-        order: 1,
-        target: targetOrder,
-        s1: c.s1,
-        s2: c.s2,
-        d: c.d,
-        pairKey
-      });
+      bonds.push({ a1: c.i, a2: c.j, order: 1, target: targetOrder, s1: c.s1, s2: c.s2, d: c.d, pairKey });
       valences[c.i]++;
       valences[c.j]++;
     }
     bonds.sort((a, b) => {
       const prioA = a.target === 3 ? 0 : ringDoubleBonds.has(a.pairKey) ? 1 : a.target === 2 ? 2 : 3;
       const prioB = b.target === 3 ? 0 : ringDoubleBonds.has(b.pairKey) ? 1 : b.target === 2 ? 2 : 3;
-      if (prioA !== prioB) return prioA - prioB;
-      return a.d - b.d;
+      return prioA !== prioB ? prioA - prioB : a.d - b.d;
     });
     for (const b of bonds) {
       if (b.target > 1) {
         const v1Cap = MAX_VALENCE[b.s1] || 4;
         const v2Cap = MAX_VALENCE[b.s2] || 4;
-        const desiredBoost = b.target - 1;
         const maxBoost = Math.min(v1Cap - valences[b.a1], v2Cap - valences[b.a2]);
-        const boost = Math.max(0, Math.min(desiredBoost, maxBoost));
+        const boost = Math.max(0, Math.min(b.target - 1, maxBoost));
         if (boost > 0) {
           b.order += boost;
           valences[b.a1] += boost;
@@ -453,6 +411,182 @@
     }
     return bonds;
   }
+  function buildMolBlock(symbols, coords) {
+    const natoms = Math.min(symbols.length, coords.length);
+    const bonds = computeBonds(symbols, coords);
+    let sdf = `
+  Reaction Pathway Viewer
+
+${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0  0  0  0  0  0  0999 V2000
+`;
+    for (let i = 0; i < natoms; i++) {
+      const x = Number(coords[i][0]).toFixed(4).padStart(10, " ");
+      const y = Number(coords[i][1]).toFixed(4).padStart(10, " ");
+      const z = Number(coords[i][2]).toFixed(4).padStart(10, " ");
+      sdf += `${x}${y}${z} ${symbols[i].padEnd(3, " ")} 0  0  0  0  0  0  0  0  0  0  0  0
+`;
+    }
+    for (let i = 0; i < bonds.length; i++) {
+      sdf += `${String(bonds[i].a1 + 1).padStart(3, " ")}${String(bonds[i].a2 + 1).padStart(3, " ")}${String(bonds[i].order).padStart(3, " ")}  0  0  0  0
+`;
+    }
+    sdf += "M  END\n$$$$\n";
+    return sdf;
+  }
+
+  // static_viewer/js/viewer_surface.js
+  function findOrbitalMesh(bundle, frameIdx, orbKey) {
+    if (!bundle || !bundle.orbitalMeshes) return null;
+    const meshes = bundle.orbitalMeshes;
+    const k1 = `${frameIdx}_${orbKey}`;
+    if (meshes[k1]) return meshes[k1];
+    if (bundle.isSingleMolecule && meshes[orbKey]) {
+      return meshes[orbKey];
+    }
+    for (const k in meshes) {
+      if (k.startsWith(`${frameIdx}_`)) {
+        const baseKey = k.replace(`${frameIdx}_`, "");
+        if (baseKey === orbKey || k.includes(orbKey) || orbKey.includes(baseKey)) {
+          return meshes[k];
+        }
+      }
+    }
+    if (bundle.isSingleMolecule) {
+      for (const k in meshes) {
+        const stripped = k.replace(/^\d+_/, "");
+        if (stripped === orbKey || k.includes(orbKey) || orbKey.includes(stripped)) {
+          return meshes[k];
+        }
+      }
+    }
+    return null;
+  }
+  function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx, isovalue) {
+    if (!activeOrbitals || activeOrbitals.size === 0 || !bundle) return;
+    const CC = window.$3Dmol ? window.$3Dmol.CC : null;
+    for (const orbKey of activeOrbitals) {
+      const sKey = String(orbKey).toLowerCase();
+      const isAnti = sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
+      const posColorHex = isAnti ? "#d946ef" : "#38bdf8";
+      const negColorHex = isAnti ? "#22c55e" : "#f97316";
+      const posColorInt = isAnti ? 14239471 : 3718648;
+      const negColorInt = isAnti ? 2278750 : 16347926;
+      const meshPair = findOrbitalMesh(bundle, frameIdx, orbKey);
+      if (meshPair) {
+        const pV = meshPair.pos?.vertices || meshPair.pos?.vertexArr;
+        const pF = meshPair.pos?.faces || meshPair.pos?.faceArr;
+        const pN = meshPair.pos?.normals || meshPair.pos?.normalArr;
+        if (pV && pF) {
+          glViewer.addCustom({
+            vertexArr: pV,
+            faceArr: pF,
+            normalArr: pN,
+            color: CC ? CC.color(posColorHex) : posColorInt,
+            opacity: 0.75
+          });
+        }
+        const nV = meshPair.neg?.vertices || meshPair.neg?.vertexArr;
+        const nF = meshPair.neg?.faces || meshPair.neg?.faceArr;
+        const nN = meshPair.neg?.normals || meshPair.neg?.normalArr;
+        if (nV && nF) {
+          glViewer.addCustom({
+            vertexArr: nV,
+            faceArr: nF,
+            normalArr: nN,
+            color: CC ? CC.color(negColorHex) : negColorInt,
+            opacity: 0.75
+          });
+        }
+      } else if (bundle.cubeCache) {
+        const cubeData = bundle.cubeCache[`${frameIdx}_${orbKey}`] || bundle.cubeCache[orbKey];
+        if (cubeData && window.$3Dmol) {
+          try {
+            const vdo = new window.$3Dmol.VolumeData(cubeData, "cube");
+            const iso = isovalue || 0.035;
+            glViewer.addIsosurface(vdo, { isoval: iso, color: posColorHex, opacity: 0.72 });
+            glViewer.addIsosurface(vdo, { isoval: -iso, color: negColorHex, opacity: 0.72 });
+          } catch (_) {
+          }
+        }
+      }
+    }
+  }
+  function renderEspLayer(glViewer, bundle, frame, symbols, coords, natoms, frameIdx) {
+    const espMesh = bundle.espMeshes ? bundle.espMeshes[frameIdx] || bundle.espMeshes[String(frameIdx)] || (bundle.isSingleMolecule ? bundle.espMeshes["0"] || Object.values(bundle.espMeshes)[0] : null) : null;
+    const eV = espMesh?.vertices || espMesh?.vertexArr;
+    const eF = espMesh?.faces || espMesh?.faceArr;
+    const eN = espMesh?.normals || espMesh?.normalArr;
+    if (eV && eF) {
+      let colorParam = 1096065;
+      if (espMesh.esp_values && espMesh.esp_values.length === eV.length) {
+        const absMax = Math.max(Math.abs(espMesh.esp_min || -30), Math.abs(espMesh.esp_max || 30), 20);
+        colorParam = espMesh.esp_values.map((v) => {
+          const t = Math.max(-1, Math.min(1, v / absMax));
+          return t < 0 ? { r: 1, g: 1 + t, b: 1 + t } : { r: 1 - t, g: 1 - t, b: 1 };
+        });
+      }
+      const customObj = { vertexArr: eV, faceArr: eF, color: colorParam, opacity: 0.65 };
+      if (eN && eN.length === eV.length) customObj.normalArr = eN;
+      glViewer.addCustom(customObj);
+    } else if (window.$3Dmol) {
+      try {
+        const traj = bundle.trajectory || {};
+        const trajCharges = traj.trajectory_charges ? traj.trajectory_charges[frameIdx] : null;
+        const frameCharges = frame.charges || trajCharges || bundle.charges || [];
+        const atoms = glViewer.selectedAtoms({});
+        for (let i = 0; i < atoms.length && i < natoms; i++) {
+          let q = frameCharges && frameCharges[i] !== void 0 ? frameCharges[i] : null;
+          if (q === null) {
+            const s = symbols[i];
+            q = s === "H" ? 0.08 : s === "O" ? -0.5 : s === "Cl" ? -0.45 : 0;
+          }
+          atoms[i].partialCharge = q;
+          atoms[i].properties = Object.assign(atoms[i].properties || {}, { partialCharge: q });
+        }
+        glViewer.addSurface(window.$3Dmol.SurfaceType.VDW, {
+          opacity: 0.65,
+          colorscheme: { prop: "partialCharge", gradient: "rwb", min: -0.6, max: 0.6 }
+        });
+      } catch (e) {
+        console.warn("Dynamic surface rendering failed:", e);
+      }
+    }
+  }
+  function renderAtomCharges(glViewer, bundle, frame, symbols, coords, natoms, frameIdx) {
+    const traj = bundle.trajectory || {};
+    const trajCharges = traj.trajectory_charges ? traj.trajectory_charges[frameIdx] : null;
+    const charges = trajCharges || frame.charges || traj.charges || bundle.charges || bundle.manifest?.charges || [];
+    for (let i = 0; i < natoms; i++) {
+      let q = charges && charges[i] !== void 0 ? charges[i] : null;
+      if (q === null) {
+        const s = symbols[i];
+        q = s === "H" ? 0.06 : s === "O" ? -0.5 : s === "N" ? -0.4 : 0;
+      }
+      const sign = q > 0 ? "+" : "";
+      glViewer.addLabel(`${symbols[i]}: ${sign}${Number(q).toFixed(2)}`, {
+        position: { x: coords[i][0], y: coords[i][1] + 0.35, z: coords[i][2] },
+        fontSize: 10,
+        fontColor: "#ffffff",
+        backgroundColor: "rgba(15, 23, 42, 0.75)",
+        backgroundOpacity: 0.75
+      });
+    }
+  }
+  function updateEspColorbar(container, active, bundle, frameIdx) {
+    const colorbar = container.parentElement?.querySelector("#esp-colorbar") || document.getElementById("esp-colorbar");
+    if (!colorbar) return;
+    colorbar.style.display = active ? "flex" : "none";
+    if (active && bundle) {
+      const espMesh = bundle.espMeshes ? bundle.espMeshes[frameIdx] || bundle.espMeshes[String(frameIdx)] || (bundle.isSingleMolecule ? bundle.espMeshes["0"] || Object.values(bundle.espMeshes)[0] : null) : null;
+      const absMax = Math.max(Math.abs(espMesh?.esp_min || -30), Math.abs(espMesh?.esp_max || 30), 20);
+      const minEl = colorbar.querySelector("#esp-colorbar-min") || document.getElementById("esp-colorbar-min");
+      const maxEl = colorbar.querySelector("#esp-colorbar-max") || document.getElementById("esp-colorbar-max");
+      if (minEl) minEl.textContent = `${(-absMax).toFixed(1)}`;
+      if (maxEl) maxEl.textContent = `+${absMax.toFixed(1)}`;
+    }
+  }
+
+  // static_viewer/js/viewer_3d.js
   var Viewer3D = class {
     constructor(containerElement) {
       this.container = containerElement;
@@ -498,29 +632,9 @@
       this.currentFrameIdx = frameIdx;
       const frame = frames[frameIdx];
       const coords = frame.coords || frame.positions || [];
-      const symbols = traj.symbols || [];
+      const symbols = frame.symbols || traj.symbols || [];
       const natoms = Math.min(symbols.length, coords.length);
-      const bonds = computeBonds(symbols, coords);
-      let sdf = `
-  Reaction Pathway Viewer
-
-${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0  0  0  0  0  0  0999 V2000
-`;
-      for (let i = 0; i < natoms; i++) {
-        const sym = symbols[i];
-        const pos = coords[i];
-        const x = Number(pos[0]).toFixed(4).padStart(10, " ");
-        const y = Number(pos[1]).toFixed(4).padStart(10, " ");
-        const z = Number(pos[2]).toFixed(4).padStart(10, " ");
-        sdf += `${x}${y}${z} ${sym.padEnd(3, " ")} 0  0  0  0  0  0  0  0  0  0  0  0
-`;
-      }
-      for (let i = 0; i < bonds.length; i++) {
-        const b = bonds[i];
-        sdf += `${String(b.a1 + 1).padStart(3, " ")}${String(b.a2 + 1).padStart(3, " ")}${String(b.order).padStart(3, " ")}  0  0  0  0
-`;
-      }
-      sdf += "M  END\n$$$$\n";
+      const sdf = buildMolBlock(symbols, coords);
       this.glViewer.removeAllSurfaces();
       this.glViewer.removeAllShapes();
       this.glViewer.clear();
@@ -529,137 +643,15 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
         stick: { radius: 0.13, colorscheme: "Jmol" },
         sphere: { scale: 0.28, colorscheme: "Jmol" }
       });
-      if (this.activeOrbitals.size > 0 && this.bundle.orbitalMeshes) {
-        const CC = window.$3Dmol ? window.$3Dmol.CC : null;
-        for (const orbKey of this.activeOrbitals) {
-          const sKey = String(orbKey).toLowerCase();
-          const isAnti = sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
-          const posColorHex = isAnti ? "#d946ef" : "#38bdf8";
-          const negColorHex = isAnti ? "#22c55e" : "#f97316";
-          const posColorInt = isAnti ? 14239471 : 3718648;
-          const negColorInt = isAnti ? 2278750 : 16347926;
-          const meshPair = this.findOrbitalMesh(frameIdx, orbKey);
-          if (meshPair) {
-            const pV = meshPair.pos?.vertices || meshPair.pos?.vertexArr;
-            const pF = meshPair.pos?.faces || meshPair.pos?.faceArr;
-            const pN = meshPair.pos?.normals || meshPair.pos?.normalArr;
-            if (pV && pF) {
-              this.glViewer.addCustom({
-                vertexArr: pV,
-                faceArr: pF,
-                normalArr: pN,
-                color: CC ? CC.color(posColorHex) : posColorInt,
-                opacity: 0.75
-              });
-            }
-            const nV = meshPair.neg?.vertices || meshPair.neg?.vertexArr;
-            const nF = meshPair.neg?.faces || meshPair.neg?.faceArr;
-            const nN = meshPair.neg?.normals || meshPair.neg?.normalArr;
-            if (nV && nF) {
-              this.glViewer.addCustom({
-                vertexArr: nV,
-                faceArr: nF,
-                normalArr: nN,
-                color: CC ? CC.color(negColorHex) : negColorInt,
-                opacity: 0.75
-              });
-            }
-          } else if (this.bundle.cubeCache) {
-            const cubeData = this.bundle.cubeCache[`${frameIdx}_${orbKey}`] || this.bundle.cubeCache[orbKey];
-            if (cubeData && window.$3Dmol) {
-              try {
-                const vdo = new window.$3Dmol.VolumeData(cubeData, "cube");
-                const iso = this.orbitalIsovalue || 0.035;
-                this.glViewer.addIsosurface(vdo, { isoval: iso, color: posColorHex, opacity: 0.72 });
-                this.glViewer.addIsosurface(vdo, { isoval: -iso, color: negColorHex, opacity: 0.72 });
-              } catch (_) {
-              }
-            }
-          }
-        }
+      if (this.activeOrbitals.size > 0) {
+        renderActiveOrbitals(this.glViewer, this.bundle, this.activeOrbitals, frameIdx, this.orbitalIsovalue);
       }
       if (this.activeEsp) {
-        const espMesh = this.bundle.espMeshes ? this.bundle.espMeshes[frameIdx] || this.bundle.espMeshes[String(frameIdx)] || (this.bundle.isSingleMolecule ? this.bundle.espMeshes["0"] || Object.values(this.bundle.espMeshes)[0] : null) : null;
-        const eV = espMesh?.vertices || espMesh?.vertexArr;
-        const eF = espMesh?.faces || espMesh?.faceArr;
-        const eN = espMesh?.normals || espMesh?.normalArr;
-        if (eV && eF) {
-          let colorParam = 1096065;
-          if (espMesh.esp_values && espMesh.esp_values.length === eV.length) {
-            const absMax = Math.max(Math.abs(espMesh.esp_min || -30), Math.abs(espMesh.esp_max || 30), 20);
-            colorParam = espMesh.esp_values.map((v) => {
-              const t = Math.max(-1, Math.min(1, v / absMax));
-              return t < 0 ? { r: 1, g: 1 + t, b: 1 + t } : { r: 1 - t, g: 1 - t, b: 1 };
-            });
-          }
-          const customObj = {
-            vertexArr: eV,
-            faceArr: eF,
-            color: colorParam,
-            opacity: 0.65
-          };
-          if (eN && eN.length === eV.length) {
-            customObj.normalArr = eN;
-          }
-          this.glViewer.addCustom(customObj);
-        } else if (window.$3Dmol) {
-          try {
-            const traj2 = this.bundle.trajectory || {};
-            const trajCharges = traj2.trajectory_charges ? traj2.trajectory_charges[frameIdx] : null;
-            const frameCharges = frame.charges || trajCharges || this.bundle.charges || [];
-            const atoms = this.glViewer.selectedAtoms({});
-            for (let i = 0; i < atoms.length && i < natoms; i++) {
-              let q = frameCharges && frameCharges[i] !== void 0 ? frameCharges[i] : null;
-              if (q === null) {
-                const s = symbols[i];
-                if (s === "H") q = 0.08;
-                else if (s === "C") q = -0.05;
-                else if (s === "O") q = -0.5;
-                else if (s === "Cl") q = -0.45;
-                else q = 0;
-              }
-              atoms[i].partialCharge = q;
-              atoms[i].properties = atoms[i].properties || {};
-              atoms[i].properties.partialCharge = q;
-            }
-            this.glViewer.addSurface(window.$3Dmol.SurfaceType.VDW, {
-              opacity: 0.65,
-              colorscheme: { prop: "partialCharge", gradient: "rwb", min: -0.6, max: 0.6 }
-            });
-          } catch (e) {
-            console.warn("Dynamic surface rendering failed:", e);
-          }
-        }
+        renderEspLayer(this.glViewer, this.bundle, frame, symbols, coords, natoms, frameIdx);
+        this.updateColorbar(true);
       }
       if (this.showCharges) {
-        const traj2 = this.bundle.trajectory || {};
-        const trajCharges = traj2.trajectory_charges ? traj2.trajectory_charges[frameIdx] : null;
-        const charges = trajCharges || frame.charges || traj2.charges || this.bundle.charges || this.bundle.manifest && this.bundle.manifest.charges || [];
-        for (let i = 0; i < natoms; i++) {
-          let q = charges && charges[i] !== void 0 ? charges[i] : null;
-          if (q === null) {
-            const s = symbols[i];
-            if (s === "H") q = 0.06;
-            else if (s === "C") q = -0.06;
-            else if (s === "O") q = -0.5;
-            else if (s === "N") q = -0.4;
-            else if (s === "Cl") q = -0.2;
-            else q = 0;
-          }
-          const sym = symbols[i];
-          const pos = coords[i];
-          const sign = q > 0 ? "+" : "";
-          this.glViewer.addLabel(`${sym}: ${sign}${Number(q).toFixed(2)}`, {
-            position: { x: pos[0], y: pos[1] + 0.35, z: pos[2] },
-            fontSize: 10,
-            fontColor: "#ffffff",
-            backgroundColor: "rgba(15, 23, 42, 0.75)",
-            backgroundOpacity: 0.75
-          });
-        }
-      }
-      if (this.activeEsp) {
-        this.updateColorbar(true);
+        renderAtomCharges(this.glViewer, this.bundle, frame, symbols, coords, natoms, frameIdx);
       }
       if (autoZoom) {
         this.glViewer.zoomTo();
@@ -667,37 +659,11 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
       this.glViewer.render();
     }
     findOrbitalMesh(frameIdx, orbKey) {
-      if (!this.bundle || !this.bundle.orbitalMeshes) return null;
-      const meshes = this.bundle.orbitalMeshes;
-      const k1 = `${frameIdx}_${orbKey}`;
-      if (meshes[k1]) return meshes[k1];
-      if (this.bundle.isSingleMolecule && meshes[orbKey]) {
-        return meshes[orbKey];
-      }
-      for (const k in meshes) {
-        if (k.startsWith(`${frameIdx}_`)) {
-          const baseKey = k.replace(`${frameIdx}_`, "");
-          if (baseKey === orbKey || k.includes(orbKey) || orbKey.includes(baseKey)) {
-            return meshes[k];
-          }
-        }
-      }
-      if (this.bundle.isSingleMolecule) {
-        for (const k in meshes) {
-          const stripped = k.replace(/^\d+_/, "");
-          if (stripped === orbKey || k.includes(orbKey) || orbKey.includes(stripped)) {
-            return meshes[k];
-          }
-        }
-      }
-      return null;
+      return findOrbitalMesh(this.bundle, frameIdx, orbKey);
     }
     toggleOrbital(orbKey, isChecked) {
-      if (isChecked) {
-        this.activeOrbitals.add(orbKey);
-      } else {
-        this.activeOrbitals.delete(orbKey);
-      }
+      if (isChecked) this.activeOrbitals.add(orbKey);
+      else this.activeOrbitals.delete(orbKey);
       this.renderFrame(this.currentFrameIdx, false);
     }
     clearOrbitals() {
@@ -714,17 +680,7 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
       this.renderFrame(this.currentFrameIdx, false);
     }
     updateColorbar(active) {
-      const colorbar = this.container.parentElement?.querySelector("#esp-colorbar") || document.getElementById("esp-colorbar");
-      if (!colorbar) return;
-      colorbar.style.display = active ? "flex" : "none";
-      if (active && this.bundle) {
-        const espMesh = this.bundle.espMeshes ? this.bundle.espMeshes[this.currentFrameIdx] || this.bundle.espMeshes[String(this.currentFrameIdx)] || (this.bundle.isSingleMolecule ? this.bundle.espMeshes["0"] || Object.values(this.bundle.espMeshes)[0] : null) : null;
-        const absMax = Math.max(Math.abs(espMesh?.esp_min || -30), Math.abs(espMesh?.esp_max || 30), 20);
-        const minEl = colorbar.querySelector("#esp-colorbar-min") || document.getElementById("esp-colorbar-min");
-        const maxEl = colorbar.querySelector("#esp-colorbar-max") || document.getElementById("esp-colorbar-max");
-        if (minEl) minEl.textContent = `${(-absMax).toFixed(1)}`;
-        if (maxEl) maxEl.textContent = `+${absMax.toFixed(1)}`;
-      }
+      updateEspColorbar(this.container, active, this.bundle, this.currentFrameIdx);
     }
   };
 
@@ -1414,8 +1370,8 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
         this.elSlider.value = frameIdx;
       }
       if (this.elFrameInfo) {
-        const eStr = energy !== void 0 ? ` | ${energy >= 0 ? "+" : ""}${energy.toFixed(2)} kcal/mol` : "";
-        this.elFrameInfo.innerHTML = `Frame <strong>${frameIdx + 1}</strong> / ${totalFrames}${eStr}`;
+        const eStr = energy !== void 0 ? `<span class="frame-energy"> | ${energy >= 0 ? "+" : ""}${energy.toFixed(2)} kcal/mol</span>` : "";
+        this.elFrameInfo.innerHTML = `<span class="frame-prefix">Frame </span><strong>${frameIdx + 1}</strong> / ${totalFrames}${eStr}`;
       }
       if (this.svgMechanism) {
         this.svgMechanism.updatePushArrows(frameIdx, this.app.playDirection || "forward");
@@ -1425,12 +1381,12 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
     updatePlayState(isPlaying, direction = "forward") {
       if (this.elBtnPlayFwd) {
         const isFwd = isPlaying && direction === "forward";
-        this.elBtnPlayFwd.textContent = isFwd ? "\u275A\u275A Pause" : "\u25B6 Play Fwd";
+        this.elBtnPlayFwd.innerHTML = isFwd ? '<span class="btn-icon">\u275A\u275A</span><span class="btn-text"> Pause</span>' : '<span class="btn-icon">\u25B6</span><span class="btn-text"> Play Fwd</span>';
         this.elBtnPlayFwd.classList.toggle("active", isFwd);
       }
       if (this.elBtnPlayRev) {
         const isRev = isPlaying && direction === "reverse";
-        this.elBtnPlayRev.textContent = isRev ? "\u275A\u275A Pause" : "\u25C0 Play Rev";
+        this.elBtnPlayRev.innerHTML = isRev ? '<span class="btn-icon">\u275A\u275A</span><span class="btn-text"> Pause</span>' : '<span class="btn-icon">\u25C0</span><span class="btn-text"> Play Rev</span>';
         this.elBtnPlayRev.classList.toggle("active", isRev);
       }
     }
@@ -1971,6 +1927,17 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
       const initialFrame = parseInt(params.get("frame") || "0", 10);
       const autoplay = params.get("autoplay") === "1" || params.get("autoplay") === "true";
       const targetMolecule = params.get("molecule");
+      const controlsParam = (params.get("controls") || (params.get("compact") === "1" ? "compact" : "")).toLowerCase();
+      const dock = document.getElementById("bottom-dock");
+      if (dock && controlsParam) {
+        if (controlsParam === "none") {
+          dock.style.display = "none";
+        } else if (controlsParam === "compact") {
+          dock.classList.add("dock-force-compact");
+        } else if (controlsParam === "minimal") {
+          dock.classList.add("dock-force-minimal");
+        }
+      }
       if (this.bundleList.length > 0) {
         this.loadUrl(this.bundleList[0], initialFrame, autoplay, targetMolecule);
       } else {
