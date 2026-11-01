@@ -142,6 +142,7 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/2-methylpropan-2-ylium.svg)|**2-methylpropan-2-ylium**, or **tert-butyl cation**, or **t-butyl cation**, or **trimethylcarbenium**, or **1,1-dimethylethyl cation**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/2-methylpropan-2-ylium.zip&download)|Charge: +1 <br>SMILES: [C+](C)(C)C|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/ethanol.svg)|**ethanol**, or **ethyl alcohol**, or **hydroxyethane**, or **drinking alcohol**, or **grain alcohol**, or **spirits of wine**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/ethanol.zip&download)|$pK_a = 15.9$ <br>SMILES: CCO|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/ethanolate.svg)|**ethanolate**, or **ethoxide**, or **ethyl oxide anion**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/ethanolate.zip&download)|Charge: -1 <br>SMILES: CC[O-]|
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/molecules/bromomethane.svg)|**bromomethane**, or **methyl bromide**, or **monobromomethane**, or **R-40B1**, or **freon 40B1**, or **halon 1001**|[View Molecule](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/molecules/bromomethane.zip&download)|SMILES: CBr|
 
 
 
