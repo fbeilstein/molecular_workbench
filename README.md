@@ -146,4 +146,5 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 
 
 
+* [MOLECULAR VIEWER](https://fbeilstein.github.io/molecular_workbench/viewer.html)
 </details>
