@@ -162,7 +162,32 @@ export function computeBonds(symbols, coords) {
  */
 export function symbolsCoordsToMolBlock(symbols, coords, bondTable = null) {
     const natoms = Math.min(symbols.length, coords.length);
-    const bonds = bondTable || computeBonds(symbols, coords);
+    let bonds = [];
+    if (bondTable && bondTable.length > 0) {
+        for (const b of bondTable) {
+            const u = b.a1 !== undefined ? b.a1 : (b.from !== undefined ? b.from : b[0]);
+            const v = b.a2 !== undefined ? b.a2 : (b.to !== undefined ? b.to : b[1]);
+            if (u >= natoms || v >= natoms) continue;
+            const s1 = symbols[u] || 'C';
+            const s2 = symbols[v] || 'C';
+            const r1 = COV_RADII[s1] || 0.75;
+            const r2 = COV_RADII[s2] || 0.75;
+            const dx = coords[u][0] - coords[v][0];
+            const dy = coords[u][1] - coords[v][1];
+            const dz = coords[u][2] - coords[v][2];
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const maxD = 1.32 * (r1 + r2);
+            if (d <= maxD) {
+                bonds.push(b);
+            }
+        }
+        if (bonds.length === 0 && natoms > 1) {
+            bonds = computeBonds(symbols, coords);
+        }
+    } else {
+        bonds = computeBonds(symbols, coords);
+    }
+
     let sdf = `\n  Molecular Workbench 3D\n\n${String(natoms).padStart(3, ' ')}${String(bonds.length).padStart(3, ' ')}  0  0  0  0  0  0  0  0999 V2000\n`;
 
     for (let i = 0; i < natoms; i++) {
@@ -177,7 +202,7 @@ export function symbolsCoordsToMolBlock(symbols, coords, bondTable = null) {
     for (const b of bonds) {
         const u = b.a1 !== undefined ? b.a1 : (b.from !== undefined ? b.from : b[0]);
         const v = b.a2 !== undefined ? b.a2 : (b.to !== undefined ? b.to : b[1]);
-        const ord = b.order !== undefined ? b.order : (b[2] || 1);
+        const ord = b.order !== undefined ? b.order : (b.r_order !== undefined ? b.r_order : (b[2] || 1));
         sdf += `${String(u + 1).padStart(3, ' ')}${String(v + 1).padStart(3, ' ')}${String(ord).padStart(3, ' ')}  0  0  0  0\n`;
     }
     sdf += 'M  END\n$$$$\n';
