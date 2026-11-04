@@ -162,7 +162,7 @@ class Step6Orbitals(PipelineStep):
         if action == "get_frame_orbitals":
             data = self._ensure_frame_computed(frame_idx, megajson)
             fr = megajson["frames"][frame_idx]
-            catalog = get_or_build_catalog(megajson, _SCF_CACHE, None)
+            catalog = get_or_build_catalog(megajson, _SCF_CACHE, self._ensure_frame_computed)
 
             def _enrich_pool(metas):
                 res = []

@@ -201,20 +201,43 @@ def build_global_track_catalog(
             "trk_lumo": {"track_id": "trk_lumo", "name": "LUMO", "label": "LUMO", "category": "frontier", "orbital_class": "antibonding", "color": "#fb923c", "atoms": [], "group_keys": ["LUMO"] * n_g, "frame_map": ["LUMO"] * n_frames}
         }
 
+    def _can_merge_tracks(trk_gk: List[Optional[str]], new_gk: List[Optional[str]], trk_atoms: List[Any], new_atoms: List[Any]) -> bool:
+        has_match = False
+        for gi in range(min(len(trk_gk), len(new_gk))):
+            k1, k2 = trk_gk[gi], new_gk[gi]
+            if k1 is not None and k2 is not None:
+                if k1 != k2:
+                    return False  # Strict conflict: an orbital track cannot be two different IBOs in the same step
+                has_match = True
+        if not has_match:
+            return False
+        # Do not merge tracks if atoms are completely disjoint across the step
+        s1 = set(_atom_nums(trk_atoms))
+        s2 = set(_atom_nums(new_atoms))
+        if s1 and s2 and not (s1 & s2) and (trk_gk[0] is not None and new_gk[0] is not None):
+            return False
+        return True
+
+    # Ensure at least the start of each step is sampled if ensure_fn is available
     avail_frames = sorted(list((scf_cache or {}).keys()))
+    if ensure_fn:
+        step_starts = [g[0] for g in groups if g[0] not in avail_frames]
+        for st in step_starts:
+            ensure_fn(st, megajson)
+        avail_frames = sorted(list((scf_cache or {}).keys()))
+
     for fi in avail_frames:
         fd = scf_cache[fi]
         pools = [("bonding", fd.get("ibos_meta", {})), ("pi", fd.get("canonical_pi_meta", {})), ("star", fd.get("antibonds_meta", {}))]
         for p_type, pool in pools:
             for k, m in pool.items():
                 is_star = ("STAR" in k) or (p_type == "star")
-                f_map, g_keys = build_track_frame_map(megajson, fi, k, scf_cache, None, is_star=is_star)
+                f_map, g_keys = build_track_frame_map(megajson, fi, k, scf_cache, ensure_fn, is_star=is_star)
 
                 matched_trk = None
                 for tid, trk in list(catalog.items()):
                     if tid in ("trk_esp", "trk_homo", "trk_lumo"): continue
-                    trk_gk = trk.get("group_keys", [])
-                    if any(gk is not None and len(trk_gk) > gi and trk_gk[gi] == gk for gi, gk in enumerate(g_keys)):
+                    if _can_merge_tracks(trk.get("group_keys", []), g_keys, trk.get("atoms", []), m.get("atoms", [])):
                         matched_trk = trk
                         break
 
@@ -225,11 +248,11 @@ def build_global_track_catalog(
                         if gk: mgk[gi] = gk
                     for f_i, fk in enumerate(f_map):
                         if fk and not mfm[f_i]: mfm[f_i] = fk
-                    lbl, trans, _, _ = resolve_track_roles(megajson, mfm, matched_trk.get("label", m.get("label", k)), scf_cache, None)
+                    lbl, trans, _, _ = resolve_track_roles(megajson, mfm, matched_trk.get("label", m.get("label", k)), scf_cache, ensure_fn)
                     matched_trk["label"] = matched_trk["name"] = lbl
                     matched_trk["role_transition"] = trans
                 else:
-                    lbl, trans, _, _ = resolve_track_roles(megajson, f_map, m.get("label", k), scf_cache, None)
+                    lbl, trans, _, _ = resolve_track_roles(megajson, f_map, m.get("label", k), scf_cache, ensure_fn)
                     t = m.get("type", "")
                     cat = "core" if t == "core" else ("antibonding" if (is_star or "star" in t) else ("lone_pairs" if t == "lone_pair" else ("delocalized" if "pi" in t else "bonding")))
                     col = "#94a3b8" if cat == "core" else ("#fb923c" if cat == "antibonding" else "#38bdf8")
