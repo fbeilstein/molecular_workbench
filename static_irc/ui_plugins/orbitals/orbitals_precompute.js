@@ -12,7 +12,7 @@ export class OrbitalsPrecompute {
         this.abortFlag = false;
     }
 
-    async startPrecompute(totalFrames, force = true) {
+    async startPrecompute(totalFrames, force = false) {
         if (this.isPrecomputing) return;
         this.isPrecomputing = true;
         this.abortFlag = false;
@@ -23,7 +23,7 @@ export class OrbitalsPrecompute {
         }
 
         let currentFrame = 0;
-        const batchSize = 2;
+        const batchSize = 5;
 
         if (this.onProgress) {
             this.onProgress({ percent: 1, currentFrame: 0, totalFrames, isComplete: false });

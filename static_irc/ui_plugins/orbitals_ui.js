@@ -57,25 +57,59 @@ export const OrbitalsUI = {
     },
 
     bindEvents(container) {
-        container.querySelector('#btn-play-pause').addEventListener('click', () => this.togglePlay());
-        container.querySelector('#btn-prev-frame').addEventListener('click', () => this.stepFrame(-1));
-        container.querySelector('#btn-next-frame').addEventListener('click', () => this.stepFrame(1));
+        container.querySelector('#btn-play-pause')?.addEventListener('click', () => this.togglePlay());
+        container.querySelector('#btn-prev-frame')?.addEventListener('click', () => this.stepFrame(-1));
+        container.querySelector('#btn-next-frame')?.addEventListener('click', () => this.stepFrame(1));
         const sc = container.querySelector('#transport-frame-scrubber');
         if (sc) ['input', 'change'].forEach(ev => sc.addEventListener(ev, e => this.seekFrame(parseInt(e.target.value, 10), false)));
 
-        container.querySelector('#btn-toggle-lecture').addEventListener('click', () => {
+        container.querySelector('#btn-toggle-lecture')?.addEventListener('click', () => {
             this.state.hideAllOrbitals = !this.state.hideAllOrbitals;
             const b = container.querySelector('#btn-toggle-lecture');
             if (b) b.textContent = this.state.hideAllOrbitals ? '🚫 MOs: OFF' : '👁 MOs: ON';
             this.refreshViewer();
         });
-        container.querySelector('#btn-toggle-esp').addEventListener('click', () => {
+        container.querySelector('#btn-toggle-esp')?.addEventListener('click', () => {
             this.state.showCharges = !this.state.showCharges;
             const b = container.querySelector('#btn-toggle-esp');
             if (b) { b.textContent = this.state.showCharges ? '⚡ ESP: ON' : '⚡ ESP: OFF'; b.className = this.state.showCharges ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary'; }
             (!this.state.frameDataCache[this.state.currentFrame] && !this.state.trajectoryCharges[this.state.currentFrame]) ? this.loadFrameData(this.state.currentFrame) : this.refreshViewer();
         });
-        container.querySelector('#btn-precompute-all').addEventListener('click', () => this.state.precompute.startPrecompute(this.state.totalFrames));
+        container.querySelector('#btn-precompute-all')?.addEventListener('click', () => this.state.precompute.startPrecompute(this.state.totalFrames, false));
+        container.querySelector('#btn-purge-cache')?.addEventListener('click', async () => {
+            if (!confirm('Are you sure you want to purge all memory and disk orbital cube caches?')) return;
+            const btn = container.querySelector('#btn-purge-cache');
+            const orig = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Purging...';
+            try {
+                const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action_type: 'clear_cache' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (this.state.viewer3D?.cubeCache) {
+                        for (const k in this.state.viewer3D.cubeCache) delete this.state.viewer3D.cubeCache[k];
+                    }
+                    this.state.frameDataCache = {};
+                    const preBtn = container.querySelector('#btn-precompute-all');
+                    if (preBtn) preBtn.textContent = '⚡ Precompute';
+                    btn.textContent = '✓ Cleared';
+                    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+                    this.refreshViewer();
+                } else {
+                    alert('Failed to clear cache: ' + (data.error || 'Unknown error'));
+                    btn.textContent = orig;
+                    btn.disabled = false;
+                }
+            } catch (e) {
+                console.error('Error clearing cache:', e);
+                btn.textContent = orig;
+                btn.disabled = false;
+            }
+        });
 
         const v3 = this.state.viewer3D;
         container.querySelector('#btn-zoom-in')?.addEventListener('click', () => v3?.zoomIn());

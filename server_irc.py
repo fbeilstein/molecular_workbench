@@ -4,6 +4,7 @@ import socketserver
 import json
 import urllib.parse
 import shutil
+import time
 
 import irc_plugins
 
@@ -48,6 +49,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         self.send_header('Pragma', 'no-cache')
         self.send_header('Expires', '0')
+        self.send_header('Connection', 'close')
         super().end_headers()
 
     def _send_json(self, data, status=200):
@@ -172,7 +174,10 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                 if downstream.step_id in pipeline_state:
                     del pipeline_state[downstream.step_id]
 
+        t0 = time.time()
         result = plugin.run(pipeline_state, user_input)
+        dur = time.time() - t0
+        print(f"[{plugin.step_id}] run completed in {dur:.2f}s (success={result.success})")
         if result.success:
             pipeline_state[plugin.step_id] = result.data
             if saved_docked and "step_3_ts" not in pipeline_state:
@@ -198,7 +203,12 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         })
 
     def _handle_step_custom(self, plugin, user_input):
+        action = user_input.get("action_type") or user_input.get("action")
+        t0 = time.time()
         result_data = plugin.custom_action(user_input, pipeline_state) if hasattr(plugin, 'custom_action') else {}
+        dur = time.time() - t0
+        if dur > 0.3:
+            print(f"[{plugin.step_id}] custom action '{action}' took {dur:.2f}s")
         if result_data.get("success") and "molblocks" in result_data:
             pipeline_state.setdefault(plugin.step_id, {})["docked_reactants"] = result_data["molblocks"]
             save_current_state()

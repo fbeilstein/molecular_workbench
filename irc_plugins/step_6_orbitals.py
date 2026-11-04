@@ -49,11 +49,13 @@ class Step6Orbitals(PipelineStep):
         if not mj and os.path.exists(PROLONGED_PATH):
             try: mj = json.load(open(PROLONGED_PATH, "r"))
             except Exception: mj = {}
-        if mj and os.path.exists(PROLONGED_PATH) and not mj.get("global_electron_tracks"):
+        if mj and os.path.exists(PROLONGED_PATH):
             try:
                 disk = json.load(open(PROLONGED_PATH, "r"))
-                mj.setdefault("global_electron_tracks", disk.get("global_electron_tracks", {}))
-                mj.setdefault("orbital_timeline", disk.get("orbital_timeline", {}))
+                if disk.get("global_electron_tracks"):
+                    mj["global_electron_tracks"] = disk["global_electron_tracks"]
+                if disk.get("orbital_timeline"):
+                    mj["orbital_timeline"] = disk["orbital_timeline"]
             except Exception: pass
         return mj or {}
 
@@ -68,7 +70,7 @@ class Step6Orbitals(PipelineStep):
             timeline = {"default_isovalue": 0.03, "tracks": []}
         else:
             tracks = timeline.get("tracks", [])
-            timeline["tracks"] = enrich_timeline_tracks(megajson, tracks if isinstance(tracks, list) else [], _SCF_CACHE, self._ensure_frame_computed)
+            timeline["tracks"] = enrich_timeline_tracks(megajson, tracks if isinstance(tracks, list) else [], _SCF_CACHE, None)
             timeline.setdefault("default_isovalue", 0.03)
 
         return {
@@ -145,22 +147,22 @@ class Step6Orbitals(PipelineStep):
         if not megajson:
             return {"error": "Pathway data is missing. Please complete Step 5."}
 
-        action = user_input.get("action_type")
-        frame_idx = int(user_input.get("frame_index", 0))
-        n_frames = len(megajson.get("frames", []))
-        if frame_idx < 0 or frame_idx >= n_frames:
-            return {"error": f"Frame {frame_idx} out of range (0-{n_frames-1})"}
-
-        if action == "clear_cache":
+        action = user_input.get("action_type") or user_input.get("action")
+        if action in ["clear_cache", "purge_cache"]:
             with _CACHE_LOCK:
                 _SCF_CACHE.clear()
             clear_orbital_caches()
             return {"success": True, "message": "Orbital caches and disk cubes cleared."}
 
+        frame_idx = int(user_input.get("frame_index", 0))
+        n_frames = len(megajson.get("frames", []))
+        if frame_idx < 0 or frame_idx >= n_frames:
+            return {"error": f"Frame {frame_idx} out of range (0-{n_frames-1})"}
+
         if action == "get_frame_orbitals":
             data = self._ensure_frame_computed(frame_idx, megajson)
             fr = megajson["frames"][frame_idx]
-            catalog = get_or_build_catalog(megajson, _SCF_CACHE, self._ensure_frame_computed)
+            catalog = get_or_build_catalog(megajson, _SCF_CACHE, None)
 
             def _enrich_pool(metas):
                 res = []
@@ -202,7 +204,7 @@ class Step6Orbitals(PipelineStep):
             if user_input.get("timeline"):
                 tl = user_input["timeline"]
                 if isinstance(tl, dict) and "tracks" in tl and isinstance(tl["tracks"], list):
-                    tl["tracks"] = enrich_timeline_tracks(megajson, tl["tracks"], _SCF_CACHE, self._ensure_frame_computed)
+                    tl["tracks"] = enrich_timeline_tracks(megajson, tl["tracks"], _SCF_CACHE, None)
                 megajson["orbital_timeline"] = tl
                 try:
                     os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
@@ -231,8 +233,7 @@ class Step6Orbitals(PipelineStep):
                 iso = float(user_input.get("isovalue", 0.03) or 0.03)
             except (ValueError, TypeError):
                 iso = 0.03
-            d = self._ensure_frame_computed(frame_idx, megajson)
-            return get_or_compute_cube(frame_idx, ok, ck, iso, d, megajson, track_id=tid)
+            return get_or_compute_cube(frame_idx, ok, ck, iso, None, megajson, track_id=tid, ensure_frame_computed_fn=self._ensure_frame_computed)
 
         return {"error": f"Unknown action: {action}"}
 
@@ -241,6 +242,12 @@ class Step6Orbitals(PipelineStep):
         if not megajson: return StepResult(success=False, error_message="Pathway data missing.")
         tl = user_input.get("timeline") or megajson.get("orbital_timeline") or {}
         megajson["orbital_timeline"] = tl
+        try:
+            os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
+            with open(PROLONGED_PATH, "w") as f:
+                json.dump(megajson, f, indent=2)
+        except Exception:
+            pass
         return StepResult(success=True, data={"completed": True, "megajson": megajson, "orbital_timeline": tl})
 
     def validate(self, step_data: Dict[str, Any]) -> bool:

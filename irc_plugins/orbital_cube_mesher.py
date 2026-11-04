@@ -49,9 +49,10 @@ def get_or_compute_cube(
     ok: str,
     ck: Optional[str],
     iso: float,
-    d: Dict[str, Any],
+    d: Optional[Dict[str, Any]],
     megajson: Dict[str, Any],
-    track_id: Optional[str] = None
+    track_id: Optional[str] = None,
+    ensure_frame_computed_fn: Optional[Callable[[int, Dict[str, Any]], Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """Fetch cached Gaussian cube text or evaluate molecular orbital on grid."""
     coords = megajson["frames"][frame_idx].get("coords", megajson["frames"][frame_idx].get("positions", []))
@@ -65,16 +66,50 @@ def get_or_compute_cube(
         if not rk:
             return {"success": False, "available": False, "track_id": tid, "message": f"Orbital '{tid}' not present at frame {frame_idx}"}
 
+    cache_key = f"{frame_idx}_{tid}"
+
+    # 1. Fast check if rk is known and cached in memory or on disk without computing SCF
+    if rk:
+        disk_cube_path = os.path.join(CUBES_DIR, f"{frame_idx}_{rk}.cube")
+        if cache_key in _CUBE_CACHE:
+            cube_text = _CUBE_CACHE[cache_key]
+            if cube_text.startswith(f"F{frame_idx}_{rk}"):
+                return {
+                    "success": True, "cached": True, "frame_index": frame_idx,
+                    "track_id": tid, "orbital": tid, "resolved_orbital": rk, "chem_key": ck,
+                    "isovalue": iso, "cube": cube_text, "filename": f"{tid}_f{frame_idx}.cube", "coords": coords
+                }
+        if os.path.exists(disk_cube_path):
+            try:
+                with open(disk_cube_path, "r") as cf:
+                    if cf.readline().strip() == f"F{frame_idx}_{rk}":
+                        cf.seek(0)
+                        cube_text = cf.read()
+                        _CUBE_CACHE[cache_key] = cube_text
+                        return {
+                            "success": True, "cached": True, "frame_index": frame_idx,
+                            "track_id": tid, "orbital": tid, "resolved_orbital": rk, "chem_key": ck,
+                            "isovalue": iso, "cube": cube_text, "filename": f"{tid}_f{frame_idx}.cube", "coords": coords
+                        }
+            except Exception:
+                pass
+
+    # 2. Need frame data to resolve rk or evaluate grid
+    if d is None and ensure_frame_computed_fn is not None:
+        d = ensure_frame_computed_fn(frame_idx, megajson)
+
+    if d is None:
+        return {"success": False, "error": f"Frame {frame_idx} data unavailable"}
+
     if not rk:
         rk = resolve_orbital_key(d, ok, ck)
 
     if not rk or rk not in d.get("vecs", {}):
         return {"success": False, "available": False, "track_id": tid, "error": f"Orbital '{ck or ok}' not formed at frame {frame_idx}"}
 
-    cache_key = f"{frame_idx}_{tid}"
     disk_cube_path = os.path.join(CUBES_DIR, f"{frame_idx}_{rk}.cube")
 
-    # 1. Check memory cache
+    # Check memory/disk again in case resolved rk matches
     if cache_key in _CUBE_CACHE:
         cube_text = _CUBE_CACHE[cache_key]
         if cube_text.startswith(f"F{frame_idx}_{rk}"):
@@ -83,8 +118,6 @@ def get_or_compute_cube(
                 "track_id": tid, "orbital": tid, "resolved_orbital": rk, "chem_key": ck,
                 "isovalue": iso, "cube": cube_text, "filename": f"{tid}_f{frame_idx}.cube", "coords": coords
             }
-
-    # 2. Check disk cache
     if os.path.exists(disk_cube_path):
         try:
             with open(disk_cube_path, "r") as cf:
@@ -130,7 +163,8 @@ def batch_precompute_cubes(
     force: bool,
     ensure_frame_computed_fn: Callable[[int, Dict[str, Any]], Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Precompute batches of cubes for selected tracks along the reaction path."""
+    """Precompute batches of cubes for selected tracks along the reaction path.
+    Omits quantum chemistry computation for frames where all selected cubes are already cached."""
     n_frames = len(megajson.get("frames", []))
     ef = min(n_frames - 1, sf + sz - 1)
     lo, step, npts = get_grid(megajson)
@@ -139,8 +173,10 @@ def batch_precompute_cubes(
 
     os.makedirs(CUBES_DIR, exist_ok=True)
     for fi in range(sf, ef + 1):
-        d = ensure_frame_computed_fn(fi, megajson)
         coords = megajson["frames"][fi].get("coords", megajson["frames"][fi].get("positions", []))
+        tracks_to_compute = []
+
+        # 1. First pass: check which tracks already have valid cubes in memory or on disk
         for trk in sel:
             tid = trk.get("track_id") if isinstance(trk, dict) else (trk.get("orbital_key") if isinstance(trk, dict) else str(trk))
             ok = trk.get("orbital_key") if isinstance(trk, dict) else str(trk)
@@ -152,12 +188,39 @@ def batch_precompute_cubes(
                 f_map = catalog[tid].get("frame_map", [])
                 if 0 <= fi < len(f_map):
                     rk = f_map[fi]
+
+            cache_key = f"{fi}_{tid}"
+            if rk and not force:
+                disk_cube_path = os.path.join(CUBES_DIR, f"{fi}_{rk}.cube")
+                if cache_key in _CUBE_CACHE and _CUBE_CACHE[cache_key].startswith(f"F{fi}_{rk}"):
+                    batch_cubes[cache_key] = _CUBE_CACHE[cache_key]
+                    continue
+                if os.path.exists(disk_cube_path):
+                    try:
+                        with open(disk_cube_path, "r") as cf:
+                            if cf.readline().strip() == f"F{fi}_{rk}":
+                                cf.seek(0)
+                                cube_text = cf.read()
+                                _CUBE_CACHE[cache_key] = cube_text
+                                batch_cubes[cache_key] = cube_text
+                                continue
+                    except Exception:
+                        pass
+
+            tracks_to_compute.append((tid, ok, ck, rk, cache_key))
+
+        # If all tracks for this frame are already cached, omit computing SCF!
+        if not tracks_to_compute:
+            continue
+
+        # 2. Only compute the frame if at least one track actually needs grid evaluation
+        d = ensure_frame_computed_fn(fi, megajson)
+        for tid, ok, ck, rk, cache_key in tracks_to_compute:
             if not rk:
                 rk = resolve_orbital_key(d, ok, ck)
             if not rk or rk not in d.get("vecs", {}):
                 continue
 
-            cache_key = f"{fi}_{tid}"
             disk_cube_path = os.path.join(CUBES_DIR, f"{fi}_{rk}.cube")
             if not force:
                 if cache_key in _CUBE_CACHE and _CUBE_CACHE[cache_key].startswith(f"F{fi}_{rk}"):

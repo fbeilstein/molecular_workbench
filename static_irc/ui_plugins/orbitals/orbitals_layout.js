@@ -19,7 +19,8 @@ export function buildOrbitalsLayout(container, maxF) {
                 <div style="display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0;">
                     <button id="btn-toggle-lecture" class="btn btn-sm btn-secondary" title="Mute/Unmute Orbitals (M)">👁 Toggle MOs</button>
                     <button id="btn-toggle-esp" class="btn btn-sm btn-secondary" title="Toggle ESP / Charge Spheres (E)">⚡ ESP</button>
-                    <button id="btn-precompute-all" class="btn btn-sm btn-outline" style="color: #059669; border-color: #059669; background: #ecfdf5;">⚡ Precompute</button>
+                    <button id="btn-precompute-all" class="btn btn-sm btn-outline" style="color: #059669; border-color: #059669; background: #ecfdf5;" title="Precompute cubes for reaction coordinate">⚡ Precompute</button>
+                    <button id="btn-purge-cache" class="btn btn-sm btn-outline" style="color: #dc2626; border-color: #fca5a5; background: #fef2f2;" title="Purge memory & disk orbital cube cache">🗑 Purge Cache</button>
                 </div>
             </div>
             <div style="display: flex; gap: 0.5rem; height: 480px; max-height: 480px;">

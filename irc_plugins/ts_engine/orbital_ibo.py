@@ -90,46 +90,7 @@ def compute_frame_ibos(
                 if float(prev_val[:, k].T @ s_cross @ ibo_val[:, k]) < 0.0:
                     ibo_val[:, k] = -ibo_val[:, k]
 
-            F = mf.get_fock()
-            eps_val = np.array([float(ibo_val[:, k].T @ F @ ibo_val[:, k]) * 27.2114 for k in range(n_val)])
-            O_val = prev_val.T @ s_cross @ ibo_val
-            adj = {i: set() for i in range(n_val)}
-            for i in range(n_val):
-                for j in range(i + 1, n_val):
-                    same_at = (np.argmax(val_pops[i]) == np.argmax(val_pops[j])) and max(val_pops[i]) > 1.0
-                    if max(abs(O_val[i, j]), abs(O_val[j, i])) > 0.15 and (abs(eps_val[i] - eps_val[j]) < 4.5 or same_at):
-                        adj[i].add(j); adj[j].add(i)
 
-            visited = set()
-            for i in range(n_val):
-                if i not in visited and adj[i]:
-                    comp, q = [], [i]; visited.add(i)
-                    while q:
-                        curr = q.pop(0); comp.append(curr)
-                        for nb in adj[curr]:
-                            if nb not in visited:
-                                visited.add(nb); q.append(nb)
-                    if len(comp) >= 2:
-                        sub_prev, sub_curr = prev_val[:, comp], ibo_val[:, comp]
-                        M_sub = sub_prev.T @ s_cross @ sub_curr
-                        V, s, Wt = np.linalg.svd(M_sub)
-                        U = Wt.T @ V.T
-                        if np.linalg.det(U) < 0:
-                            Wt_fixed = Wt.copy(); Wt_fixed[-1, :] *= -1
-                            U = Wt_fixed.T @ V.T
-                        ibo_val[:, comp] = sub_curr @ U
-
-            for k in range(n_val):
-                if float(prev_val[:, k].T @ s_cross @ ibo_val[:, k]) < 0.0:
-                    ibo_val[:, k] = -ibo_val[:, k]
-
-            for idx in range(n_val):
-                v = ibo_val[:, idx]
-                ps = np.outer(v, v) @ ovlp
-                val_pops[idx] = 0.0
-                for mu in range(mol.nao):
-                    val_pops[idx, ao_atom[mu]] += ps[mu, mu]
-                val_pops[idx] *= 2.0
 
     ibo_coeff = np.hstack([core_mo, ibo_val])
     pops = np.zeros((nocc, mol.natm))
