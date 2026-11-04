@@ -19,6 +19,7 @@ export function buildOrbitalsLayout(container, maxF) {
                 <div style="display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0;">
                     <button id="btn-toggle-lecture" class="btn btn-sm btn-secondary" title="Mute/Unmute Orbitals (M)">👁 Toggle MOs</button>
                     <button id="btn-toggle-esp" class="btn btn-sm btn-secondary" title="Toggle ESP / Charge Spheres (E)">⚡ ESP</button>
+                    <button id="btn-toggle-labels" class="btn btn-sm btn-secondary" title="Toggle Atom Labels (L)">🏷 Labels</button>
                     <button id="btn-precompute-all" class="btn btn-sm btn-outline" style="color: #059669; border-color: #059669; background: #ecfdf5;" title="Precompute cubes for reaction coordinate">⚡ Precompute</button>
                     <button id="btn-purge-cache" class="btn btn-sm btn-outline" style="color: #dc2626; border-color: #fca5a5; background: #fef2f2;" title="Purge memory & disk orbital cube cache">🗑 Purge Cache</button>
                 </div>
@@ -46,8 +47,9 @@ export function buildOrbitalsLayout(container, maxF) {
                         <button id="btn-zoom-in" class="btn btn-xs btn-secondary" title="Zoom In (+)" style="font-size: 0.85rem; padding: 2px 7px; background: rgba(15,23,42,0.85); color: #fff;">+</button>
                         <button id="btn-zoom-out" class="btn btn-xs btn-secondary" title="Zoom Out (-)" style="font-size: 0.85rem; padding: 2px 7px; background: rgba(15,23,42,0.85); color: #fff;">−</button>
                         <button id="btn-zoom-fit" class="btn btn-xs btn-secondary" title="Fit to View (0)" style="font-size: 0.72rem; padding: 2px 5px; background: rgba(15,23,42,0.85); color: #fff;">⟲</button>
+                        <button id="btn-toggle-labels-float" class="btn btn-xs btn-secondary" title="Toggle Atom Labels (L)" style="font-size: 0.72rem; padding: 2px 5px; background: rgba(15,23,42,0.85); color: #fff; border: 1px solid rgba(255,255,255,0.2);">🏷</button>
                     </div>
-                    <div id="orbitals-viewer-overlay" style="position: absolute; bottom: 8px; left: 8px; font-size: 0.72rem; color: #94a3b8; background: rgba(15,23,42,0.75); padding: 2px 6px; border-radius: 4px; pointer-events: none;">Scroll wheel to zoom | Drag to rotate | Right-drag to pan</div>
+                    <div id="orbitals-viewer-overlay" style="position: absolute; bottom: 8px; left: 8px; font-size: 0.72rem; color: #94a3b8; background: rgba(15,23,42,0.75); padding: 2px 6px; border-radius: 4px; pointer-events: none;">Scroll wheel: zoom | Drag: rotate | Right-drag: pan | [L] Labels</div>
                 </div>
             </div>
             <div id="orbitals-timeline-container" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04);"></div>

@@ -81,7 +81,8 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                 <div style="flex: 1.2; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; position: relative;">
                     <div style="padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
                         <span style="font-weight: 600;">Synchronized 3D Coordinate Space</span>
-                        <div style="display: flex; gap: 0.4rem;">
+                        <div style="display: flex; gap: 0.4rem; align-items: center;">
+                            <button id="btn-bundle-toggle-labels" class="btn btn-xxs btn-secondary" title="Toggle Atom Labels (L)">🏷 Labels</button>
                             <button id="btn-bundle-zoom-in" class="btn btn-xxs btn-secondary">+</button>
                             <button id="btn-bundle-zoom-out" class="btn btn-xxs btn-secondary">−</button>
                             <button id="btn-bundle-zoom-fit" class="btn btn-xxs btn-secondary">⟲</button>
@@ -105,7 +106,10 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                         </div>
                         <input type="range" id="slider-bundle-isovalue" min="0.01" max="0.08" step="0.005" value="${state.isovalue}" class="scrub-slider">
                     </div>
-                    <div style="display: flex; gap: 0.75rem; align-items: center; margin-top: 2px;">
+                    <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 2px; flex-wrap: wrap;">
+                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" id="chk-bundle-labels" ${state.showLabels ? 'checked' : ''} style="accent-color: #38bdf8;"> 🏷 Labels
+                        </label>
                         <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;">
                             <input type="checkbox" id="chk-bundle-charges" ${state.showCharges ? 'checked' : ''} style="accent-color: #a855f7;"> 🏷 Atom Charges
                         </label>

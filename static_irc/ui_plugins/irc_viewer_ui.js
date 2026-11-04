@@ -77,6 +77,26 @@ export const IRCViewerUI = {
         dom.prevBtn.onclick = () => setFrame(currentFrameIndex - 1);
         dom.nextBtn.onclick = () => setFrame(currentFrameIndex + 1);
 
+        const updateLabelsBtn = () => {
+            if (!dom.labelsBtn) return;
+            dom.labelsBtn.style.background = activeViewer?.showLabels ? '#0284c7' : '#f1f5f9';
+            dom.labelsBtn.style.color = activeViewer?.showLabels ? '#ffffff' : '#334155';
+            dom.labelsBtn.textContent = activeViewer?.showLabels ? '🏷 Labels: ON' : '🏷 Labels';
+        };
+
+        const toggleLabels = () => {
+            if (!activeViewer) return;
+            activeViewer.toggleLabels();
+            updateLabelsBtn();
+            setFrame(currentFrameIndex);
+        };
+
+        if (dom.labelsBtn) dom.labelsBtn.onclick = toggleLabels;
+        window.addEventListener('keydown', e => {
+            if (e.target?.tagName === 'INPUT') return;
+            if (e.key === 'l' || e.key === 'L') toggleLabels();
+        });
+
         dom.playBtn.onclick = () => {
             if (isPlaying) {
                 clearInterval(playbackTimer);

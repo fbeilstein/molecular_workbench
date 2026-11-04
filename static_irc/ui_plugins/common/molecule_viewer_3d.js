@@ -16,6 +16,7 @@ export class MoleculeViewer3D {
         this.vdoCache = {};
         this.hasInitializedCamera = false;
         this.moleculeScale = options.scale || 1.0;
+        this.showLabels = options.showLabels || false;
         this.currentFrameIdx = 0;
         this.bondTable = options.bonds || null;
     }
@@ -76,7 +77,12 @@ export class MoleculeViewer3D {
         return symbolsCoordsToMolBlock(symbols, coords, bonds || this.bondTable);
     }
 
-    renderMolecule(symbols, coords, charges = null, showCharges = false, bonds = null) {
+    toggleLabels(force = null) {
+        this.showLabels = force !== null ? force : !this.showLabels;
+        return this.showLabels;
+    }
+
+    renderMolecule(symbols, coords, charges = null, showCharges = false, bonds = null, showLabels = null) {
         if (!this.viewer || !symbols || !coords) return;
         this.viewer.clear();
         this.viewer.addModel(this.buildMolBlock(symbols, coords, bonds), 'mol');
@@ -84,6 +90,8 @@ export class MoleculeViewer3D {
             stick: { radius: 0.14 * this.moleculeScale, colorscheme: 'Jmol' },
             sphere: { scale: 0.28 * this.moleculeScale, colorscheme: 'Jmol' }
         });
+
+        const labelsVisible = showLabels !== null ? showLabels : this.showLabels;
 
         if (showCharges && charges && charges.length >= symbols.length) {
             const atoms = this.viewer.selectedAtoms({});
@@ -98,11 +106,55 @@ export class MoleculeViewer3D {
             });
             for (let i = 0; i < symbols.length; i++) {
                 const [x, y, z] = coords[i];
-                this.viewer.addLabel(`${symbols[i]}: ${charges[i] > 0 ? '+' : ''}${charges[i].toFixed(2)}`, {
+                const lbl = labelsVisible
+                    ? `${symbols[i]}${i}: ${charges[i] > 0 ? '+' : ''}${charges[i].toFixed(2)}`
+                    : `${symbols[i]}: ${charges[i] > 0 ? '+' : ''}${charges[i].toFixed(2)}`;
+                this.viewer.addLabel(lbl, {
                     position: { x, y: y + 0.35, z }, fontSize: 10, fontColor: '#ffffff',
-                    backgroundColor: 'rgba(15, 23, 42, 0.75)', backgroundOpacity: 0.75
+                    backgroundColor: 'rgba(15, 23, 42, 0.85)', backgroundOpacity: 0.85,
+                    borderColor: '#38bdf8', borderThickness: 1, inFront: true
                 });
             }
+        } else if (labelsVisible) {
+            for (let i = 0; i < symbols.length; i++) {
+                const [x, y, z] = coords[i];
+                this.viewer.addLabel(`${symbols[i]}${i}`, {
+                    position: { x, y: y + 0.32, z },
+                    fontSize: 11,
+                    fontColor: '#f8fafc',
+                    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+                    backgroundOpacity: 0.88,
+                    borderColor: '#38bdf8',
+                    borderThickness: 1,
+                    inFront: true
+                });
+            }
+        } else {
+            try {
+                this.viewer.setHoverable({}, true,
+                    (atom, viewer) => {
+                        if (this.showLabels) return;
+                        if (!atom.hoverLabel) {
+                            const idx = atom.index !== undefined ? atom.index : (atom.serial ? atom.serial - 1 : 0);
+                            const sym = symbols[idx] || atom.elem || '';
+                            atom.hoverLabel = viewer.addLabel(`${sym}${idx}`, {
+                                position: { x: atom.x, y: atom.y + 0.32, z: atom.z },
+                                fontSize: 11, fontColor: '#ffffff',
+                                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                                borderColor: '#38bdf8', borderThickness: 1, inFront: true
+                            });
+                            viewer.render();
+                        }
+                    },
+                    (atom, viewer) => {
+                        if (atom.hoverLabel) {
+                            try { viewer.removeLabel(atom.hoverLabel); } catch (e) {}
+                            delete atom.hoverLabel;
+                            viewer.render();
+                        }
+                    }
+                );
+            } catch (e) {}
         }
         this.viewer.render();
     }
@@ -158,7 +210,7 @@ export class MoleculeViewer3D {
         const symbols = frame.symbols || this.symbols;
         const coords = frame.coords || frame.positions || [];
         const bonds = frame.bonds || this.bondTable || null;
-        this.renderMolecule(symbols, coords, frame.charges || null, false, bonds);
+        this.renderMolecule(symbols, coords, frame.charges || null, false, bonds, this.showLabels);
     }
 
     renderOverlap(prevSymbols, prevCoords, nextSymbols, nextCoords, rmsd = 0, isAligned = true) {
@@ -167,18 +219,18 @@ export class MoleculeViewer3D {
         this.setStatus(`Boundary Overlap (${modeLabel}) | RMSD: ${rmsd.toFixed(4)} Å (Cyan: Step K Product, ${isAligned ? 'Magenta' : 'Yellow'}: Step K+1 Reactant)`);
     }
 
-    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false, bonds = null) {
+    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false, bonds = null, showLabels = null) {
         this.currentFrameIdx = frameIdx;
-        this.renderMolecule(symbols, coords, charges, showCharges, bonds);
+        this.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels);
         if (!this.hasInitializedCamera) { this.viewer.zoomTo(); this.hasInitializedCamera = true; }
         if (activeOrbitals && activeOrbitals.length > 0) this.renderActiveIsosurfaces(activeOrbitals, isovalue, frameIdx);
     }
 
     async renderScene(options) {
-        const { symbols, coords, charges, showCharges, activeOrbitals, isovalue, frameIdx, hideAllOrbitals, fetchCubeFn, resetCamera, bonds } = options;
+        const { symbols, coords, charges, showCharges, showLabels, activeOrbitals, isovalue, frameIdx, hideAllOrbitals, fetchCubeFn, resetCamera, bonds } = options;
         if (!this.viewer) return;
         this.currentFrameIdx = frameIdx;
-        this.renderMolecule(symbols, coords, charges, showCharges, bonds);
+        this.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels);
 
         if (!this.hasInitializedCamera || resetCamera) {
             this.viewer.zoomTo();
@@ -211,7 +263,7 @@ export class MoleculeViewer3D {
             } catch (err) { fetchErrors.push(err.message); }
 
             if (this.currentFrameIdx === frameIdx) {
-                this.renderMolecule(symbols, coords, charges, showCharges, bonds);
+                this.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels);
                 this.renderActiveIsosurfaces(activeOrbitals, isovalue, frameIdx);
                 this.setStatus(fetchErrors.length > 0 ? `Frame ${frameIdx} | ${fetchErrors.join(' · ')}` : `Frame ${frameIdx} | Ready`, fetchErrors.length > 0);
             }

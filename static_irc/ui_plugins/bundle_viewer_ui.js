@@ -27,7 +27,8 @@ export const BundleViewerUI = {
         isPlaying: false, playDirection: 'forward', playbackSpeed: 1.0, playTimer: null,
         viewer3D: null, pesChart: null, svgManager: null, highresManager: null,
         moleculeModal: null, transport: null, wiringMgr: null, activeOrbitals: new Set(),
-        showCharges: false, showEspSurface: false, hideAllOrbitals: false, isovalue: 0.03, orbitalResolution: 32,
+        showCharges: false, showEspSurface: false, showLabels: localStorage.getItem('bundle_show_labels') === '1',
+        hideAllOrbitals: false, isovalue: 0.03, orbitalResolution: 32,
         tracks: [], frameDataCache: {}, activeTab: 'interactive'
     },
 
@@ -87,7 +88,7 @@ export const BundleViewerUI = {
             onSaveWiring: (grpId, cfg) => { this.state.svgManager.setGroupWiring(grpId, cfg); this.renderGroupsTree(); },
             onOpenMolecule: (grpId, cfg) => this.openMoleculeOrbitals(grpId, cfg)
         });
-        this.state.viewer3D = new Bundle3DViewer(container.querySelector('#bundle-viewport-3d'), { isovalue: this.state.isovalue });
+        this.state.viewer3D = new Bundle3DViewer(container.querySelector('#bundle-viewport-3d'), { isovalue: this.state.isovalue, showLabels: this.state.showLabels });
         this.state.pesChart = new BundlePesChart(container.querySelector('#bundle-pes-canvas'), {
             trajectory: this.state.megajson, energies: ep, boundaries: this.state.megajson.step_boundaries || [],
             onSeekFrame: (f) => this.state.transport.seekFrame(f)
@@ -189,7 +190,7 @@ export const BundleViewerUI = {
             return this.state.activeOrbitals.has(tid) || (t.orbital_key && this.state.activeOrbitals.has(t.orbital_key));
         });
         const moTracks = this.state.hideAllOrbitals ? [] : activeTracks.filter(t => t.orbital_key !== 'track_esp_charge');
-        const doRender = () => this.state.viewer3D.renderFastFrame(symbols, frame.coords, moTracks, this.state.isovalue, f, charges, showCharges, showEspSurface, bonds);
+        const doRender = () => this.state.viewer3D.renderFastFrame(symbols, frame.coords, moTracks, this.state.isovalue, f, charges, showCharges, showEspSurface, bonds, this.state.showLabels);
         doRender();
 
         for (const orb of moTracks) {

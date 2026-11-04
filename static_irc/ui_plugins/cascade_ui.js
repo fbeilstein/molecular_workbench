@@ -127,6 +127,27 @@ export const CascadeUI = {
         dom.btnModeCascade.onclick = () => setViewMode('cascade');
         dom.btnModeOverlap.onclick = () => setViewMode('overlap');
 
+        const updateCascadeLabelsBtn = () => {
+            if (!dom.btnToggleLabels) return;
+            dom.btnToggleLabels.style.background = activeViewer?.showLabels ? '#0284c7' : '#f1f5f9';
+            dom.btnToggleLabels.style.color = activeViewer?.showLabels ? '#ffffff' : '#334155';
+            dom.btnToggleLabels.textContent = activeViewer?.showLabels ? '🏷 Labels: ON' : '🏷 Labels';
+        };
+
+        const toggleCascadeLabels = () => {
+            if (!activeViewer) return;
+            activeViewer.toggleLabels();
+            updateCascadeLabelsBtn();
+            if (currentViewMode === 'cascade') setFrame(currentFrameIndex);
+            else renderCurrentOverlap();
+        };
+
+        if (dom.btnToggleLabels) dom.btnToggleLabels.onclick = toggleCascadeLabels;
+        window.addEventListener('keydown', e => {
+            if (e.target?.tagName === 'INPUT') return;
+            if (e.key === 'l' || e.key === 'L') toggleCascadeLabels();
+        });
+
         dom.juncSelect.onchange = () => {
             activeJunctionIdx = parseInt(dom.juncSelect.value) || 0;
             renderCurrentOverlap();

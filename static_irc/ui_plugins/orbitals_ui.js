@@ -14,7 +14,7 @@ import { fetchFrameData, fetchOrbitalCube, postTimeline } from './orbitals/orbit
 export const OrbitalsUI = {
     state: {
         stepId: 'step_6_orbitals', uiSchema: null, totalFrames: 0, currentFrame: 0, isPlaying: false,
-        playTimer: null, loadTimer: null, hideAllOrbitals: false, showCharges: false, isovalue: 0.03,
+        playTimer: null, loadTimer: null, hideAllOrbitals: false, showCharges: false, showLabels: false, isovalue: 0.03,
         viewer3D: null, pool: null, timeline: null, precompute: null, frameDataCache: {}, trajectory: [],
         trajectorySymbols: [], trajectoryBonds: [], trajectoryCharges: [], cubePromises: new Map()
     },
@@ -24,12 +24,17 @@ export const OrbitalsUI = {
             stepId: stepId || 'step_6_orbitals', uiSchema, totalFrames: uiSchema.total_frames || 0,
             isovalue: uiSchema.default_isovalue || 0.03, trajectory: uiSchema.trajectory || [],
             trajectorySymbols: uiSchema.trajectory_symbols || [], trajectoryBonds: uiSchema.trajectory_bonds || [],
-            trajectoryCharges: uiSchema.trajectory_charges || [], currentFrame: 0
+            trajectoryCharges: uiSchema.trajectory_charges || [], currentFrame: 0,
+            showLabels: localStorage.getItem('orbitals_show_labels') === '1'
         });
         const maxF = Math.max(0, this.state.totalFrames - 1);
         buildOrbitalsLayout(container, maxF);
 
-        this.state.viewer3D = new Orbitals3DViewer(container.querySelector('#orbitals-3d-canvas'), container.querySelector('#orbitals-status-label'));
+        this.state.viewer3D = new Orbitals3DViewer(
+            container.querySelector('#orbitals-3d-canvas'),
+            container.querySelector('#orbitals-status-label'),
+            { showLabels: this.state.showLabels }
+        );
         this.state.viewer3D.init();
         this.state.pool = new OrbitalsPool(container.querySelector('#orbitals-pool-container'), orb => this.onAuditionOrbital(orb), orb => this.onAddToTimeline(orb));
 
@@ -75,6 +80,32 @@ export const OrbitalsUI = {
             if (b) { b.textContent = this.state.showCharges ? '⚡ ESP: ON' : '⚡ ESP: OFF'; b.className = this.state.showCharges ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary'; }
             (!this.state.frameDataCache[this.state.currentFrame] && !this.state.trajectoryCharges[this.state.currentFrame]) ? this.loadFrameData(this.state.currentFrame) : this.refreshViewer();
         });
+
+        const updateLabelsBtn = () => {
+            const b = container.querySelector('#btn-toggle-labels');
+            if (b) {
+                b.textContent = this.state.showLabels ? '🏷 Labels: ON' : '🏷 Labels';
+                b.className = this.state.showLabels ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary';
+            }
+            const bf = container.querySelector('#btn-toggle-labels-float');
+            if (bf) {
+                bf.style.background = this.state.showLabels ? '#0284c7' : 'rgba(15,23,42,0.85)';
+                bf.style.borderColor = this.state.showLabels ? '#38bdf8' : 'rgba(255,255,255,0.2)';
+                bf.title = this.state.showLabels ? 'Hide Atom Labels (L)' : 'Show Atom Labels (L)';
+            }
+        };
+        updateLabelsBtn();
+
+        const toggleLabels = () => {
+            this.state.showLabels = !this.state.showLabels;
+            if (this.state.viewer3D) this.state.viewer3D.showLabels = this.state.showLabels;
+            localStorage.setItem('orbitals_show_labels', this.state.showLabels ? '1' : '0');
+            updateLabelsBtn();
+            this.refreshViewer();
+        };
+        container.querySelector('#btn-toggle-labels')?.addEventListener('click', toggleLabels);
+        container.querySelector('#btn-toggle-labels-float')?.addEventListener('click', toggleLabels);
+
         container.querySelector('#btn-precompute-all')?.addEventListener('click', () => this.state.precompute.startPrecompute(this.state.totalFrames, false));
         container.querySelector('#btn-purge-cache')?.addEventListener('click', async () => {
             if (!confirm('Are you sure you want to purge all memory and disk orbital cube caches?')) return;
@@ -115,7 +146,13 @@ export const OrbitalsUI = {
         container.querySelector('#btn-zoom-in')?.addEventListener('click', () => v3?.zoomIn());
         container.querySelector('#btn-zoom-out')?.addEventListener('click', () => v3?.zoomOut());
         container.querySelector('#btn-zoom-fit')?.addEventListener('click', () => v3?.resetCamera());
-        window.addEventListener('keydown', e => { if (e.target?.tagName === 'INPUT') return; if (e.key === '+' || e.key === '=') v3?.zoomIn(); else if (e.key === '-' || e.key === '_') v3?.zoomOut(); else if (e.key === '0') v3?.resetCamera(); });
+        window.addEventListener('keydown', e => {
+            if (e.target?.tagName === 'INPUT') return;
+            if (e.key === '+' || e.key === '=') v3?.zoomIn();
+            else if (e.key === '-' || e.key === '_') v3?.zoomOut();
+            else if (e.key === '0') v3?.resetCamera();
+            else if (e.key === 'l' || e.key === 'L') toggleLabels();
+        });
         container.querySelector('#pool-search-input').addEventListener('input', e => this.state.pool.setSearch(e.target.value));
         container.querySelectorAll('.tab-cat').forEach(btn => btn.addEventListener('click', () => {
             container.querySelectorAll('.tab-cat').forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-secondary'); });
@@ -190,6 +227,7 @@ export const OrbitalsUI = {
 
         await this.state.viewer3D.renderScene({
             symbols, coords, charges, bonds, showCharges: this.state.showCharges || espActive,
+            showLabels: this.state.showLabels,
             activeOrbitals: moTracks, isovalue: this.state.isovalue, frameIdx: f,
             hideAllOrbitals: this.state.hideAllOrbitals, fetchCubeFn: (fi, ok, ck, iso) => {
                 const trk = moTracks.find(t => (t.local_key && t.local_key === ok) || t.orbital_key === ok || t.track_id === ok);
@@ -219,7 +257,7 @@ export const OrbitalsUI = {
             const espActive = merged.some(t => t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp');
             const moTracks = this.state.hideAllOrbitals ? [] : merged.filter(t => t.orbital_key !== 'track_esp_charge' && t.track_id !== 'trk_esp');
 
-            this.state.viewer3D.renderFastFrame(symbols, coords, moTracks, this.state.isovalue, frameIdx, charges, this.state.showCharges || espActive, bonds);
+            this.state.viewer3D.renderFastFrame(symbols, coords, moTracks, this.state.isovalue, frameIdx, charges, this.state.showCharges || espActive, bonds, this.state.showLabels);
 
             for (const orb of moTracks) {
                 const tid = orb.track_id || orb.orbital_key || orb.key || orb;
@@ -228,7 +266,7 @@ export const OrbitalsUI = {
                     this.state.viewer3D.setStatus(`Frame ${frameIdx} | Computing orbital ${orb.title || tid}...`);
                     this.fetchCube(frameIdx, ok, ck, this.state.isovalue, tid).then(res => {
                         if (res && res.success && res.cube && this.state.currentFrame === frameIdx) {
-                            this.state.viewer3D.renderFastFrame(symbols, coords, moTracks, this.state.isovalue, frameIdx, charges, this.state.showCharges || espActive, bonds);
+                            this.state.viewer3D.renderFastFrame(symbols, coords, moTracks, this.state.isovalue, frameIdx, charges, this.state.showCharges || espActive, bonds, this.state.showLabels);
                             this.state.viewer3D.setStatus(`Frame ${frameIdx} | Ready`);
                         }
                     }).catch(() => {});

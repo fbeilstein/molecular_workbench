@@ -165,6 +165,17 @@ export function buildIRCLayout(container) {
     nextBtn.disabled = true;
     nextBtn.textContent = '⏭';
 
+    const labelsBtn = document.createElement('button');
+    labelsBtn.style.padding = '6px 12px';
+    labelsBtn.style.fontSize = '12px';
+    labelsBtn.style.borderRadius = '5px';
+    labelsBtn.style.background = '#f1f5f9';
+    labelsBtn.style.color = '#334155';
+    labelsBtn.style.border = '1px solid #cbd5e1';
+    labelsBtn.textContent = '🏷 Labels';
+    labelsBtn.title = 'Toggle Atom Labels (L)';
+    btnRow.appendChild(labelsBtn);
+
     const loopCheckLabel = document.createElement('label');
     loopCheckLabel.style.fontSize = '12px';
     loopCheckLabel.style.color = '#475569';
@@ -362,7 +373,7 @@ export function buildIRCLayout(container) {
         viewerBox, hudOverlay,
         fwdBadge, revBadge, rxnBadge, freqBadge,
         chartTitle, energyCanvas, frameSlider, frameCountLabel,
-        playBtn, prevBtn, nextBtn, loopCheckbox,
+        playBtn, prevBtn, nextBtn, loopCheckbox, labelsBtn,
         engineSelect, solventSelect, relaxCheckbox,
         orcaModeRow, orcaModeSelect, orcaDescBox,
         calcBtn, downloadBtn, logBox

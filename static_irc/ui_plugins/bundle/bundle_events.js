@@ -66,6 +66,36 @@ export function bindBundleEvents(container, ui) {
     container.querySelector('#btn-bundle-zoom-in')?.addEventListener('click', () => s.viewer3D?.zoomIn());
     container.querySelector('#btn-bundle-zoom-out')?.addEventListener('click', () => s.viewer3D?.zoomOut());
     container.querySelector('#btn-bundle-zoom-fit')?.addEventListener('click', () => s.viewer3D?.resetCamera());
+
+    const updateBundleLabelsBtn = () => {
+        const btn = container.querySelector('#btn-bundle-toggle-labels');
+        if (btn) btn.className = s.showLabels ? 'btn btn-xxs btn-primary' : 'btn btn-xxs btn-secondary';
+        const chk = container.querySelector('#chk-bundle-labels');
+        if (chk) chk.checked = !!s.showLabels;
+    };
+    updateBundleLabelsBtn();
+
+    const toggleBundleLabels = () => {
+        s.showLabels = !s.showLabels;
+        if (s.viewer3D) s.viewer3D.showLabels = s.showLabels;
+        localStorage.setItem('bundle_show_labels', s.showLabels ? '1' : '0');
+        updateBundleLabelsBtn();
+        ui.refreshViewer();
+    };
+
+    container.querySelector('#btn-bundle-toggle-labels')?.addEventListener('click', toggleBundleLabels);
+    container.querySelector('#chk-bundle-labels')?.addEventListener('change', (e) => {
+        s.showLabels = e.target.checked;
+        if (s.viewer3D) s.viewer3D.showLabels = s.showLabels;
+        localStorage.setItem('bundle_show_labels', s.showLabels ? '1' : '0');
+        updateBundleLabelsBtn();
+        ui.refreshViewer();
+    });
+    window.addEventListener('keydown', (e) => {
+        if (e.target?.tagName === 'INPUT') return;
+        if (e.key === 'l' || e.key === 'L') toggleBundleLabels();
+    });
+
     container.querySelector('#chk-bundle-charges')?.addEventListener('change', (e) => { s.showCharges = e.target.checked; ui.refreshViewer(); });
     container.querySelector('#chk-bundle-esp-surface')?.addEventListener('change', (e) => {
         s.showEspSurface = e.target.checked;

@@ -191,10 +191,20 @@ export function buildCascadeLayout(container, ui, options = {}) {
     btnModeOverlap.style.background = '#f1f5f9';
     btnModeOverlap.style.color = '#334155';
     btnModeOverlap.style.border = '1px solid #cbd5e1';
-    btnModeOverlap.textContent = '🔍 Boundary Overlap';
+    const btnToggleLabels = document.createElement('button');
+    btnToggleLabels.style.padding = '5px 12px';
+    btnToggleLabels.style.fontSize = '12px';
+    btnToggleLabels.style.fontWeight = '600';
+    btnToggleLabels.style.borderRadius = '5px';
+    btnToggleLabels.style.background = '#f1f5f9';
+    btnToggleLabels.style.color = '#334155';
+    btnToggleLabels.style.border = '1px solid #cbd5e1';
+    btnToggleLabels.textContent = '🏷 Labels';
+    btnToggleLabels.title = 'Toggle Atom Labels (L)';
 
     modeToggleBox.appendChild(btnModeCascade);
     modeToggleBox.appendChild(btnModeOverlap);
+    modeToggleBox.appendChild(btnToggleLabels);
     viewModeBar.appendChild(modeToggleBox);
 
     // Overlap Sub-Controls (shown when in Boundary Overlap mode)
@@ -317,7 +327,7 @@ export function buildCascadeLayout(container, ui, options = {}) {
     return {
         root, seqList, juncList, bSlider, bVal,
         restitchBtn, viewerBox, hudOverlay,
-        btnModeCascade, btnModeOverlap, overlapSubControls,
+        btnModeCascade, btnModeOverlap, btnToggleLabels, overlapSubControls,
         juncSelect, alignTypeBtn, heroFilterBtn, rmsdBadge,
         playBtn, prevBtn, nextBtn, frameSlider, frameLabel,
         energyCanvas, ctrlRow,
