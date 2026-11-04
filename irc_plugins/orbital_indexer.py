@@ -6,7 +6,55 @@ and stitched intermediate junctions using atom correspondence maps and global tr
 
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
+import numpy as np
 from .orbital_selection import clean_role_label
+
+
+def get_atom_p_vectors(fd: Optional[Dict[str, Any]], k: str) -> Dict[int, np.ndarray]:
+    """Extract atomic 3D p-vector coefficients from localized molecular orbital."""
+    if not fd or "mol" not in fd or "vecs" not in fd or k not in fd["vecs"]:
+        return {}
+    mol = fd["mol"]
+    v = fd["vecs"][k]
+    atom_vecs: Dict[int, np.ndarray] = {}
+    for i, aol in enumerate(mol.ao_labels()):
+        parts = aol.split()
+        at_idx = int(parts[0])
+        orb = parts[2]
+        if "2p" in orb or "3p" in orb or "4p" in orb or "p" in orb:
+            if at_idx not in atom_vecs:
+                atom_vecs[at_idx] = np.zeros(3)
+            if "px" in orb: atom_vecs[at_idx][0] += v[i]
+            elif "py" in orb: atom_vecs[at_idx][1] += v[i]
+            elif "pz" in orb: atom_vecs[at_idx][2] += v[i]
+    return atom_vecs
+
+
+def compute_orbital_spatial_overlap(
+    fd_prev: Optional[Dict[str, Any]],
+    k_prev: str,
+    fd_next: Optional[Dict[str, Any]],
+    k_next: str,
+    p2n: Dict[int, int],
+    R: Optional[np.ndarray] = None
+) -> float:
+    """Calculate 3D spatial directional overlap between localized orbitals across aligned junction frames."""
+    v_prev = get_atom_p_vectors(fd_prev, k_prev)
+    v_next = get_atom_p_vectors(fd_next, k_next)
+    if not v_prev or not v_next:
+        return 0.0
+    dots = []
+    for at_prev, vec_prev in v_prev.items():
+        at_next = p2n.get(at_prev)
+        if at_next in v_next:
+            vec_n = v_next[at_next]
+            norm_p = np.linalg.norm(vec_prev)
+            norm_n = np.linalg.norm(vec_n)
+            if norm_p > 0.05 and norm_n > 0.05:
+                vec_n_rot = (R @ vec_n) if R is not None else vec_n
+                dot = abs(float(np.dot(vec_prev, vec_n_rot))) / (norm_p * norm_n)
+                dots.append(dot)
+    return float(np.mean(dots)) if dots else 0.0
 
 
 def get_frame_groups(megajson: Dict[str, Any]) -> List[Tuple[int, int]]:
@@ -33,7 +81,17 @@ def _atom_nums(atoms: List[Any]) -> List[int]:
     return [int(m.group()) for a in atoms if (m := re.search(r'\d+', str(a)))]
 
 
-def _match_cand(m_src: Optional[Dict[str, Any]], p2n: Dict[int, int], pool: Dict[str, Dict[str, Any]], is_star: bool) -> Optional[str]:
+def _match_cand(
+    m_src: Optional[Dict[str, Any]],
+    p2n: Dict[int, int],
+    pool: Dict[str, Dict[str, Any]],
+    is_star: bool,
+    fd_src: Optional[Dict[str, Any]] = None,
+    k_src: Optional[str] = None,
+    fd_cand: Optional[Dict[str, Any]] = None,
+    R: Optional[np.ndarray] = None,
+    is_backward: bool = False
+) -> Optional[str]:
     if not m_src or not m_src.get("atoms"):
         return None
     at_src = _atom_nums(m_src.get("atoms", []))
@@ -63,6 +121,18 @@ def _match_cand(m_src: Optional[Dict[str, Any]], p2n: Dict[int, int], pool: Dict
         e1, e2 = m_src.get("energy_ev"), m2.get("energy_ev")
         if e1 is not None and e2 is not None:
             sc -= abs(e1 - e2) * 1.5
+
+        if fd_src and fd_cand and k_src and k2:
+            if not is_backward:
+                ov = compute_orbital_spatial_overlap(fd_src, k_src, fd_cand, k2, p2n, R)
+            else:
+                p2n_rev = {v: k for k, v in p2n.items()}
+                ov = compute_orbital_spatial_overlap(fd_cand, k2, fd_src, k_src, p2n_rev, R)
+            if ov > 0:
+                if ov < 0.25:
+                    sc -= 120.0  # severely penalize orthogonal lobes (e.g. 90-degree rotated)
+                else:
+                    sc += ov * 150.0  # strongly reward parallel aligned lobes
 
         if sc > best_score:
             best_score, best_k = sc, k2
@@ -106,24 +176,36 @@ def build_track_frame_map(
         if not g_keys[g] or g >= len(cands):
             break
         m = _meta_for(groups[g][1], g_keys[g])
-        p2n = dict(zip(cands[g].get("prev_indices", []), cands[g].get("next_indices", [])))
+        cand_rpt = cands[g]
+        p2n = dict(zip(cand_rpt.get("prev_indices", []), cand_rpt.get("next_indices", [])))
+        R_mat = np.array(cand_rpt["R"]) if "R" in cand_rpt else None
+        fd_src = _get_frame_dict(groups[g][1], megajson, scf_cache, ensure_fn)
         fd_next = _get_frame_dict(groups[g + 1][0], megajson, scf_cache, ensure_fn)
         if not fd_next:
             break
         pool = fd_next.get("antibonds_meta", {}) if ("STAR" in g_keys[g] or is_star) else fd_next.get("ibos_meta", {})
-        g_keys[g + 1] = _match_cand(m, p2n, pool, is_star or ("STAR" in g_keys[g]))
+        g_keys[g + 1] = _match_cand(
+            m, p2n, pool, is_star or ("STAR" in g_keys[g]),
+            fd_src=fd_src, k_src=g_keys[g], fd_cand=fd_next, R=R_mat, is_backward=False
+        )
 
     # Backward tracking across junctions
     for g in range(ref_g, 0, -1):
         if not g_keys[g] or (g - 1) >= len(cands):
             break
         m = _meta_for(groups[g][0], g_keys[g])
-        n2p = dict(zip(cands[g - 1].get("next_indices", []), cands[g - 1].get("prev_indices", [])))
+        cand_rpt = cands[g - 1]
+        n2p = dict(zip(cand_rpt.get("next_indices", []), cand_rpt.get("prev_indices", [])))
+        R_mat = np.array(cand_rpt["R"]) if "R" in cand_rpt else None
+        fd_src = _get_frame_dict(groups[g][0], megajson, scf_cache, ensure_fn)
         fd_prev = _get_frame_dict(groups[g - 1][1], megajson, scf_cache, ensure_fn)
         if not fd_prev:
             break
         pool = fd_prev.get("antibonds_meta", {}) if ("STAR" in g_keys[g] or is_star) else fd_prev.get("ibos_meta", {})
-        g_keys[g - 1] = _match_cand(m, n2p, pool, is_star or ("STAR" in g_keys[g]))
+        g_keys[g - 1] = _match_cand(
+            m, n2p, pool, is_star or ("STAR" in g_keys[g]),
+            fd_src=fd_src, k_src=g_keys[g], fd_cand=fd_prev, R=R_mat, is_backward=True
+        )
 
     frame_map: List[Optional[str]] = [None] * n_frames
     for g, k_g in enumerate(g_keys):
@@ -172,8 +254,14 @@ def resolve_track_roles(
         e_role = re.sub(r'([A-Za-z]+)(\d+)', lambda m: f"{m.group(1)}{n2p_c.get(int(m.group(2)), int(m.group(2)))}", e_role)
 
     s_type, e_type = s_role.split('(')[0].strip() if s_role else "", e_role.split('(')[0].strip() if e_role else ""
+    s_atoms = set(re.findall(r'[A-Za-z]+\d+', s_role or ""))
+    e_atoms = set(re.findall(r'[A-Za-z]+\d+', e_role or ""))
     if s_role and e_role and s_type != e_type:
-        label, trans = f"{s_role} → {e_role}", f"{s_type} → {e_type}"
+        if s_atoms == e_atoms and {s_type, e_type} == {"π*", "σ*"}:
+            # Avoid mislabeling persistent double-bond pi* antibonds as pi* -> sigma*
+            label, trans = (s_role if s_type == "π*" else e_role), "π*"
+        else:
+            label, trans = f"{s_role} → {e_role}", f"{s_type} → {e_type}"
     else:
         label = s_role or e_role or default_title
         trans = s_type or e_type or (label.split("(")[0] if "(" in label else label)
@@ -183,7 +271,8 @@ def resolve_track_roles(
 def build_global_track_catalog(
     megajson: Dict[str, Any],
     scf_cache: Optional[Dict[int, Dict[str, Any]]] = None,
-    ensure_fn: Optional[Callable] = None
+    ensure_fn: Optional[Callable] = None,
+    rebuild: bool = False
 ) -> Dict[str, Dict[str, Any]]:
     """Construct global electron tracks uniquely identifying each orbital across all reaction steps."""
     frames = megajson.get("frames", [])
@@ -193,7 +282,10 @@ def build_global_track_catalog(
 
     groups = get_frame_groups(megajson)
     n_g = len(groups)
-    catalog: Dict[str, Dict[str, Any]] = megajson.get("global_electron_tracks") or {}
+    catalog: Dict[str, Dict[str, Any]] = {} if rebuild else (megajson.get("global_electron_tracks") or {})
+    if not rebuild and catalog and len(catalog) > 3:
+        return catalog
+
     if not catalog:
         catalog = {
             "trk_esp": {"track_id": "trk_esp", "name": "ESP Surface", "label": "⚡ Electrostatic Surface & Charges (ESP)", "category": "esp", "orbital_class": "esp", "color": "#c084fc", "atoms": [], "group_keys": ["track_esp_charge"] * n_g, "frame_map": ["track_esp_charge"] * n_frames},
@@ -211,6 +303,9 @@ def build_global_track_catalog(
                 has_match = True
         if not has_match:
             return False
+        # Exact group key match always merges
+        if all((k1 == k2 or k1 is None or k2 is None) for k1, k2 in zip(trk_gk, new_gk)):
+            return True
         # Do not merge tracks if atoms are completely disjoint across the step
         s1 = set(_atom_nums(trk_atoms))
         s2 = set(_atom_nums(new_atoms))
@@ -268,5 +363,10 @@ def build_global_track_catalog(
     return catalog
 
 
-def get_or_build_catalog(megajson: Dict[str, Any], scf_cache: Optional[Dict[int, Dict[str, Any]]] = None, ensure_fn: Optional[Callable] = None) -> Dict[str, Dict[str, Any]]:
-    return build_global_track_catalog(megajson, scf_cache, ensure_fn)
+def get_or_build_catalog(
+    megajson: Dict[str, Any],
+    scf_cache: Optional[Dict[int, Dict[str, Any]]] = None,
+    ensure_fn: Optional[Callable] = None,
+    rebuild: bool = False
+) -> Dict[str, Dict[str, Any]]:
+    return build_global_track_catalog(megajson, scf_cache, ensure_fn, rebuild=rebuild)

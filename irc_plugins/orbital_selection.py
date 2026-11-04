@@ -126,8 +126,9 @@ def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, scf_cache: Op
     """Enrich orbital timeline tracks with normal chemical nomenclature, role transitions, and frame maps."""
     if not tracks:
         return tracks
-    from .orbital_indexer import build_track_frame_map, resolve_track_roles, get_or_build_catalog
-    catalog = get_or_build_catalog(megajson, scf_cache, ensure_fn)
+    catalog = megajson.get("global_electron_tracks")
+    if not catalog or len(catalog) <= 3:
+        catalog = get_or_build_catalog(megajson, scf_cache, ensure_fn)
 
     for trk in tracks:
         if not isinstance(trk, dict):

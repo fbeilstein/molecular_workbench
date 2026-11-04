@@ -152,8 +152,19 @@ def compute_frame_ibos(
         }
         vec_dict[key] = vec
 
-        if virt_coeff is not None and typ in ("sigma", "delocalized_sigma", "pi", "delocalized_pi") and len(atoms) >= 2:
-            a1, a2 = atoms[0], atoms[1]
+        cand_atoms = atoms if len(atoms) >= 2 else []
+        if not cand_atoms and typ == "lone_pair":
+            abs_p = np.abs(pops[k])
+            tot_p = abs_p.sum()
+            if tot_p > 1e-4:
+                fr = abs_p / tot_p
+                top2 = [(i, fr[i]) for i in range(len(fr)) if fr[i] > 0.06]
+                top2.sort(key=lambda x: -x[1])
+                if len(top2) >= 2:
+                    cand_atoms = [atom_ids[top2[0][0]], atom_ids[top2[1][0]]]
+
+        if virt_coeff is not None and len(cand_atoms) >= 2:
+            a1, a2 = cand_atoms[0], cand_atoms[1]
             if a1 in atom_ids and a2 in atom_ids:
                 idx1, idx2 = atom_ids.index(a1), atom_ids.index(a2)
                 cA, cB = np.zeros_like(vec), np.zeros_like(vec)
@@ -164,7 +175,7 @@ def compute_frame_ibos(
                         cB[mu] = vec[mu]
                 c_star = virt_coeff @ (virt_coeff.T @ ovlp @ (cA - cB))
                 norm = np.sqrt(float(c_star.T @ ovlp @ c_star))
-                if norm > 1e-3:
+                if norm > 0.15:
                     c_star /= norm
                     star_key = f"STAR_{k:02d}"
                     star_type = "sigma_star" if "sigma" in typ else "pi_star"

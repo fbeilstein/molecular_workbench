@@ -135,7 +135,11 @@ export class OrbitalsTimeline {
         if (symbols && symbols.length) this.symbols = symbols;
         if (!frameData || !this.containerEl) return;
 
-        const allIbos = frameData.all_ibos || [];
+        const allPool = [
+            ...(frameData.all_ibos || []),
+            ...(frameData.antibonds || []),
+            ...(frameData.canonical_pi || [])
+        ];
         for (const trk of this.tracks) {
             const tid = trk.track_id || trk.orbital_key || trk.id;
             const el = this.containerEl.querySelector(`#pop-readout-${tid}`) || this.containerEl.querySelector(`#pop-readout-${trk.orbital_key}`);
@@ -152,15 +156,18 @@ export class OrbitalsTimeline {
                     continue;
                 }
             }
-            const ibo = allIbos.find(i => (i.track_id && i.track_id === tid) || i.key === activeKey || i.local_key === activeKey);
-            if (ibo && ibo.pop && this.symbols.length) {
+            const orbItem = allPool.find(i => (i.track_id && i.track_id === tid) || i.key === activeKey || i.local_key === activeKey);
+            if (orbItem && orbItem.pop && orbItem.pop.length && this.symbols.length) {
                 const major = [];
                 for (let i = 0; i < this.symbols.length; i++) {
-                    const p = ibo.pop[i] || 0;
+                    const p = orbItem.pop[i] || 0;
                     if (p > 0.15) major.push(`${this.symbols[i]}${i}: ${(p * 50).toFixed(0)}%`);
                 }
-                const roleTag = (ibo.label && ibo.label !== trk.title) ? ` <span style="font-size:0.68rem;color:#0284c7;">[${ibo.label}]</span>` : '';
+                const roleTag = (orbItem.label && orbItem.label !== trk.title) ? ` <span style="font-size:0.68rem;color:#0284c7;">[${orbItem.label}]</span>` : '';
                 el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> <strong style="color: #0f172a;">${major.join(' · ') || 'delocalized'}</strong>${roleTag}`;
+            } else if (orbItem && orbItem.label) {
+                const eTag = (orbItem.energy_ev !== undefined) ? ` · ${orbItem.energy_ev} eV` : '';
+                el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <strong style="color: #c2410c;">${orbItem.label}</strong><span style="font-size:0.68rem;color:#64748b;">${eTag}</span>`;
             } else if (tid.startsWith('trk_homo') || tid.startsWith('trk_lumo') || trk.orbital_key.includes('STAR')) {
                 el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #334155; font-weight: 500;">Active across reaction</span>`;
             } else {
