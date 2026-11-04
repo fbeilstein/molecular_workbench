@@ -109,6 +109,8 @@ def build_multistep_bridge(
             full_c = np.vstack([c_comm, extra_c]) if extra_c is not None and len(extra_c) > 0 else c_comm
             b_fr["coords"] = full_c.round(4).tolist()
             b_fr["symbols"] = next_step.get("symbols", [])[:len(full_c)]
+            b_fr["atom_labels"] = next_step.get("atom_labels", [])[:len(full_c)]
+            b_fr["global_atom_ids"] = next_step.get("global_atom_ids", [])[:len(full_c)]
             b_fr["bonds"] = active_bonds
             bridge.append(b_fr)
         return bridge
@@ -120,6 +122,8 @@ def build_multistep_bridge(
         )
         for b_fr in bridge:
             b_fr["symbols"] = prev_step.get("symbols", [])
+            b_fr["atom_labels"] = prev_step.get("atom_labels", [])
+            b_fr["global_atom_ids"] = prev_step.get("global_atom_ids", [])
             b_fr["bonds"] = [b for b in prev_step.get("bonds", []) if b.get("type") != "forming"]
         return bridge
 
@@ -135,6 +139,8 @@ def build_multistep_bridge(
             full_c = np.vstack([c_comm, extra_c])
             b_fr["coords"] = full_c.round(4).tolist()
             b_fr["symbols"] = next_step.get("symbols", [])
+            b_fr["atom_labels"] = next_step.get("atom_labels", [])
+            b_fr["global_atom_ids"] = next_step.get("global_atom_ids", [])
             b_fr["bonds"] = [b for b in next_step.get("bonds", []) if b.get("type") != "forming"]
             bridge.append(b_fr)
         return bridge
@@ -150,6 +156,8 @@ def build_multistep_bridge(
         full_c = np.vstack([c_comm, departing_c])
         b_fr["coords"] = full_c.round(4).tolist()
         b_fr["symbols"] = prev_step.get("symbols", [])
+        b_fr["atom_labels"] = prev_step.get("atom_labels", [])
+        b_fr["global_atom_ids"] = prev_step.get("global_atom_ids", [])
         b_fr["bonds"] = [b for b in prev_step.get("bonds", []) if b.get("type") != "breaking"]
         bridge.append(b_fr)
     return bridge

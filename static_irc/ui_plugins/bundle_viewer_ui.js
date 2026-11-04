@@ -51,6 +51,7 @@ export const BundleViewerUI = {
         this.state.showEspSurface = this.state.tracks.some(t => t.orbital_key === 'track_esp_charge');
         this.state.orbitalResolution = uiSchema.orbital_resolution || megajson.orbital_resolution || 32;
         this.state.trajectorySymbols = uiSchema.trajectory_symbols || megajson.trajectory_symbols || megajson.frames.map(f => f.symbols || megajson.symbols);
+        this.state.trajectoryAtomLabels = uiSchema.trajectory_atom_labels || megajson.trajectory_atom_labels || megajson.frames.map(f => f.atom_labels || null);
         this.state.trajectoryBonds = uiSchema.trajectory_bonds || megajson.trajectory_bonds || megajson.frames.map(f => f.bonds || null);
         this.state.trajectoryCharges = uiSchema.trajectory_charges || megajson.trajectory_charges || [];
 
@@ -161,6 +162,7 @@ export const BundleViewerUI = {
         const frame = this.state.megajson.frames[f];
         if (!frame || !frame.coords) return;
         const symbols = frame.symbols || this.state.trajectorySymbols?.[f] || this.state.megajson.symbols;
+        const atomLabels = frame.atom_labels || this.state.trajectoryAtomLabels?.[f] || this.state.megajson.trajectory_atom_labels?.[f] || null;
         const bonds = frame.bonds || this.state.trajectoryBonds?.[f] || null;
 
         const showEspSurface = this.state.showEspSurface || this.state.activeOrbitals.has('track_esp_charge');
@@ -190,7 +192,7 @@ export const BundleViewerUI = {
             return this.state.activeOrbitals.has(tid) || (t.orbital_key && this.state.activeOrbitals.has(t.orbital_key));
         });
         const moTracks = this.state.hideAllOrbitals ? [] : activeTracks.filter(t => t.orbital_key !== 'track_esp_charge');
-        const doRender = () => this.state.viewer3D.renderFastFrame(symbols, frame.coords, moTracks, this.state.isovalue, f, charges, showCharges, showEspSurface, bonds, this.state.showLabels);
+        const doRender = () => this.state.viewer3D.renderFastFrame(symbols, frame.coords, moTracks, this.state.isovalue, f, charges, showCharges, showEspSurface, bonds, this.state.showLabels, atomLabels);
         doRender();
 
         for (const orb of moTracks) {

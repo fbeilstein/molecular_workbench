@@ -27,12 +27,12 @@ export class Bundle3DViewer extends MoleculeViewer3D {
         this._isPrewarming = false;
     }
 
-    renderMolecule(symbols, coords, charges = null, showCharges = false, showEspSurface = false, frameIdx = 0, bonds = null, showLabels = null) {
+    renderMolecule(symbols, coords, charges = null, showCharges = false, showEspSurface = false, frameIdx = 0, bonds = null, showLabels = null, atomLabels = null) {
         if (!this.viewer || !symbols || !coords) return;
         this.activeFrameIdx = frameIdx;
         this.viewer.removeAllSurfaces();
         this.viewer.removeAllShapes();
-        super.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels);
+        super.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels, atomLabels);
 
         if (showEspSurface) {
             this._renderEspSurface(symbols, coords, charges, frameIdx);
@@ -130,9 +130,9 @@ export class Bundle3DViewer extends MoleculeViewer3D {
         }
     }
 
-    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false, showEspSurface = false, bonds = null, showLabels = null) {
+    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false, showEspSurface = false, bonds = null, showLabels = null, atomLabels = null) {
         if (!this.viewer || !symbols || !coords) return;
-        this.renderMolecule(symbols, coords, charges, showCharges, showEspSurface, frameIdx, bonds, showLabels);
+        this.renderMolecule(symbols, coords, charges, showCharges, showEspSurface, frameIdx, bonds, showLabels, atomLabels);
         if (!this.hasInitializedCamera) { this.viewer.zoomTo(); this.hasInitializedCamera = true; }
         if (activeOrbitals && activeOrbitals.length > 0) {
             for (const orb of activeOrbitals) this._drawOrbitalLayer(orb, frameIdx, isovalue);
@@ -141,7 +141,7 @@ export class Bundle3DViewer extends MoleculeViewer3D {
     }
 
     async renderScene(options) {
-        const { symbols, coords, charges, showCharges, showEspSurface, showLabels, activeOrbitals, isovalue, frameIdx, hideAllOrbitals, fetchCubeFn, resetCamera, bonds } = options;
+        const { symbols, coords, charges, showCharges, showEspSurface, showLabels, activeOrbitals, isovalue, frameIdx, hideAllOrbitals, fetchCubeFn, resetCamera, bonds, atomLabels } = options;
         if (!this.viewer) return;
         const currentSeq = ++this.renderSeq;
 
@@ -169,7 +169,7 @@ export class Bundle3DViewer extends MoleculeViewer3D {
             if (this.renderSeq !== currentSeq) return;
         }
 
-        this.renderMolecule(symbols, coords, charges, showCharges, showEspSurface, frameIdx, bonds, showLabels);
+        this.renderMolecule(symbols, coords, charges, showCharges, showEspSurface, frameIdx, bonds, showLabels, atomLabels);
         if (!this.hasInitializedCamera || resetCamera) {
             this.viewer.zoomTo();
             this.hasInitializedCamera = true;

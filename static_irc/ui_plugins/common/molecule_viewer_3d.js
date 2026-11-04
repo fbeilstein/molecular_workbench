@@ -82,7 +82,7 @@ export class MoleculeViewer3D {
         return this.showLabels;
     }
 
-    renderMolecule(symbols, coords, charges = null, showCharges = false, bonds = null, showLabels = null) {
+    renderMolecule(symbols, coords, charges = null, showCharges = false, bonds = null, showLabels = null, atomLabels = null) {
         if (!this.viewer || !symbols || !coords) return;
         this.viewer.clear();
         this.viewer.addModel(this.buildMolBlock(symbols, coords, bonds), 'mol');
@@ -106,8 +106,9 @@ export class MoleculeViewer3D {
             });
             for (let i = 0; i < symbols.length; i++) {
                 const [x, y, z] = coords[i];
+                const tag = (atomLabels && atomLabels[i]) ? atomLabels[i] : `${symbols[i]}${i}`;
                 const lbl = labelsVisible
-                    ? `${symbols[i]}${i}: ${charges[i] > 0 ? '+' : ''}${charges[i].toFixed(2)}`
+                    ? `${tag}: ${charges[i] > 0 ? '+' : ''}${charges[i].toFixed(2)}`
                     : `${symbols[i]}: ${charges[i] > 0 ? '+' : ''}${charges[i].toFixed(2)}`;
                 this.viewer.addLabel(lbl, {
                     position: { x, y: y + 0.35, z }, fontSize: 10, fontColor: '#ffffff',
@@ -118,7 +119,8 @@ export class MoleculeViewer3D {
         } else if (labelsVisible) {
             for (let i = 0; i < symbols.length; i++) {
                 const [x, y, z] = coords[i];
-                this.viewer.addLabel(`${symbols[i]}${i}`, {
+                const tag = (atomLabels && atomLabels[i]) ? atomLabels[i] : `${symbols[i]}${i}`;
+                this.viewer.addLabel(tag, {
                     position: { x, y: y + 0.32, z },
                     fontSize: 11,
                     fontColor: '#f8fafc',
@@ -136,8 +138,8 @@ export class MoleculeViewer3D {
                         if (this.showLabels) return;
                         if (!atom.hoverLabel) {
                             const idx = atom.index !== undefined ? atom.index : (atom.serial ? atom.serial - 1 : 0);
-                            const sym = symbols[idx] || atom.elem || '';
-                            atom.hoverLabel = viewer.addLabel(`${sym}${idx}`, {
+                            const tag = (atomLabels && atomLabels[idx]) ? atomLabels[idx] : `${symbols[idx] || atom.elem || ''}${idx}`;
+                            atom.hoverLabel = viewer.addLabel(tag, {
                                 position: { x: atom.x, y: atom.y + 0.32, z: atom.z },
                                 fontSize: 11, fontColor: '#ffffff',
                                 backgroundColor: 'rgba(15, 23, 42, 0.95)',
@@ -210,7 +212,8 @@ export class MoleculeViewer3D {
         const symbols = frame.symbols || this.symbols;
         const coords = frame.coords || frame.positions || [];
         const bonds = frame.bonds || this.bondTable || null;
-        this.renderMolecule(symbols, coords, frame.charges || null, false, bonds, this.showLabels);
+        const atomLabels = frame.atom_labels || (this.currentTraj.trajectory_atom_labels && this.currentTraj.trajectory_atom_labels[clampedIdx]) || null;
+        this.renderMolecule(symbols, coords, frame.charges || null, false, bonds, this.showLabels, atomLabels);
     }
 
     renderOverlap(prevSymbols, prevCoords, nextSymbols, nextCoords, rmsd = 0, isAligned = true) {
@@ -219,18 +222,18 @@ export class MoleculeViewer3D {
         this.setStatus(`Boundary Overlap (${modeLabel}) | RMSD: ${rmsd.toFixed(4)} Å (Cyan: Step K Product, ${isAligned ? 'Magenta' : 'Yellow'}: Step K+1 Reactant)`);
     }
 
-    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false, bonds = null, showLabels = null) {
+    renderFastFrame(symbols, coords, activeOrbitals, isovalue, frameIdx, charges = null, showCharges = false, bonds = null, showLabels = null, atomLabels = null) {
         this.currentFrameIdx = frameIdx;
-        this.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels);
+        this.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels, atomLabels);
         if (!this.hasInitializedCamera) { this.viewer.zoomTo(); this.hasInitializedCamera = true; }
         if (activeOrbitals && activeOrbitals.length > 0) this.renderActiveIsosurfaces(activeOrbitals, isovalue, frameIdx);
     }
 
     async renderScene(options) {
-        const { symbols, coords, charges, showCharges, showLabels, activeOrbitals, isovalue, frameIdx, hideAllOrbitals, fetchCubeFn, resetCamera, bonds } = options;
+        const { symbols, coords, charges, showCharges, showLabels, activeOrbitals, isovalue, frameIdx, hideAllOrbitals, fetchCubeFn, resetCamera, bonds, atomLabels } = options;
         if (!this.viewer) return;
         this.currentFrameIdx = frameIdx;
-        this.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels);
+        this.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels, atomLabels);
 
         if (!this.hasInitializedCamera || resetCamera) {
             this.viewer.zoomTo();
@@ -263,7 +266,7 @@ export class MoleculeViewer3D {
             } catch (err) { fetchErrors.push(err.message); }
 
             if (this.currentFrameIdx === frameIdx) {
-                this.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels);
+                this.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels, atomLabels);
                 this.renderActiveIsosurfaces(activeOrbitals, isovalue, frameIdx);
                 this.setStatus(fetchErrors.length > 0 ? `Frame ${frameIdx} | ${fetchErrors.join(' · ')}` : `Frame ${frameIdx} | Ready`, fetchErrors.length > 0);
             }

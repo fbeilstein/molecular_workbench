@@ -95,6 +95,12 @@ def stitch_multistep_trajectories(
     aligned_steps = [json.loads(json.dumps(s)) for s in steps]
     step_reports, all_bridges = [], []
 
+    # Initialize persistent global atom IDs and labels for the first step
+    syms_0 = aligned_steps[0].get("symbols", [])
+    aligned_steps[0]["global_atom_ids"] = list(range(len(syms_0)))
+    aligned_steps[0]["atom_labels"] = [f"{s}{i}" for i, s in enumerate(syms_0)]
+    used_global_ids = set(aligned_steps[0]["global_atom_ids"])
+
     for k in range(1, len(aligned_steps)):
         prev_step, next_step = aligned_steps[k - 1], aligned_steps[k]
         orig_p_len, orig_n_len = len(prev_step["frames"]), len(next_step["frames"])
@@ -107,13 +113,36 @@ def stitch_multistep_trajectories(
         cand = next((c for c in all_cands if c["id"] == choices.get(str(k))), None) if all_cands and choices.get(str(k)) else (all_cands[0] if all_cands else None)
 
         out_next = aligned_steps[k]
+        next_syms = next_step.get("symbols", [])
+        next_orig_global_ids = [None] * len(next_syms)
+        next_orig_atom_labels = [None] * len(next_syms)
+
         if cand:
             R, t = np.array(cand["R"]), np.array(cand["t"])
             idxs_p, idxs_n = cand["prev_indices"], cand["next_indices"]
-            prev_syms, next_syms = prev_step.get("symbols", []), next_step.get("symbols", [])
+            prev_syms = prev_step.get("symbols", [])
+            prev_global_ids = prev_step.get("global_atom_ids", list(range(len(prev_syms))))
+            prev_atom_labels = prev_step.get("atom_labels", [f"{s}{i}" for i, s in enumerate(prev_syms)])
+
+            # Map matching intermediate atoms to preserve their exact global ID and label
+            for ip, in_idx in zip(idxs_p, idxs_n):
+                if in_idx < len(next_orig_global_ids) and ip < len(prev_global_ids):
+                    next_orig_global_ids[in_idx] = prev_global_ids[ip]
+                    next_orig_atom_labels[in_idx] = prev_atom_labels[ip]
+
+            # Assign new persistent IDs to unmapped atoms (incoming reagents)
+            for i in range(len(next_syms)):
+                if next_orig_global_ids[i] is None:
+                    new_id = (max(used_global_ids) + 1) if used_global_ids else i
+                    used_global_ids.add(new_id)
+                    next_orig_global_ids[i] = new_id
+                    next_orig_atom_labels[i] = f"{next_syms[i]}{new_id}"
+
             order = list(idxs_n) + [c for c in range(len(next_syms)) if c not in set(idxs_n)]
 
             out_next["symbols"] = [next_syms[c] for c in order]
+            out_next["global_atom_ids"] = [next_orig_global_ids[c] for c in order]
+            out_next["atom_labels"] = [next_orig_atom_labels[c] for c in order]
             inv_order = {c: r for r, c in enumerate(order)}
             remapped_bonds = []
             for b in next_step.get("bonds", []):
@@ -138,6 +167,13 @@ def stitch_multistep_trajectories(
             b_rmsd = cand["rmsd"]
         else:
             b_rmsd, idxs_p, idxs_n = 0.0, [], []
+            for i in range(len(next_syms)):
+                new_id = (max(used_global_ids) + 1) if used_global_ids else i
+                used_global_ids.add(new_id)
+                next_orig_global_ids[i] = new_id
+                next_orig_atom_labels[i] = f"{next_syms[i]}{new_id}"
+            out_next["global_atom_ids"] = next_orig_global_ids
+            out_next["atom_labels"] = next_orig_atom_labels
 
         if p_cut < len(prev_step["frames"]) - 1:
             prev_step["frames"] = prev_step["frames"][:p_cut + 1]
@@ -193,6 +229,8 @@ def stitch_multistep_trajectories(
             c = fr.get("coords", fr.get("positions", []))
             fr["coords"], fr["positions"], fr["step_index"], fr["is_ts"] = c, c, k + 1, (f_i == ts_idx)
             fr["symbols"] = step.get("symbols", [])
+            fr["atom_labels"] = list(step.get("atom_labels", []))
+            fr["global_atom_ids"] = list(step.get("global_atom_ids", []))
             e_k = curr_energy_offset + (raw_e[f_i] - e_base)
             fr["energy_kcal"], fr["rel_energy_kcal"], fr["s_arc"] = round(float(e_k), 2), round(float(e_k), 2), round(step_start_s + (raw_s[f_i] - s_base), 3)
             accum_s, max_energy, final_energy = fr["s_arc"], max(max_energy, e_k), e_k
@@ -226,6 +264,8 @@ def stitch_multistep_trajectories(
     res = {
         "title": "Master Multistep IRC Trajectory", "n_steps": len(aligned_steps), "total_frames": len(master_frames),
         "symbols": symbols, "step_symbols": [step.get("symbols", []) for step in aligned_steps],
+        "trajectory_atom_labels": [fr.get("atom_labels", []) for fr in master_frames],
+        "step_atom_labels": [step.get("atom_labels", []) for step in aligned_steps],
         "bonds": list(master_bonds_dict.values()), "step_boundaries": step_boundaries,
         "stitching_alignment_report": step_reports, "frames": master_frames,
         "overall_barrier_kcal": round(float(max_energy), 2), "overall_reaction_energy_kcal": round(float(final_energy), 2)

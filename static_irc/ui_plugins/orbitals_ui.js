@@ -23,7 +23,7 @@ export const OrbitalsUI = {
         Object.assign(this.state, {
             stepId: stepId || 'step_6_orbitals', uiSchema, totalFrames: uiSchema.total_frames || 0,
             isovalue: uiSchema.default_isovalue || 0.03, trajectory: uiSchema.trajectory || [],
-            trajectorySymbols: uiSchema.trajectory_symbols || [], trajectoryBonds: uiSchema.trajectory_bonds || [],
+            trajectorySymbols: uiSchema.trajectory_symbols || [], trajectoryAtomLabels: uiSchema.trajectory_atom_labels || [], trajectoryBonds: uiSchema.trajectory_bonds || [],
             trajectoryCharges: uiSchema.trajectory_charges || [], currentFrame: 0,
             showLabels: localStorage.getItem('orbitals_show_labels') === '1'
         });
@@ -220,13 +220,14 @@ export const OrbitalsUI = {
         if (!coords) return;
         const symbols = (fd && fd.symbols) || (this.state.trajectorySymbols && this.state.trajectorySymbols[f]) || this.state.uiSchema.symbols;
         const bonds = (fd && fd.bonds) || (this.state.trajectoryBonds && this.state.trajectoryBonds[f]) || null;
+        const atomLabels = (fd && fd.atom_labels) || (this.state.trajectoryAtomLabels && this.state.trajectoryAtomLabels[f]) || null;
         const merged = this._getActiveOrbitals(f);
         const espActive = merged.some(t => t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp');
         const moTracks = merged.filter(t => t.orbital_key !== 'track_esp_charge' && t.track_id !== 'trk_esp');
         const charges = (fd && fd.charges) || this.state.trajectoryCharges[f] || null;
 
         await this.state.viewer3D.renderScene({
-            symbols, coords, charges, bonds, showCharges: this.state.showCharges || espActive,
+            symbols, coords, charges, bonds, atomLabels, showCharges: this.state.showCharges || espActive,
             showLabels: this.state.showLabels,
             activeOrbitals: moTracks, isovalue: this.state.isovalue, frameIdx: f,
             hideAllOrbitals: this.state.hideAllOrbitals, fetchCubeFn: (fi, ok, ck, iso) => {
@@ -250,6 +251,7 @@ export const OrbitalsUI = {
         if (coords) {
             const symbols = (this.state.frameDataCache[frameIdx] && this.state.frameDataCache[frameIdx].symbols) || (this.state.trajectorySymbols && this.state.trajectorySymbols[frameIdx]) || this.state.uiSchema.symbols;
             const bonds = (this.state.frameDataCache[frameIdx] && this.state.frameDataCache[frameIdx].bonds) || (this.state.trajectoryBonds && this.state.trajectoryBonds[frameIdx]) || null;
+            const atomLabels = (this.state.frameDataCache[frameIdx] && this.state.frameDataCache[frameIdx].atom_labels) || (this.state.trajectoryAtomLabels && this.state.trajectoryAtomLabels[frameIdx]) || null;
             const merged = this._getActiveOrbitals(frameIdx);
             const fd = this.state.frameDataCache[frameIdx];
             if (this.state.timeline && fd) this.state.timeline.updatePopulations(frameIdx, fd, symbols);
@@ -257,7 +259,7 @@ export const OrbitalsUI = {
             const espActive = merged.some(t => t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp');
             const moTracks = this.state.hideAllOrbitals ? [] : merged.filter(t => t.orbital_key !== 'track_esp_charge' && t.track_id !== 'trk_esp');
 
-            this.state.viewer3D.renderFastFrame(symbols, coords, moTracks, this.state.isovalue, frameIdx, charges, this.state.showCharges || espActive, bonds, this.state.showLabels);
+            this.state.viewer3D.renderFastFrame(symbols, coords, moTracks, this.state.isovalue, frameIdx, charges, this.state.showCharges || espActive, bonds, this.state.showLabels, atomLabels);
 
             for (const orb of moTracks) {
                 const tid = orb.track_id || orb.orbital_key || orb.key || orb;
@@ -266,7 +268,7 @@ export const OrbitalsUI = {
                     this.state.viewer3D.setStatus(`Frame ${frameIdx} | Computing orbital ${orb.title || tid}...`);
                     this.fetchCube(frameIdx, ok, ck, this.state.isovalue, tid).then(res => {
                         if (res && res.success && res.cube && this.state.currentFrame === frameIdx) {
-                            this.state.viewer3D.renderFastFrame(symbols, coords, moTracks, this.state.isovalue, frameIdx, charges, this.state.showCharges || espActive, bonds, this.state.showLabels);
+                            this.state.viewer3D.renderFastFrame(symbols, coords, moTracks, this.state.isovalue, frameIdx, charges, this.state.showCharges || espActive, bonds, this.state.showLabels, atomLabels);
                             this.state.viewer3D.setStatus(`Frame ${frameIdx} | Ready`);
                         }
                     }).catch(() => {});

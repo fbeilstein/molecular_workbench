@@ -78,6 +78,7 @@ class Step6Orbitals(PipelineStep):
             "step_boundaries": megajson.get("step_boundaries", []), "symbols": megajson.get("symbols", []),
             "trajectory": [f.get("coords", f.get("positions", [])) for f in megajson["frames"]],
             "trajectory_symbols": [f.get("symbols") or megajson.get("symbols", []) for f in megajson["frames"]],
+            "trajectory_atom_labels": [f.get("atom_labels") for f in megajson["frames"]],
             "trajectory_bonds": [f.get("bonds", []) for f in megajson["frames"]],
             "trajectory_charges": megajson.get("trajectory_charges", []), "energy_profile": ep,
             "timeline": timeline, "default_isovalue": 0.03,
@@ -92,13 +93,14 @@ class Step6Orbitals(PipelineStep):
     def _compute_single_frame(self, fi: int, prev_data: Optional[Dict[str, Any]], megajson: Dict[str, Any]) -> Dict[str, Any]:
         fr = megajson["frames"][fi]
         symbols = fr.get("symbols") or megajson.get("symbols", [])
+        atom_labels = fr.get("atom_labels")
         charge = get_system_charge(megajson, fi)
         coords = fr.get("coords", fr.get("positions", []))
 
         mol, mf, mull = orbital_engine.compute_frame_scf(symbols, coords, charge=charge, spin=0)
         same_sys = prev_data is not None and prev_data.get("symbols") == symbols
         if not same_sys:
-            ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols)
+            ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols, atom_labels=atom_labels)
             f_meta, c_meta, f_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, None, None, ibos_m, star_m, ibos_v)
             n_c = len([k for k, v in ibos_m.items() if v.get("type") == "core"])
         else:
@@ -107,7 +109,7 @@ class Step6Orbitals(PipelineStep):
                 "mol": prev_data["mol"], "ibo_coeff": prev_data["ibo_coeff"], "n_core": n_c,
                 "val_pops": prev_data.get("val_pops") if prev_data.get("val_pops") is not None else prev_data["ibo_pops"][n_c:]
             }
-            ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols, ref_dict)
+            ibos_m, star_m, ibos_v, pops, ibo_c = orbital_engine.compute_frame_ibos(mol, mf, symbols, ref_dict, atom_labels=atom_labels)
             f_meta, c_meta, f_vecs = orbital_engine.extract_frontier_orbitals(mol, mf, prev_data["mol"], prev_data["vecs"], ibos_m, star_m, ibos_v)
 
         st_idx = fr.get("step_index")
@@ -120,7 +122,8 @@ class Step6Orbitals(PipelineStep):
             "mol": mol, "mf": mf, "meta": f_meta, "ibos_meta": ibos_m,
             "antibonds_meta": star_m, "canonical_pi_meta": c_meta,
             "ibo_pops": pops, "val_pops": pops[n_c:], "ibo_coeff": ibo_c, "vecs": {**ibos_v, **f_vecs},
-            "charges": mull, "n_core": n_c, "symbols": symbols, "step_index": st_idx
+            "charges": mull, "n_core": n_c, "symbols": symbols, "step_index": st_idx,
+            "atom_labels": atom_labels
         }
         _SCF_CACHE[fi] = frame_dict
         return frame_dict

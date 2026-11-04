@@ -13,28 +13,29 @@ if TOOLS_DIR not in sys.path:
 from qm.classification import _classify_orbital
 
 
-def classify_ibo_quick(symbols: List[str], pop: np.ndarray) -> Tuple[str, str]:
+def classify_ibo_quick(symbols: List[str], pop: np.ndarray, atom_labels: Optional[List[str]] = None) -> Tuple[str, str]:
     ranked = sorted(range(len(symbols)), key=lambda i: -pop[i])
     top = [(i, pop[i]) for i in ranked if pop[i] > 0.25]
+    tags = atom_labels if (atom_labels and len(atom_labels) == len(symbols)) else [f"{symbols[i]}{i}" for i in range(len(symbols))]
     if len(top) == 1 or (len(top) >= 1 and top[0][1] > 1.75):
         ai = top[0][0]
-        return "lp", f"LP({symbols[ai]}{ai})"
+        return "lp", f"LP({tags[ai]})"
     elif len(top) >= 2:
         a1, a2 = sorted([top[0][0], top[1][0]])
-        return "bond", f"{symbols[a1]}{a1}-{symbols[a2]}{a2}"
+        return "bond", f"{tags[a1]}-{tags[a2]}"
     return "core", "core"
 
 
 def compute_density_flux(
-    pops_start: np.ndarray, pops_end: np.ndarray, symbols: List[str]
+    pops_start: np.ndarray, pops_end: np.ndarray, symbols: List[str], atom_labels: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """Rank orbitals by net population redistribution between two frames."""
     nocc = pops_start.shape[0]
     delta_sums = np.abs(pops_end - pops_start).sum(axis=1)
     fluxes = []
     for k in range(nocc):
-        typ_s, lbl_s = classify_ibo_quick(symbols, pops_start[k])
-        typ_e, lbl_e = classify_ibo_quick(symbols, pops_end[k])
+        typ_s, lbl_s = classify_ibo_quick(symbols, pops_start[k], atom_labels)
+        typ_e, lbl_e = classify_ibo_quick(symbols, pops_end[k], atom_labels)
         fluxes.append({
             "key": f"IBO_{k:02d}", "index": k, "delta_pop": round(float(delta_sums[k]), 3),
             "label_start": lbl_s, "label_end": lbl_e, "type": typ_s
@@ -44,7 +45,8 @@ def compute_density_flux(
 
 
 def compute_frame_ibos(
-    mol: Any, mf: Any, symbols: List[str], prev_data: Optional[Dict[str, Any]] = None
+    mol: Any, mf: Any, symbols: List[str], prev_data: Optional[Dict[str, Any]] = None,
+    atom_labels: Optional[List[str]] = None
 ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, np.ndarray], np.ndarray, np.ndarray]:
     """Compute all IBOs with cross-frame orbital continuity and textbook antibonds."""
     nocc = mol.nelectron // 2 if mol.spin == 0 else mol.nelec[0]
@@ -90,8 +92,6 @@ def compute_frame_ibos(
                 if float(prev_val[:, k].T @ s_cross @ ibo_val[:, k]) < 0.0:
                     ibo_val[:, k] = -ibo_val[:, k]
 
-
-
     ibo_coeff = np.hstack([core_mo, ibo_val])
     pops = np.zeros((nocc, mol.natm))
     n_c = core_mo.shape[1]
@@ -106,8 +106,8 @@ def compute_frame_ibos(
     fock = mf.get_fock()
     ibo_fock = ibo_coeff.T @ fock @ ibo_coeff
     energies_ev = np.diag(ibo_fock) * 27.2114
-    atom_labels = [mol.atom_symbol(i) for i in range(mol.natm)]
-    atom_ids = [f"{mol.atom_symbol(i)}{i}" for i in range(mol.natm)]
+    elem_symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
+    atom_ids = atom_labels if (atom_labels and len(atom_labels) == mol.natm) else [f"{mol.atom_symbol(i)}{i}" for i in range(mol.natm)]
     ao_labels = mol.ao_labels(fmt=False)
     virt_coeff = mf.mo_coeff[:, nocc:] if mol.spin == 0 else mf.mo_coeff[0][:, nocc:]
 
@@ -119,11 +119,11 @@ def compute_frame_ibos(
         if e_ev < -50.0:
             ai = int(np.argmax(pops[k]))
             typ, cat = "core", "core"
-            lbl = f"Core({symbols[ai]}{ai})"
-            atoms = [f"{symbols[ai]}{ai}"]
-            c_key = f"core_{symbols[ai]}{ai}_{k}"
+            lbl = f"Core({atom_ids[ai]})"
+            atoms = [atom_ids[ai]]
+            c_key = f"core_{atom_ids[ai]}_{k}"
         else:
-            info = _classify_orbital(mol, vec, pops[k], atom_labels, atom_ids, ovlp)
+            info = _classify_orbital(mol, vec, pops[k], elem_symbols, atom_ids, ovlp)
             typ = info.get("type", "unknown")
             atoms = info.get("atoms", [info.get("atom", "?")])
             if len(atoms) >= 2:
