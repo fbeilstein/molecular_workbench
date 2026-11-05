@@ -90,17 +90,43 @@ def _match_cand(
     k_src: Optional[str] = None,
     fd_cand: Optional[Dict[str, Any]] = None,
     R: Optional[np.ndarray] = None,
-    is_backward: bool = False
+    is_backward: bool = False,
+    src_labels: Optional[List[str]] = None,
+    cand_labels: Optional[List[str]] = None
 ) -> Optional[str]:
     if not m_src or not m_src.get("atoms"):
         return None
-    at_src = _atom_nums(m_src.get("atoms", []))
-    mapped = [p2n.get(a) for a in at_src]
-    if any(x is None for x in mapped):
-        return None
-    s_mapped = set(mapped)
-    if not s_mapped:
-        return None
+
+    src_atoms = [str(a) for a in m_src.get("atoms", [])]
+    if src_labels and cand_labels:
+        mapped_atoms = [a for a in src_atoms if a in cand_labels]
+        if not mapped_atoms:
+            return None  # All atoms of this orbital have left the system
+        s_mapped = set(mapped_atoms)
+        at_src_indices = [src_labels.index(a) for a in src_atoms if a in src_labels]
+        mapped_indices = [p2n.get(i) for i in at_src_indices]
+    else:
+        at_src_indices = _atom_nums(src_atoms)
+        mapped_indices = [p2n.get(a) for a in at_src_indices]
+        if any(x is None for x in mapped_indices):
+            return None
+        s_mapped = set(mapped_indices)
+        if not s_mapped:
+            return None
+
+    # Check for analytical quantum-mechanical PySCF cross-overlap if wavefunctions are available
+    qm_ovlps: Dict[str, float] = {}
+    if fd_src and fd_cand and "mol" in fd_src and "mol" in fd_cand and "vecs" in fd_src and "vecs" in fd_cand and k_src and k_src in fd_src["vecs"]:
+        try:
+            from pyscf import gto
+            v_src = fd_src["vecs"][k_src]
+            s_cross = gto.intor_cross("int1e_ovlp", fd_src["mol"], fd_cand["mol"]) if not is_backward else gto.intor_cross("int1e_ovlp", fd_cand["mol"], fd_src["mol"])
+            for k2, v2 in fd_cand["vecs"].items():
+                if k2 in pool:
+                    ov_qm = abs(float(v_src.T @ s_cross @ v2)) if not is_backward else abs(float(v2.T @ s_cross @ v_src))
+                    qm_ovlps[k2] = ov_qm
+        except Exception:
+            pass
 
     best_k, best_score = None, -9999.0
     for k2, m2 in pool.items():
@@ -108,19 +134,44 @@ def _match_cand(
             continue
         if is_star != ("STAR" in k2 or "star" in m2.get("type", "")):
             continue
-        s2 = set(_atom_nums(m2.get("atoms", [])))
-        if not s2 or (s_mapped != s2 and not (s2.issubset(s_mapped) or s_mapped.issubset(s2))):
+
+        if src_labels and cand_labels:
+            s2 = set(str(a) for a in m2.get("atoms", []))
+        else:
+            s2 = set(_atom_nums(m2.get("atoms", [])))
+
+        qm_ov = qm_ovlps.get(k2, 0.0)
+
+        # Allow matching if atom sets overlap/subset, or if PySCF QM overlap is high
+        atom_match = bool(s2 and (s_mapped == s2 or s2.issubset(s_mapped) or s_mapped.issubset(s2) or (s_mapped & s2)))
+        if not atom_match and qm_ov < 0.65:
             continue
-        sc = 100.0 if s_mapped == s2 else 40.0
+
+        if s_mapped == s2:
+            sc = 120.0
+        elif s2.issubset(s_mapped) or s_mapped.issubset(s2):
+            sc = 60.0
+        elif s_mapped & s2:
+            sc = 30.0
+        else:
+            sc = 0.0
+
+        if qm_ov > 0.0:
+            sc += qm_ov * 250.0  # huge reward for verified physical overlap
+
         t1, t2 = m_src.get("type", ""), m2.get("type", "")
-        sc += 30.0 if t1 == t2 else (10.0 if (t1 in ("pi", "lone_pair") and t2 in ("pi", "lone_pair")) else 0.0)
+        if t1 == t2:
+            sc += 40.0
+        elif (t1 in ("pi", "lone_pair") and t2 in ("pi", "lone_pair")):
+            sc += 20.0
 
         p1, p2 = m_src.get("pop"), m2.get("pop")
-        if p1 and p2:
-            sc -= sum(abs(p1[a1] - p2[a2]) for a1, a2 in zip(at_src, mapped) if a1 < len(p1) and a2 < len(p2)) * 40.0
+        if p1 and p2 and at_src_indices and mapped_indices:
+            sc -= sum(abs(p1[a1] - p2[a2]) for a1, a2 in zip(at_src_indices, mapped_indices) if a1 is not None and a2 is not None and a1 < len(p1) and a2 < len(p2)) * 30.0
+
         e1, e2 = m_src.get("energy_ev"), m2.get("energy_ev")
         if e1 is not None and e2 is not None:
-            sc -= abs(e1 - e2) * 1.5
+            sc -= abs(e1 - e2) * 1.0
 
         if fd_src and fd_cand and k_src and k2:
             if not is_backward:
@@ -130,13 +181,14 @@ def _match_cand(
                 ov = compute_orbital_spatial_overlap(fd_cand, k2, fd_src, k_src, p2n_rev, R)
             if ov > 0:
                 if ov < 0.25:
-                    sc -= 120.0  # severely penalize orthogonal lobes (e.g. 90-degree rotated)
+                    sc -= 80.0
                 else:
-                    sc += ov * 150.0  # strongly reward parallel aligned lobes
+                    sc += ov * 120.0
 
         if sc > best_score:
             best_score, best_k = sc, k2
-    return best_k if best_score > 0 else None
+
+    return best_k if best_score > 20.0 else None
 
 
 def build_track_frame_map(
@@ -173,38 +225,80 @@ def build_track_frame_map(
 
     # Forward tracking across junctions
     for g in range(ref_g, len(groups) - 1):
-        if not g_keys[g] or g >= len(cands):
+        if not g_keys[g]:
             break
-        m = _meta_for(groups[g][1], g_keys[g])
-        cand_rpt = cands[g]
-        p2n = dict(zip(cand_rpt.get("prev_indices", []), cand_rpt.get("next_indices", [])))
-        R_mat = np.array(cand_rpt["R"]) if "R" in cand_rpt else None
-        fd_src = _get_frame_dict(groups[g][1], megajson, scf_cache, ensure_fn)
-        fd_next = _get_frame_dict(groups[g + 1][0], megajson, scf_cache, ensure_fn)
+        fi_src = groups[g][1]
+        fi_next = groups[g + 1][0]
+        m = _meta_for(fi_src, g_keys[g])
+        if not m:
+            break
+
+        f_src = megajson["frames"][fi_src] if fi_src < len(megajson["frames"]) else {}
+        f_next = megajson["frames"][fi_next] if fi_next < len(megajson["frames"]) else {}
+        src_lbls = f_src.get("atom_labels") or []
+        next_lbls = f_next.get("atom_labels") or []
+
+        p2n = {}
+        if src_lbls and next_lbls:
+            for i, lbl in enumerate(src_lbls):
+                if lbl in next_lbls:
+                    p2n[i] = next_lbls.index(lbl)
+        elif g < len(cands):
+            cand_rpt = cands[g]
+            p2n = dict(zip(cand_rpt.get("prev_indices", []), cand_rpt.get("next_indices", [])))
+
+        R_mat = None
+        if not (src_lbls and next_lbls) and g < len(cands) and "R" in cands[g]:
+            R_mat = np.array(cands[g]["R"])
+
+        fd_src = _get_frame_dict(fi_src, megajson, scf_cache, ensure_fn)
+        fd_next = _get_frame_dict(fi_next, megajson, scf_cache, ensure_fn)
         if not fd_next:
             break
         pool = fd_next.get("antibonds_meta", {}) if ("STAR" in g_keys[g] or is_star) else fd_next.get("ibos_meta", {})
         g_keys[g + 1] = _match_cand(
             m, p2n, pool, is_star or ("STAR" in g_keys[g]),
-            fd_src=fd_src, k_src=g_keys[g], fd_cand=fd_next, R=R_mat, is_backward=False
+            fd_src=fd_src, k_src=g_keys[g], fd_cand=fd_next, R=R_mat, is_backward=False,
+            src_labels=src_lbls, cand_labels=next_lbls
         )
 
     # Backward tracking across junctions
     for g in range(ref_g, 0, -1):
-        if not g_keys[g] or (g - 1) >= len(cands):
+        if not g_keys[g]:
             break
-        m = _meta_for(groups[g][0], g_keys[g])
-        cand_rpt = cands[g - 1]
-        n2p = dict(zip(cand_rpt.get("next_indices", []), cand_rpt.get("prev_indices", [])))
-        R_mat = np.array(cand_rpt["R"]) if "R" in cand_rpt else None
-        fd_src = _get_frame_dict(groups[g][0], megajson, scf_cache, ensure_fn)
-        fd_prev = _get_frame_dict(groups[g - 1][1], megajson, scf_cache, ensure_fn)
+        fi_src = groups[g][0]
+        fi_prev = groups[g - 1][1]
+        m = _meta_for(fi_src, g_keys[g])
+        if not m:
+            break
+
+        f_src = megajson["frames"][fi_src] if fi_src < len(megajson["frames"]) else {}
+        f_prev = megajson["frames"][fi_prev] if fi_prev < len(megajson["frames"]) else {}
+        src_lbls = f_src.get("atom_labels") or []
+        prev_lbls = f_prev.get("atom_labels") or []
+
+        n2p = {}
+        if src_lbls and prev_lbls:
+            for i, lbl in enumerate(src_lbls):
+                if lbl in prev_lbls:
+                    n2p[i] = prev_lbls.index(lbl)
+        elif (g - 1) < len(cands):
+            cand_rpt = cands[g - 1]
+            n2p = dict(zip(cand_rpt.get("next_indices", []), cand_rpt.get("prev_indices", [])))
+
+        R_mat = None
+        if not (src_lbls and prev_lbls) and (g - 1) < len(cands) and "R" in cands[g - 1]:
+            R_mat = np.array(cands[g - 1]["R"])
+
+        fd_src = _get_frame_dict(fi_src, megajson, scf_cache, ensure_fn)
+        fd_prev = _get_frame_dict(fi_prev, megajson, scf_cache, ensure_fn)
         if not fd_prev:
             break
         pool = fd_prev.get("antibonds_meta", {}) if ("STAR" in g_keys[g] or is_star) else fd_prev.get("ibos_meta", {})
         g_keys[g - 1] = _match_cand(
             m, n2p, pool, is_star or ("STAR" in g_keys[g]),
-            fd_src=fd_src, k_src=g_keys[g], fd_cand=fd_prev, R=R_mat, is_backward=True
+            fd_src=fd_src, k_src=g_keys[g], fd_cand=fd_prev, R=R_mat, is_backward=True,
+            src_labels=src_lbls, cand_labels=prev_lbls
         )
 
     frame_map: List[Optional[str]] = [None] * n_frames
@@ -244,7 +338,10 @@ def resolve_track_roles(
     groups = get_frame_groups(megajson)
     g_from = next((i for i, (gs, ge) in enumerate(groups) if gs <= f_last <= ge), 0)
     g_to = next((i for i, (gs, ge) in enumerate(groups) if gs <= f_first <= ge), 0)
-    if e_role and g_from > g_to:
+    f_first_fr = megajson.get("frames", [{}])[f_first] if f_first < len(megajson.get("frames", [])) else {}
+    f_last_fr = megajson.get("frames", [{}])[f_last] if f_last < len(megajson.get("frames", [])) else {}
+    has_global_labels = bool(f_first_fr.get("atom_labels") and f_last_fr.get("atom_labels"))
+    if not has_global_labels and e_role and g_from > g_to:
         cands = [r["all_candidates"][0] for r in megajson.get("stitching_alignment_report", []) if r.get("all_candidates")]
         n2p_c: Dict[int, int] = {}
         for g in range(g_from, g_to, -1):
@@ -307,8 +404,8 @@ def build_global_track_catalog(
         if all((k1 == k2 or k1 is None or k2 is None) for k1, k2 in zip(trk_gk, new_gk)):
             return True
         # Do not merge tracks if atoms are completely disjoint across the step
-        s1 = set(_atom_nums(trk_atoms))
-        s2 = set(_atom_nums(new_atoms))
+        s1 = set(str(a) for a in trk_atoms)
+        s2 = set(str(a) for a in new_atoms)
         if s1 and s2 and not (s1 & s2) and (trk_gk[0] is not None and new_gk[0] is not None):
             return False
         return True
@@ -323,9 +420,12 @@ def build_global_track_catalog(
 
     for fi in avail_frames:
         fd = scf_cache[fi]
+        ref_g = next((i for i, (gs, ge) in enumerate(groups) if gs <= fi <= ge), 0)
         pools = [("bonding", fd.get("ibos_meta", {})), ("pi", fd.get("canonical_pi_meta", {})), ("star", fd.get("antibonds_meta", {}))]
         for p_type, pool in pools:
             for k, m in pool.items():
+                if any(trk.get("group_keys", [None] * n_g)[ref_g] == k for trk in catalog.values()):
+                    continue
                 is_star = ("STAR" in k) or (p_type == "star")
                 f_map, g_keys = build_track_frame_map(megajson, fi, k, scf_cache, ensure_fn, is_star=is_star)
 
@@ -343,6 +443,10 @@ def build_global_track_catalog(
                         if gk: mgk[gi] = gk
                     for f_i, fk in enumerate(f_map):
                         if fk and not mfm[f_i]: mfm[f_i] = fk
+                    cur_at = set(str(a) for a in matched_trk.get("atoms", []))
+                    new_at = set(str(a) for a in m.get("atoms", []))
+                    if new_at:
+                        matched_trk["atoms"] = sorted(list(cur_at | new_at), key=lambda x: int(re.search(r'\d+', str(x)).group()) if re.search(r'\d+', str(x)) else str(x))
                     lbl, trans, _, _ = resolve_track_roles(megajson, mfm, matched_trk.get("label", m.get("label", k)), scf_cache, ensure_fn)
                     matched_trk["label"] = matched_trk["name"] = lbl
                     matched_trk["role_transition"] = trans

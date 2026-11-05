@@ -163,7 +163,7 @@ class Step6Orbitals(PipelineStep):
             clear_orbital_caches()
             return {"success": True, "message": "Orbital caches and disk cubes cleared."}
 
-        frame_idx = int(user_input.get("frame_index", 0))
+        frame_idx = int(user_input.get("frame_index", user_input.get("frame_idx", 0)))
         n_frames = len(megajson.get("frames", []))
         if frame_idx < 0 or frame_idx >= n_frames:
             return {"error": f"Frame {frame_idx} out of range (0-{n_frames-1})"}
@@ -189,15 +189,17 @@ class Step6Orbitals(PipelineStep):
                         best_score = -1
                         for t in candidates:
                             t_atoms = set(str(a) for a in t.get("atoms", []))
+                            coverage = sum(1 for x in t.get("frame_map", []) if x is not None)
                             if m_atoms and t_atoms:
                                 overlap = len(m_atoms & t_atoms)
-                                if overlap > best_score:
-                                    best_score, best_trk = overlap, t
+                                if overlap > 0:
+                                    score = coverage * 1000 + overlap * 10
+                                    if score > best_score:
+                                        best_score, best_trk = score, t
                             elif not m_atoms and not t_atoms:
-                                if best_score < 0:
-                                    best_score, best_trk = 0, t
-                        if m_atoms and best_score == 0:
-                            best_trk = None
+                                score = coverage * 1000
+                                if score > best_score:
+                                    best_score, best_trk = score, t
 
                     itm = dict(m)
                     itm["track_id"] = best_trk["track_id"] if best_trk else k
