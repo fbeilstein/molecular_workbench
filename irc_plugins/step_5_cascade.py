@@ -130,6 +130,17 @@ class Step5Cascade(PipelineStep):
         if (not megajson or not has_coords) and len(available) >= 1:
             try:
                 megajson = stitch_multistep_trajectories([a["data"] for a in available], n_bridge_frames=8, auto_sort=False, balance_energies=True)
+                if os.path.exists(PROLONGED_PATH):
+                    try:
+                        with open(PROLONGED_PATH, "r") as f:
+                            old_mj = json.load(f)
+                        if len(old_mj.get("frames", [])) == len(megajson.get("frames", [])):
+                            if old_mj.get("global_electron_tracks"):
+                                megajson["global_electron_tracks"] = old_mj["global_electron_tracks"]
+                            if old_mj.get("orbital_timeline"):
+                                megajson["orbital_timeline"] = old_mj["orbital_timeline"]
+                    except Exception:
+                        pass
                 os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
                 with open(PROLONGED_PATH, "w") as f:
                     json.dump(megajson, f, indent=2)
@@ -185,6 +196,18 @@ class Step5Cascade(PipelineStep):
 
         try:
             megajson = stitch_multistep_trajectories(to_stitch, junction_choices=junction_choices, n_bridge_frames=n_bridge, auto_sort=False, balance_energies=True)
+            if os.path.exists(PROLONGED_PATH):
+                try:
+                    with open(PROLONGED_PATH, "r") as f:
+                        old_mj = json.load(f)
+                    if len(old_mj.get("frames", [])) == len(megajson.get("frames", [])):
+                        if old_mj.get("global_electron_tracks"):
+                            megajson["global_electron_tracks"] = old_mj["global_electron_tracks"]
+                        if old_mj.get("orbital_timeline"):
+                            megajson["orbital_timeline"] = old_mj["orbital_timeline"]
+                except Exception:
+                    pass
+
             os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
             with open(PROLONGED_PATH, "w") as f:
                 json.dump(megajson, f, indent=2)

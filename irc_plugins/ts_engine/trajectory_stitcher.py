@@ -138,7 +138,13 @@ def stitch_multistep_trajectories(
                     next_orig_global_ids[i] = new_id
                     next_orig_atom_labels[i] = f"{next_syms[i]}{new_id}"
 
-            order = list(idxs_n) + [c for c in range(len(next_syms)) if c not in set(idxs_n)]
+            # Strictly reindex next_step atoms so that matched intermediate atoms follow prev_step's indexing
+            pairs = sorted(zip(idxs_p, idxs_n), key=lambda x: x[0])
+            sorted_idxs_p = [p for p, _ in pairs]
+            sorted_idxs_n = [n for _, n in pairs]
+            unmatched = [c for c in range(len(next_syms)) if c not in set(idxs_n)]
+            order = sorted_idxs_n + unmatched
+            idxs_p = sorted_idxs_p
 
             out_next["symbols"] = [next_syms[c] for c in order]
             out_next["global_atom_ids"] = [next_orig_global_ids[c] for c in order]
@@ -249,9 +255,13 @@ def stitch_multistep_trajectories(
         step_end_e = curr_energy_offset + (raw_e[-1] - e_base) if raw_e else curr_energy_offset
 
         if k < len(all_bridges) and all_bridges[k]:
+            next_step_ref = aligned_steps[k + 1] if (k + 1) < len(aligned_steps) else step
             for b_fr in all_bridges[k]:
                 c = b_fr.get("coords", b_fr.get("positions", []))
                 b_fr["coords"], b_fr["positions"], b_fr["step_index"], b_fr["is_ts"] = c, c, f"Bridge {k + 1}➔{k + 2}", False
+                b_fr["symbols"] = list(next_step_ref.get("symbols", []))
+                b_fr["atom_labels"] = list(next_step_ref.get("atom_labels", []))
+                b_fr["global_atom_ids"] = list(next_step_ref.get("global_atom_ids", []))
                 accum_s += 0.15
                 b_fr["energy_kcal"] = round(float(step_end_e), 2)
                 b_fr["rel_energy_kcal"], b_fr["s_arc"] = b_fr["energy_kcal"], round(float(accum_s), 3)

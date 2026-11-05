@@ -56,6 +56,12 @@ class Step6Orbitals(PipelineStep):
                     mj["global_electron_tracks"] = disk["global_electron_tracks"]
                 if disk.get("orbital_timeline"):
                     mj["orbital_timeline"] = disk["orbital_timeline"]
+                if disk.get("trajectory_atom_labels"):
+                    mj["trajectory_atom_labels"] = disk["trajectory_atom_labels"]
+                if disk.get("step_atom_labels"):
+                    mj["step_atom_labels"] = disk["step_atom_labels"]
+                if disk.get("frames"):
+                    mj["frames"] = disk["frames"]
             except Exception: pass
         return mj or {}
 
@@ -173,12 +179,38 @@ class Step6Orbitals(PipelineStep):
                 res = []
                 for m in metas:
                     k = m.get("key") or m.get("name")
-                    trk = next((t for t in catalog.values() if t.get("frame_map", [None]*n_frames)[frame_idx] == k), None)
+                    m_atoms = set(str(a) for a in m.get("atoms", []))
+                    candidates = [
+                        t for t in catalog.values()
+                        if t.get("frame_map", [None]*n_frames)[frame_idx] == k
+                    ]
+                    best_trk = None
+                    if candidates:
+                        best_score = -1
+                        for t in candidates:
+                            t_atoms = set(str(a) for a in t.get("atoms", []))
+                            if m_atoms and t_atoms:
+                                overlap = len(m_atoms & t_atoms)
+                                if overlap > best_score:
+                                    best_score, best_trk = overlap, t
+                            elif not m_atoms and not t_atoms:
+                                if best_score < 0:
+                                    best_score, best_trk = 0, t
+                        if m_atoms and best_score == 0:
+                            best_trk = None
+
                     itm = dict(m)
-                    itm["track_id"] = trk["track_id"] if trk else k
-                    if trk:
-                        itm["label"] = trk["label"]
-                        itm["decoupled_label"] = trk["label"]
+                    itm["track_id"] = best_trk["track_id"] if best_trk else k
+                    if best_trk:
+                        t_atoms = set(str(a) for a in best_trk.get("atoms", []))
+                        if not m_atoms or not t_atoms or (m_atoms & t_atoms):
+                            itm["label"] = best_trk.get("label") or m.get("label", k)
+                        else:
+                            itm["label"] = m.get("label", k)
+                        itm["decoupled_label"] = best_trk.get("label") or itm["label"]
+                    else:
+                        itm["label"] = m.get("label", k)
+                        itm["decoupled_label"] = m.get("label", k)
                     itm["local_key"] = k
                     res.append(itm)
                 return res
