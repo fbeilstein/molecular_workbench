@@ -22,10 +22,10 @@ export function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx,
   for (const orbKey of activeOrbitals) {
     const sKey = String(orbKey).toLowerCase();
     const isAnti = sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
-    const posColorHex = isAnti ? '#d946ef' : '#38bdf8';
-    const negColorHex = isAnti ? '#22c55e' : '#f97316';
-    const posColorInt = isAnti ? 0xd946ef : 0x38bdf8;
-    const negColorInt = isAnti ? 0x22c55e : 0xf97316;
+    const posColorHex = isAnti ? '#fb923c' : '#38bdf8';
+    const negColorHex = isAnti ? '#db2777' : '#1d4ed8';
+    const posColorInt = isAnti ? 0xfb923c : 0x38bdf8;
+    const negColorInt = isAnti ? 0xdb2777 : 0x1d4ed8;
 
     const meshPair = findOrbitalMesh(bundle, frameIdx, orbKey);
     if (meshPair) {

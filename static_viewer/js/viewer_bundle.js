@@ -452,10 +452,10 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
     for (const orbKey of activeOrbitals) {
       const sKey = String(orbKey).toLowerCase();
       const isAnti = sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
-      const posColorHex = isAnti ? "#d946ef" : "#38bdf8";
-      const negColorHex = isAnti ? "#22c55e" : "#f97316";
-      const posColorInt = isAnti ? 14239471 : 3718648;
-      const negColorInt = isAnti ? 2278750 : 16347926;
+      const posColorHex = isAnti ? "#fb923c" : "#38bdf8";
+      const negColorHex = isAnti ? "#db2777" : "#1d4ed8";
+      const posColorInt = isAnti ? 16487228 : 3718648;
+      const negColorInt = isAnti ? 14362487 : 1920728;
       const meshPair = findOrbitalMesh(bundle, frameIdx, orbKey);
       if (meshPair) {
         const pV = meshPair.pos?.vertices || meshPair.pos?.vertexArr;

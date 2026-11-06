@@ -93,7 +93,7 @@ export class Bundle3DViewer extends MoleculeViewer3D {
     _drawOrbitalLayer(orb, frameIdx, isovalue) {
         const orbKey = orb.orbital_key || orb.key || orb;
         if (orbKey === 'track_esp_charge') return;
-        const pc = getPhaseColors(orb.color || '#06b6d4');
+        const pc = getPhaseColors(orb);
         const mKey = `${frameIdx}_${orbKey}`;
         const isDefaultIso = Math.abs(isovalue - 0.03) < 0.003;
         const isoKey = `${mKey}_${Math.round(isovalue * 1000)}`;

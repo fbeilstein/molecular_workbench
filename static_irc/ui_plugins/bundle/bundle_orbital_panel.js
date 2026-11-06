@@ -1,6 +1,7 @@
 /**
  * Orbital Tracks Sidebar & Toggles Manager for Step 5 Bundle Viewer.
  */
+import { isAntiBondingOrbital, getOrbitalTypeBadge } from '../orbitals/orbitals_types.js';
 
 export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, callbacks) {
     if (!container) return;
@@ -31,10 +32,14 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
         left.style.cssText = 'display: flex; align-items: center; gap: 0.45rem; overflow: hidden; min-width: 0; flex: 1;';
 
         const tid = (trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') ? 'track_esp_charge' : (trk.track_id || trk.orbital_key || trk.id);
+        const isAnti = isAntiBondingOrbital(trk);
+        const baseColor = isAnti ? '#fb923c' : '#38bdf8';
+        const accentCol = isAnti ? '#ea580c' : '#0284c7';
+
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.checked = activeOrbitals.has(tid);
-        cb.style.accentColor = trk.color || '#38bdf8';
+        cb.style.accentColor = trk.color || accentCol;
 
         cb.onchange = (e) => {
             if (e.target.checked) {
@@ -46,7 +51,7 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
         };
 
         const dot = document.createElement('span');
-        dot.style.cssText = `display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: ${trk.color || '#38bdf8'}; flex-shrink: 0;`;
+        dot.style.cssText = `display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: ${trk.color || baseColor}; flex-shrink: 0;`;
 
         const title = document.createElement('span');
         title.style.cssText = 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; font-size: 0.76rem;';
@@ -57,10 +62,11 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
         left.appendChild(dot);
         left.appendChild(title);
 
+        const badgeInfo = getOrbitalTypeBadge(trk);
         const badge = document.createElement('span');
-        badge.className = 'chip-mini';
-        badge.style.cssText = 'font-size: 0.62rem; padding: 1px 6px; border-radius: 3px; background: rgba(255,255,255,0.08); font-weight: 600; white-space: nowrap; flex-shrink: 0; color: #cbd5e1;';
-        badge.textContent = display.badge;
+        badge.className = `chip-mini ${badgeInfo.cls}`;
+        badge.style.cssText = `font-size: 0.62rem; padding: 1px 6px; border-radius: 3px; font-weight: 700; white-space: nowrap; flex-shrink: 0; ${badgeInfo.style}`;
+        badge.textContent = badgeInfo.label;
         badge.title = display.tooltip;
 
         row.appendChild(left);
