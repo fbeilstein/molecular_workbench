@@ -151,15 +151,14 @@ def _is_core_orbital(mol, mo_coeff, atom_idx, element):
 def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     """Distinguish σ vs π using a nodal-plane test.
 
-    Samples the MO on a small circle perpendicular to the bond axis at
-    the bond midpoint.  A σ orbital is cylindrically symmetric (same sign
+    Samples the MO on concentric circles perpendicular to the bond axis at
+    the bond midpoint. A σ orbital is cylindrically symmetric (same sign
     all around), while a π orbital has a nodal plane through the bond
-    axis (half positive, half negative).
-
-    This approach is basis-set agnostic — works equally well for
-    s, p, d, and f orbital contributions.
+    axis (opposite signs on diametrically opposed points).
     """
-    coords = mol.atom_coords()
+    BOHR_TO_ANG = 0.52917721092
+    coords_bohr = mol.atom_coords()
+    coords_ang = coords_bohr * BOHR_TO_ANG
 
     # Hydrogens cannot form pi bonds.
     if mol.atom_symbol(atom1_idx) == 'H' or mol.atom_symbol(atom2_idx) == 'H':
@@ -168,13 +167,13 @@ def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     # Tetrahedral / 4-coordinate atoms (like sp3 carbon) cannot form pi bonds without violating octet rules.
     for a_idx in (atom1_idx, atom2_idx):
         if mol.atom_symbol(a_idx) in ('C', 'Si'):
-            dists = np.linalg.norm(coords - coords[a_idx], axis=1)
+            dists_ang = np.linalg.norm(coords_ang - coords_ang[a_idx], axis=1)
             # count bonded neighbors within 1.95 A (excluding self)
-            n_neighbors = int(np.sum((dists > 0.2) & (dists < 1.95)))
+            n_neighbors = int(np.sum((dists_ang > 0.2) & (dists_ang < 1.95)))
             if n_neighbors >= 4:
                 return 'sigma'
 
-    bond_vec = coords[atom2_idx] - coords[atom1_idx]
+    bond_vec = coords_bohr[atom2_idx] - coords_bohr[atom1_idx]
     bond_len = np.linalg.norm(bond_vec)
     if bond_len < 1e-6:
         return 'sigma'
@@ -186,33 +185,46 @@ def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     perp1 /= np.linalg.norm(perp1)
     perp2 = np.cross(bond_hat, perp1)
 
-    # Sample 12 points on a circle at the bond midpoint
-    midpoint = (coords[atom1_idx] + coords[atom2_idx]) / 2
+    midpoint = (coords_bohr[atom1_idx] + coords_bohr[atom2_idx]) / 2.0
     n_samples = 12
-    radius = 0.5  # Bohr (~0.26 Å)
     angles = 2 * np.pi * np.arange(n_samples) / n_samples
-    sample_coords = midpoint + radius * (
-        np.outer(np.cos(angles), perp1) + np.outer(np.sin(angles), perp2)
-    )
+    radii = [0.45, 0.85]  # Bohr (~0.24 Å and ~0.45 Å)
+    is_pi = False
 
-    ao_vals = mol.eval_gto("GTOval", sample_coords)
-    mo_vals = ao_vals @ mo_coeff
+    for radius in radii:
+        sample_coords = midpoint + radius * (
+            np.outer(np.cos(angles), perp1) + np.outer(np.sin(angles), perp2)
+        )
+        ao_vals = mol.eval_gto("GTOval", sample_coords)
+        mo_vals = ao_vals @ mo_coeff
+        max_abs = np.max(np.abs(mo_vals))
+        if max_abs < 1e-5:
+            continue
 
-    max_abs = np.max(np.abs(mo_vals))
-    if max_abs < 1e-6:
-        return 'sigma'
+        sig_mask = np.abs(mo_vals) > max_abs * 0.1
+        n_sig = int(np.sum(sig_mask))
+        if n_sig < 4:
+            continue
 
-    # Among samples with significant amplitude, count positive vs negative.
-    # σ → all same sign (minority ≈ 0), π → half-and-half (minority ≈ 0.5).
-    sig_mask = np.abs(mo_vals) > max_abs * 0.1
-    n_sig = int(np.sum(sig_mask))
-    if n_sig < 4:
-        return 'sigma'
+        n_pos = int(np.sum(mo_vals[sig_mask] > 0))
+        n_neg = n_sig - n_pos
+        minority_frac = min(n_pos, n_neg) / n_sig
 
-    n_pos = int(np.sum(mo_vals[sig_mask] > 0))
-    n_neg = n_sig - n_pos
-    minority_frac = min(n_pos, n_neg) / n_sig
+        opposite_inversions = 0
+        opposite_tested = 0
+        for j in range(6):
+            if sig_mask[j] and sig_mask[j + 6]:
+                opposite_tested += 1
+                if mo_vals[j] * mo_vals[j + 6] < 0:
+                    opposite_inversions += 1
 
-    return 'pi' if minority_frac > 0.25 else 'sigma'
+        if minority_frac > 0.25 and (opposite_tested >= 3 and opposite_inversions >= 3):
+            is_pi = True
+            break
+        elif minority_frac > 0.35 and opposite_inversions >= 2:
+            is_pi = True
+            break
+
+    return 'pi' if is_pi else 'sigma'
 
 

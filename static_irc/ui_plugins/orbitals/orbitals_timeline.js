@@ -13,17 +13,25 @@ export class OrbitalsTimeline {
         this.tracks = [];
         this.totalFrames = options.totalFrames || 0;
         this.currentFrame = options.currentFrame || 0;
-        this.manualOverrides = new Map();
+        this.visibleSet = new Set();
         this.lastFrameData = null;
         this.symbols = [];
+    }
+
+    syncVisibilitySet(set) {
+        this.visibleSet = new Set(set);
+        this.render();
     }
 
     setTimelineData(timeline, totalFrames) {
         this.tracks = (timeline && timeline.tracks) ? JSON.parse(JSON.stringify(timeline.tracks)) : [];
         for (const t of this.tracks) {
-            const tid = t.track_id || t.id || t.orbital_key;
+            const tid = (t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp') ? 'trk_esp' : (t.track_id || t.id || t.orbital_key);
             if (tid) { t.id = t.id || tid; t.track_id = t.track_id || tid; t.orbital_key = t.orbital_key || tid; }
             if (t.default_on === undefined) t.default_on = true;
+            if (t.default_on !== false && this.visibleSet.size === 0) {
+                this.visibleSet.add(tid);
+            }
         }
         if (totalFrames) this.totalFrames = totalFrames;
         this.render();
@@ -36,13 +44,12 @@ export class OrbitalsTimeline {
 
     addTrack(orbital) {
         if (!orbital) return;
-        const tid = orbital.track_id || orbital.key || orbital.orbital_key;
-        if (tid === 'trk_esp' || tid === 'track_esp_charge') { this.addEspTrack(); return; }
+        const tid = (orbital.track_id === 'trk_esp' || orbital.key === 'track_esp_charge' || orbital.orbital_key === 'track_esp_charge') ? 'trk_esp' : (orbital.track_id || orbital.key || orbital.orbital_key);
+        if (tid === 'trk_esp') { this.addEspTrack(); return; }
         const exists = this.tracks.find(t => (t.track_id && t.track_id === tid) || t.id === tid || t.orbital_key === tid);
         if (exists) {
-            this.manualOverrides.set(exists.id, true);
+            this.visibleSet.add(exists.track_id || exists.id);
             this.render();
-            if (this.options.onVisibilityChange) this.options.onVisibilityChange();
             return;
         }
         const isAnti = isAntiBondingOrbital(orbital);
@@ -57,10 +64,9 @@ export class OrbitalsTimeline {
             clips: [{ id: `c_${Date.now()}`, start: 0, end: Math.max(0, this.totalFrames - 1), title: orbital.label || orbital.name || tid }]
         };
         this.tracks.push(newTrack);
-        this.manualOverrides.set(newTrack.id, true);
+        this.visibleSet.add(tid);
         this.render();
         if (this.options.onTimelineChange) this.options.onTimelineChange(this.getTimelineObject());
-        if (this.options.onVisibilityChange) this.options.onVisibilityChange();
     }
 
     addEspTrack() {
@@ -71,39 +77,40 @@ export class OrbitalsTimeline {
             clips: [{ id: 'c_esp', start: 0, end: Math.max(0, this.totalFrames - 1), title: 'ESP Surface' }]
         };
         this.tracks.unshift(espTrack);
-        this.manualOverrides.set(espTrack.id, true);
+        this.visibleSet.add('trk_esp');
         this.render();
         if (this.options.onTimelineChange) this.options.onTimelineChange(this.getTimelineObject());
-        if (this.options.onVisibilityChange) this.options.onVisibilityChange();
     }
 
     removeTrack(trackId) {
-        this.tracks = this.tracks.filter(t => t.id !== trackId && t.track_id !== trackId && t.orbital_key !== trackId);
-        this.manualOverrides.delete(trackId);
+        const normId = (trackId === 'track_esp_charge') ? 'trk_esp' : trackId;
+        this.tracks = this.tracks.filter(t => t.id !== normId && t.track_id !== normId && t.orbital_key !== normId && t.id !== trackId);
+        this.visibleSet.delete(normId);
+        this.visibleSet.delete(trackId);
         this.render();
+        if (this.options.onRemoveTrack) this.options.onRemoveTrack(normId);
         if (this.options.onTimelineChange) this.options.onTimelineChange(this.getTimelineObject());
-        if (this.options.onVisibilityChange) this.options.onVisibilityChange();
     }
 
     toggleTrackVisibility(trackId) {
         const trk = this.tracks.find(t => t.id === trackId || t.track_id === trackId || t.orbital_key === trackId);
-        if (trk) {
-            const trkId = trk.id || trk.track_id || trk.orbital_key;
-            const cur = this.manualOverrides.has(trkId) ? this.manualOverrides.get(trkId) : (trk.default_on !== false);
-            this.manualOverrides.set(trkId, !cur);
+        const tid = trk ? (trk.track_id || trk.orbital_key || trk.id) : trackId;
+        const normId = (tid === 'track_esp_charge') ? 'trk_esp' : tid;
+        if (this.options.onToggleVisibility) {
+            this.options.onToggleVisibility(normId);
+        } else {
+            if (this.visibleSet.has(normId)) this.visibleSet.delete(normId);
+            else this.visibleSet.add(normId);
             this.render();
-            if (this.options.onVisibilityChange) this.options.onVisibilityChange();
         }
     }
 
     getActiveOrbitalsAtFrame(frameIdx) {
         const active = [];
         for (const trk of this.tracks) {
-            const trkId = trk.id || trk.track_id || trk.orbital_key;
-            const isVisible = this.manualOverrides.has(trkId) ? this.manualOverrides.get(trkId) : (trk.default_on !== false);
-            if (!isVisible) continue;
-            const tid = trk.track_id || trk.orbital_key || trk.id;
-            if (tid === 'trk_esp' || tid === 'track_esp_charge') {
+            const tid = (trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') ? 'trk_esp' : (trk.track_id || trk.orbital_key || trk.id);
+            if (!this.visibleSet.has(tid)) continue;
+            if (tid === 'trk_esp') {
                 active.push({ ...trk, track_id: 'trk_esp', orbital_key: 'track_esp_charge' });
                 continue;
             }
@@ -120,9 +127,8 @@ export class OrbitalsTimeline {
     getMutedOrbitalKeys() {
         const muted = [];
         for (const trk of this.tracks) {
-            const trkId = trk.id || trk.track_id || trk.orbital_key;
-            const isVisible = this.manualOverrides.has(trkId) ? this.manualOverrides.get(trkId) : (trk.default_on !== false);
-            if (!isVisible) muted.push(trkId);
+            const tid = (trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') ? 'trk_esp' : (trk.track_id || trk.orbital_key || trk.id);
+            if (!this.visibleSet.has(tid)) muted.push(tid);
         }
         return muted;
     }
@@ -135,16 +141,18 @@ export class OrbitalsTimeline {
         if (symbols && symbols.length) this.symbols = symbols;
         if (!frameData || !this.containerEl) return;
 
+        const atomLabels = frameData.atom_labels || [];
         const allPool = [
+            ...Object.values(frameData.frontier_orbitals || {}),
             ...(frameData.all_ibos || []),
             ...(frameData.antibonds || []),
             ...(frameData.canonical_pi || [])
         ];
         for (const trk of this.tracks) {
-            const tid = trk.track_id || trk.orbital_key || trk.id;
+            const tid = (trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') ? 'trk_esp' : (trk.track_id || trk.orbital_key || trk.id);
             const el = this.containerEl.querySelector(`#pop-readout-${tid}`) || this.containerEl.querySelector(`#pop-readout-${trk.orbital_key}`);
             if (!el) continue;
-            if (tid === 'trk_esp' || trk.orbital_key === 'track_esp_charge') {
+            if (tid === 'trk_esp') {
                 el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <strong style="color: #0284c7;">Electrostatic Surface mapped with partial charges</strong>`;
                 continue;
             }
@@ -161,14 +169,17 @@ export class OrbitalsTimeline {
                 const major = [];
                 for (let i = 0; i < this.symbols.length; i++) {
                     const p = orbItem.pop[i] || 0;
-                    if (p > 0.15) major.push(`${this.symbols[i]}${i}: ${(p * 50).toFixed(0)}%`);
+                    if (p > 0.15) {
+                        const lbl = atomLabels[i] || `${this.symbols[i]}${i}`;
+                        major.push(`${lbl}: ${(p * 50).toFixed(0)}%`);
+                    }
                 }
                 const roleTag = (orbItem.label && orbItem.label !== trk.title) ? ` <span style="font-size:0.68rem;color:#0284c7;">[${orbItem.label}]</span>` : '';
                 el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> <strong style="color: #0f172a;">${major.join(' · ') || 'delocalized'}</strong>${roleTag}`;
             } else if (orbItem && orbItem.label) {
                 const eTag = (orbItem.energy_ev !== undefined) ? ` · ${orbItem.energy_ev} eV` : '';
                 el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <strong style="color: #c2410c;">${orbItem.label}</strong><span style="font-size:0.68rem;color:#64748b;">${eTag}</span>`;
-            } else if (tid.startsWith('trk_homo') || tid.startsWith('trk_lumo') || trk.orbital_key.includes('STAR')) {
+            } else if (tid.startsWith('trk_homo') || tid.startsWith('trk_lumo') || (trk.orbital_key && trk.orbital_key.includes('STAR'))) {
                 el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #334155; font-weight: 500;">Active across reaction</span>`;
             } else {
                 el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #64748b; font-style: italic;">Bond not formed at this frame</span>`;
@@ -185,10 +196,12 @@ export class OrbitalsTimeline {
         } else {
             cardsHtml = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.5rem; padding: 0.2rem;">`;
             for (const trk of this.tracks) {
-                const trkId = trk.id || trk.track_id || trk.orbital_key;
-                const isChecked = this.manualOverrides.has(trkId) ? this.manualOverrides.get(trkId) : (trk.default_on !== false);
-                const tid = trk.track_id || trk.orbital_key || trk.id;
-                const isEsp = tid === 'trk_esp' || trk.orbital_key === 'track_esp_charge', isAnti = isAntiBondingOrbital(trk), badgeInfo = getOrbitalTypeBadge(trk);
+                const tid = (trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') ? 'trk_esp' : (trk.track_id || trk.orbital_key || trk.id);
+                const trkId = tid;
+                const isChecked = this.visibleSet.has(tid);
+                const isEsp = tid === 'trk_esp';
+                const isAnti = isAntiBondingOrbital(trk);
+                const badgeInfo = getOrbitalTypeBadge(trk);
                 const badgeIndicator = isEsp ? `
                     <div style="display: flex; align-items: center; gap: 2px; font-size: 0.65rem; font-weight: 700; flex-shrink: 0;" title="ESP Surface">
                         <span style="background: #ef4444; color: #fff; padding: 1px 4px; border-radius: 3px 0 0 3px;">δ−</span>

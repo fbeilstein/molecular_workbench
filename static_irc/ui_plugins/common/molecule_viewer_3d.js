@@ -164,10 +164,10 @@ export class MoleculeViewer3D {
     renderActiveIsosurfaces(activeOrbitals, isovalue, frameIdx) {
         if (!this.viewer || !activeOrbitals) return;
         for (const orb of activeOrbitals) {
-            const orbKey = orb.orbital_key || orb.key || orb;
-            const cubeData = this.cubeCache[`${frameIdx}_${orbKey}`];
+            const tid = orb.track_id || orb.orbital_key || orb.key || orb;
+            const cubeData = this.cubeCache[`${frameIdx}_${tid}`];
             if (cubeData) {
-                const vKey = `${frameIdx}_${orbKey}`;
+                const vKey = `${frameIdx}_${tid}`;
                 let vdo = this.vdoCache[vKey];
                 if (!vdo) {
                     try {

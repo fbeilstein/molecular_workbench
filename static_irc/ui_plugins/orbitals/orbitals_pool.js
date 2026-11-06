@@ -12,9 +12,14 @@ export class OrbitalsPool {
         this.onAudition = onAudition;
         this.onAddToTimeline = onAddToTimeline;
         this.orbitals = [];
-        this.auditionKeys = new Set();
+        this.visibleSet = new Set();
         this.currentCategory = 'all';
         this.searchQuery = '';
+    }
+
+    syncVisibilitySet(set) {
+        this.visibleSet = new Set(set);
+        this.render();
     }
 
     setOrbitalsFromFrameData(frameData) { this.setFrameData(frameData); }
@@ -96,12 +101,12 @@ export class OrbitalsPool {
     isAuditioning(item) {
         if (!item) return false;
         const tid = item.track_id || item.audition_id || item.key;
-        return this.auditionKeys.has(tid) || (item.track_id && this.auditionKeys.has(item.track_id)) || (item.local_key && this.auditionKeys.has(item.local_key));
+        return Boolean(this.visibleSet.has(tid) || (item.track_id && this.visibleSet.has(item.track_id)));
     }
 
     toggleAudition(tid) {
-        if (this.auditionKeys.has(tid)) this.auditionKeys.delete(tid);
-        else this.auditionKeys.add(tid);
+        if (this.visibleSet.has(tid)) this.visibleSet.delete(tid);
+        else this.visibleSet.add(tid);
         this.render();
     }
 
@@ -170,9 +175,7 @@ export class OrbitalsPool {
             btn.addEventListener('click', e => {
                 e.stopPropagation();
                 const tid = btn.dataset.tid;
-                this.toggleAudition(tid);
-                const orb = this.orbitals.find(o => (o.track_id && o.track_id === tid) || o.audition_id === tid || o.key === tid);
-                if (this.onAudition) this.onAudition(orb, this.isAuditioning(orb));
+                if (this.onAudition) this.onAudition(tid);
             });
         });
 

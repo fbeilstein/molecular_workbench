@@ -323,6 +323,10 @@ def create_maxcomp_bundle_zip(megajson: Dict[str, Any], global_state: Dict[str, 
                 cf["charges"] = [round(float(q), 3) for q in f["charges"]]
             if f.get("bonds"):
                 cf["bonds"] = f["bonds"]
+            if f.get("symbols"):
+                cf["symbols"] = f["symbols"]
+            if f.get("atom_labels"):
+                cf["atom_labels"] = f["atom_labels"]
             clean_frames.append(cf)
         clean_megajson["frames"] = clean_frames
 

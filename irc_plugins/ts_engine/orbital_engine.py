@@ -34,14 +34,18 @@ def compute_frame_scf(
     positions: List[List[float]],
     charge: int = -1,
     spin: int = 0,
-    basis: str = "sto-3g"
+    basis: str = "sto-3g",
+    dm0: Any = None
 ) -> Tuple[Any, Any, List[float]]:
     """Run RHF/UHF on a frame geometry and return (mol, mf, mulliken_charges)."""
     atom_str = "; ".join(f"{s} {p[0]} {p[1]} {p[2]}" for s, p in zip(symbols, positions))
     mol = gto.M(atom=atom_str, basis=basis, charge=charge, spin=spin, verbose=0)
     mf = scf.UHF(mol) if spin > 0 else scf.RHF(mol)
     mf.verbose = 0
-    mf.kernel()
+    if dm0 is not None:
+        mf.kernel(dm0=dm0)
+    else:
+        mf.kernel()
     try:
         mull = mf.mulliken_pop(verbose=0)[1].round(3).tolist()
     except Exception:

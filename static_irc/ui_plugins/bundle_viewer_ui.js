@@ -57,9 +57,8 @@ export const BundleViewerUI = {
 
         const initialActive = new Set();
         this.state.tracks.forEach(trk => {
-            const tid = trk.track_id || trk.orbital_key || trk.id;
+            const tid = (trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') ? 'track_esp_charge' : (trk.track_id || trk.orbital_key || trk.id);
             if (trk.default_on !== false && tid) initialActive.add(tid);
-            if ((trk.default_on || trk.orbital_key === 'track_esp_charge') && trk.orbital_key) initialActive.add(trk.orbital_key);
         });
         this.state.activeOrbitals = initialActive;
 
@@ -188,15 +187,15 @@ export const BundleViewerUI = {
         if (this.state.svgManager) this.state.svgManager.updatePushArrows(f, this.state.playDirection);
 
         const activeTracks = this.state.tracks.filter(t => {
-            const tid = t.track_id || t.orbital_key || t.id;
-            return this.state.activeOrbitals.has(tid) || (t.orbital_key && this.state.activeOrbitals.has(t.orbital_key));
+            const tid = (t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp') ? 'track_esp_charge' : (t.track_id || t.orbital_key || t.id);
+            return this.state.activeOrbitals.has(tid);
         });
-        const moTracks = this.state.hideAllOrbitals ? [] : activeTracks.filter(t => t.orbital_key !== 'track_esp_charge');
+        const moTracks = this.state.hideAllOrbitals ? [] : activeTracks.filter(t => t.orbital_key !== 'track_esp_charge' && t.track_id !== 'trk_esp');
         const doRender = () => this.state.viewer3D.renderFastFrame(symbols, frame.coords, moTracks, this.state.isovalue, f, charges, showCharges, showEspSurface, bonds, this.state.showLabels, atomLabels);
         doRender();
 
         for (const orb of moTracks) {
-            const ok = orb.orbital_key || orb.key || orb;
+            const ok = (orb.orbital_key === 'track_esp_charge' || orb.track_id === 'trk_esp') ? 'track_esp_charge' : (orb.track_id || orb.orbital_key || orb.key || orb);
             const ck = orb.chem_key || ok;
             const isoKey = `${f}_${ok}_${Math.round(this.state.isovalue * 1000)}`;
             const hasData = this.state.viewer3D.cubeCache[`${f}_${ok}`] || this.state.viewer3D.meshCache[isoKey] || (Math.abs(this.state.isovalue - 0.03) < 0.003 && this.state.viewer3D.meshCache[`${f}_${ok}`]);

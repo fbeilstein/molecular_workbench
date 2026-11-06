@@ -68,6 +68,62 @@ def compute_frame_ibos(
             val_pops[k, ao_atom[mu]] += ps[mu, mu]
         val_pops[k] *= 2.0
 
+    fock = mf.get_fock()
+
+    # Multiple-Bond σ/π Subspace Fock Purification
+    pair_groups = {}
+    for k in range(n_val):
+        top2 = np.argsort(-val_pops[k])[:2]
+        a1, a2 = int(min(top2)), int(max(top2))
+        if (mol.atom_symbol(a1) != "H" and mol.atom_symbol(a2) != "H" and
+                val_pops[k, a1] >= 0.30 and val_pops[k, a2] >= 0.30 and
+                (val_pops[k, a1] + val_pops[k, a2]) >= 1.45):
+            pair_groups.setdefault((a1, a2), []).append(k)
+
+    for (a1, a2), cols in pair_groups.items():
+        if len(cols) >= 2:
+            C_pair = ibo_val[:, cols]
+            # 1. Exact S_ao Löwdin orthonormalization within pair subspace
+            S_sub = C_pair.T @ ovlp @ C_pair
+            ev_s, U_s = np.linalg.eigh(S_sub)
+            C_pair = C_pair @ (U_s @ np.diag(1.0 / np.sqrt(np.maximum(ev_s, 1e-10))) @ U_s.T)
+
+            # 2. Diagonalize m x m Fock block: lowest root = pure sigma, upper roots = pure pi!
+            F_sub = C_pair.T @ fock @ C_pair
+            ev_f, U_f = np.linalg.eigh(F_sub)
+            C_purified = C_pair @ U_f
+
+            # 3. Deterministic geometric gauge for 2D degenerate triple-bond pi subspace (m == 3)
+            if C_purified.shape[1] == 3 and abs(ev_f[2] - ev_f[1]) * 27.2114 < 3.0:
+                coords_b = mol.atom_coords()
+                bond_v = coords_b[a2] - coords_b[a1]
+                bond_hat = bond_v / max(np.linalg.norm(bond_v), 1e-8)
+                best_nb, best_d = None, 999.0
+                for nb in range(mol.natm):
+                    if nb not in (a1, a2) and mol.atom_symbol(nb) != "H":
+                        d_nb = min(np.linalg.norm(coords_b[nb] - coords_b[a1]), np.linalg.norm(coords_b[nb] - coords_b[a2]))
+                        if d_nb < best_d:
+                            best_d, best_nb = d_nb, nb
+                ref_v = (coords_b[best_nb] - coords_b[a1]) if best_nb is not None else np.array([1.0, 0.0, 0.0])
+                plane_norm = np.cross(bond_hat, ref_v)
+                if np.linalg.norm(plane_norm) < 1e-4:
+                    plane_norm = np.cross(bond_hat, np.array([0.0, 1.0, 0.0]))
+                plane_norm /= np.linalg.norm(plane_norm)
+                probe_pt = (0.5 * (coords_b[a1] + coords_b[a2]) + 0.5 * plane_norm).reshape(1, 3)
+                vals_n = (mol.eval_gto("GTOval", probe_pt) @ C_purified[:, 1:3])[0]
+                theta = np.arctan2(vals_n[0], vals_n[1])
+                R2 = np.array([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]])
+                C_purified[:, 1:3] = C_purified[:, 1:3] @ R2
+
+            ibo_val[:, cols] = C_purified
+            for idx_c, col_k in enumerate(cols):
+                v = ibo_val[:, col_k]
+                ps = np.outer(v, v) @ ovlp
+                val_pops[col_k, :] = 0.0
+                for mu in range(mol.nao):
+                    val_pops[col_k, ao_atom[mu]] += ps[mu, mu]
+                val_pops[col_k] *= 2.0
+
     if prev_data and "mol" in prev_data and "ibo_coeff" in prev_data:
         n_prev_core = prev_data.get("n_core", core_mo.shape[1])
         if (prev_data["mol"].natm == mol.natm and core_mo.shape[1] == n_prev_core and
@@ -188,5 +244,23 @@ def compute_frame_ibos(
                         "energy_ev": round(e_star, 2), "pop": []
                     }
                     vec_dict[star_key] = c_star
+
+    # Löwdin-orthogonalize pairs of pi_star on the same atom pair
+    pistar_groups = {}
+    for sk, sd in star_dict.items():
+        if sd.get("type") == "pi_star" and len(sd.get("atoms", [])) >= 2:
+            ats_t = tuple(sorted(sd["atoms"][:2]))
+            pistar_groups.setdefault(ats_t, []).append(sk)
+
+    for ats_t, sk_list in pistar_groups.items():
+        if len(sk_list) >= 2:
+            C_ps = np.column_stack([vec_dict[sk] for sk in sk_list])
+            S_ps = C_ps.T @ ovlp @ C_ps
+            ev_ps, U_ps = np.linalg.eigh(S_ps)
+            C_ps = C_ps @ (U_ps @ np.diag(1.0 / np.sqrt(np.maximum(ev_ps, 1e-8))) @ U_ps.T)
+            for idx_s, sk in enumerate(sk_list):
+                v_s = C_ps[:, idx_s]
+                vec_dict[sk] = v_s
+                star_dict[sk]["energy_ev"] = round(float(v_s.T @ fock @ v_s) * 27.2114, 2)
 
     return ibo_dict, star_dict, vec_dict, pops, ibo_coeff

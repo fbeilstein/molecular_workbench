@@ -16,7 +16,22 @@ export const OrbitalsUI = {
         stepId: 'step_6_orbitals', uiSchema: null, totalFrames: 0, currentFrame: 0, isPlaying: false,
         playTimer: null, loadTimer: null, hideAllOrbitals: false, showCharges: false, showLabels: false, isovalue: 0.03,
         viewer3D: null, pool: null, timeline: null, precompute: null, frameDataCache: {}, trajectory: [],
-        trajectorySymbols: [], trajectoryBonds: [], trajectoryCharges: [], cubePromises: new Map()
+        trajectorySymbols: [], trajectoryAtomLabels: [], trajectoryBonds: [], trajectoryCharges: [], cubePromises: new Map(),
+        visibleTrackIds: new Set()
+    },
+
+    toggleVisibility(tid) {
+        if (!tid) return;
+        const normId = (tid === 'track_esp_charge') ? 'trk_esp' : tid;
+        if (this.state.visibleTrackIds.has(normId)) {
+            this.state.visibleTrackIds.delete(normId);
+        } else {
+            this.state.visibleTrackIds.add(normId);
+        }
+        this.state.timeline?.syncVisibilitySet(this.state.visibleTrackIds);
+        this.state.pool?.syncVisibilitySet(this.state.visibleTrackIds);
+        this.refreshViewer();
+        this.preloadAllCachedCubes();
     },
 
     async render(container, uiSchema, globalState, stepId) {
@@ -27,6 +42,12 @@ export const OrbitalsUI = {
             trajectoryCharges: uiSchema.trajectory_charges || [], currentFrame: 0,
             showLabels: localStorage.getItem('orbitals_show_labels') === '1'
         });
+
+        const initialVisible = (uiSchema.timeline?.tracks || [])
+            .filter(t => t.default_on !== false)
+            .map(t => (t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp') ? 'trk_esp' : (t.track_id || t.orbital_key || t.id));
+        this.state.visibleTrackIds = new Set(initialVisible);
+
         const maxF = Math.max(0, this.state.totalFrames - 1);
         buildOrbitalsLayout(container, maxF);
 
@@ -36,13 +57,26 @@ export const OrbitalsUI = {
             { showLabels: this.state.showLabels }
         );
         this.state.viewer3D.init();
-        this.state.pool = new OrbitalsPool(container.querySelector('#orbitals-pool-container'), orb => this.onAuditionOrbital(orb), orb => this.onAddToTimeline(orb));
+        this.state.pool = new OrbitalsPool(
+            container.querySelector('#orbitals-pool-container'),
+            tid => this.toggleVisibility(tid),
+            orb => this.onAddToTimeline(orb)
+        );
 
         this.state.timeline = new OrbitalsTimeline(container.querySelector('#orbitals-timeline-container'), {
             totalFrames: this.state.totalFrames, currentFrame: this.state.currentFrame, isovalue: this.state.isovalue,
-            onSeek: f => this.seekFrame(f), onVisibilityChange: () => this.refreshViewer(), onTimelineChange: tl => this.saveTimeline(tl)
+            onSeek: f => this.seekFrame(f),
+            onToggleVisibility: tid => this.toggleVisibility(tid),
+            onRemoveTrack: tid => {
+                this.state.visibleTrackIds.delete(tid);
+                this.state.pool?.syncVisibilitySet(this.state.visibleTrackIds);
+                this.refreshViewer();
+            },
+            onTimelineChange: tl => this.saveTimeline(tl)
         });
         this.state.timeline.setTimelineData(uiSchema.timeline, this.state.totalFrames);
+        this.state.timeline.syncVisibilitySet(this.state.visibleTrackIds);
+        this.state.pool.syncVisibilitySet(this.state.visibleTrackIds);
         this.state.precompute = new OrbitalsPrecompute(this.state.stepId, () => this.getPrecomputeTargets(),
             p => { const b = container.querySelector('#btn-precompute-all'); if (b) b.textContent = `Precomputing ${p.percent}%`; if (p.cubes) Object.assign(this.state.viewer3D.cubeCache, p.cubes); },
             () => { const b = container.querySelector('#btn-precompute-all'); if (b) b.textContent = '✓ Done (100%)'; this.refreshViewer(); }
@@ -180,38 +214,44 @@ export const OrbitalsUI = {
     },
 
     _getActiveOrbitals(f) {
-        const auditioned = this.state.pool ? this.state.pool.getAuditionedOrbitals() : [];
         const fd = this.state.frameDataCache[f];
-        const allPool = fd ? [...(fd.all_ibos || []), ...(fd.antibonds || []), ...(fd.canonical_pi || [])] : [];
-        const getLiveMeta = (tid, key) => allPool.find(i => (i.track_id && i.track_id === tid) || (i.key || i.name) === key || i.local_key === key);
-        if (auditioned.length > 0) {
-            const activeAud = [];
-            for (const a of auditioned) {
-                const tid = a.track_id || a.orbital_key || a.key;
-                if (tid === 'trk_esp' || tid === 'track_esp_charge') {
-                    activeAud.push({ ...a, track_id: 'trk_esp', orbital_key: 'track_esp_charge', title: 'ESP Surface' });
-                    continue;
-                }
-                const isFrontier = tid.startsWith('HOMO') || tid.startsWith('LUMO') || tid.startsWith('trk_homo') || tid.startsWith('trk_lumo');
-                const live = getLiveMeta(tid, a.key);
-                if (fd && !isFrontier && !live) continue;
-                const isAnti = isAntiBondingOrbital(a);
-                const activeKey = live ? (live.local_key || live.key || tid) : tid;
-                activeAud.push({
-                    id: 'audition_' + tid, track_id: tid, orbital_key: tid, local_key: activeKey,
-                    orbital_class: live ? (live.orbital_class || (isAnti ? 'antibonding' : 'bonding')) : (a.orbital_class || (isAnti ? 'antibonding' : 'bonding')),
-                    type: live ? (live.type || a.type) : a.type, palette: (live && live.palette) || a.palette,
-                    title: live ? (live.label || live.key) : (a.label || tid), color: a.color || (isAnti ? '#fb923c' : '#38bdf8')
-                });
+        const allPool = fd ? [
+            ...Object.values(fd.frontier_orbitals || {}),
+            ...(fd.all_ibos || []),
+            ...(fd.antibonds || []),
+            ...(fd.canonical_pi || [])
+        ] : [];
+        const poolByTid = new Map(allPool.map(item => [item.track_id, item]));
+        const tlTracks = this.state.timeline ? this.state.timeline.tracks : [];
+        const tlByTid = new Map(tlTracks.map(t => [t.track_id || t.orbital_key || t.id, t]));
+
+        const active = [];
+        for (const tid of this.state.visibleTrackIds) {
+            if (tid === 'trk_esp' || tid === 'track_esp_charge') {
+                active.push({ id: 'trk_esp', track_id: 'trk_esp', orbital_key: 'track_esp_charge', title: 'ESP Surface' });
+                continue;
             }
-            return activeAud;
+            const live = poolByTid.get(tid);
+            const tl = tlByTid.get(tid);
+            // If frame data is loaded and orbital does not exist at frame f, skip cleanly
+            if (fd && !live) continue;
+            if (!fd && tl?.frame_map && Array.isArray(tl.frame_map) && !tl.frame_map[f]) continue;
+            const src = live || tl;
+            if (!src) continue;
+            const isAnti = isAntiBondingOrbital(src);
+            active.push({
+                id: tid,
+                track_id: tid,
+                orbital_key: tid,
+                key: tid,
+                orbital_class: src.orbital_class || (isAnti ? 'antibonding' : 'bonding'),
+                type: src.type,
+                palette: src.palette,
+                color: (tl && tl.color) || src.color || (isAnti ? '#fb923c' : '#38bdf8'),
+                title: (tl && tl.title) || src.label || tid
+            });
         }
-        const muted = new Set(this.state.timeline ? this.state.timeline.getMutedOrbitalKeys() : []);
-        return (this.state.timeline ? this.state.timeline.getActiveOrbitalsAtFrame(f) : []).filter(t => !muted.has(t.track_id || t.orbital_key)).map(t => {
-            const tid = t.track_id || t.orbital_key;
-            const live = getLiveMeta(tid, t.orbital_key);
-            return live ? { ...t, track_id: tid, orbital_key: tid, local_key: live.local_key || live.key, title: t.title || live.label } : { ...t, track_id: tid, orbital_key: tid };
-        });
+        return active;
     },
 
     async refreshViewer() {
@@ -303,12 +343,18 @@ export const OrbitalsUI = {
             this.state.precompute.preloadCached(this.state.viewer3D.cubeCache, this.state.totalFrames, f => { if (f.includes(this.state.currentFrame)) this.refreshViewer(); });
         }
     },
-    onAuditionOrbital() { this.refreshViewer(); this.preloadAllCachedCubes(); },
+    onAuditionOrbital(tid) { this.toggleVisibility(tid); },
     onAddToTimeline(orbital) {
-        if (!this.state.timeline) return;
+        if (!this.state.timeline || !orbital) return;
         this.state.timeline.addTrack(orbital);
-        if (this.state.pool && orbital) { this.state.pool.auditionKeys.delete(orbital.track_id || orbital.audition_id || orbital.key); this.state.pool.render(); }
-        this.refreshViewer(); this.preloadAllCachedCubes();
+        const tid = (orbital.track_id === 'trk_esp' || orbital.orbital_key === 'track_esp_charge') ? 'trk_esp' : (orbital.track_id || orbital.orbital_key || orbital.key);
+        if (tid) {
+            this.state.visibleTrackIds.add(tid);
+            this.state.timeline.syncVisibilitySet(this.state.visibleTrackIds);
+            this.state.pool?.syncVisibilitySet(this.state.visibleTrackIds);
+        }
+        this.refreshViewer();
+        this.preloadAllCachedCubes();
     },
     async saveTimeline(timeline) {
         const res = await postTimeline(this.state.stepId, timeline);

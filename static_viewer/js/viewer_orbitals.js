@@ -195,8 +195,8 @@ export class ViewerOrbitalsPanel {
     };
 
     tracks.forEach(trk => {
-      if (trk.role === 'esp' || trk.orbital_key === 'track_esp_charge') return;
-      const key = trk.orbital_key;
+      if (trk.role === 'esp' || trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') return;
+      const key = trk.track_id || trk.orbital_key;
       let title = trk.label || trk.title || key;
       title = title.replace(/^Non-Bonding\s+/i, '').replace(/\[Antibond\]/i, '').trim();
       const color = trk.color || '#38bdf8';

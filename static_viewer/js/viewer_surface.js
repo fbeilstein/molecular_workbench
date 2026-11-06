@@ -6,30 +6,11 @@
 export function findOrbitalMesh(bundle, frameIdx, orbKey) {
   if (!bundle || !bundle.orbitalMeshes) return null;
   const meshes = bundle.orbitalMeshes;
-
-  const k1 = `${frameIdx}_${orbKey}`;
-  if (meshes[k1]) return meshes[k1];
-
-  if (bundle.isSingleMolecule && meshes[orbKey]) {
-    return meshes[orbKey];
-  }
-
-  for (const k in meshes) {
-    if (k.startsWith(`${frameIdx}_`)) {
-      const baseKey = k.replace(`${frameIdx}_`, '');
-      if (baseKey === orbKey || k.includes(orbKey) || orbKey.includes(baseKey)) {
-        return meshes[k];
-      }
-    }
-  }
-
+  const exactKey = `${frameIdx}_${orbKey}`;
+  if (meshes[exactKey]) return meshes[exactKey];
   if (bundle.isSingleMolecule) {
-    for (const k in meshes) {
-      const stripped = k.replace(/^\d+_/, '');
-      if (stripped === orbKey || k.includes(orbKey) || orbKey.includes(stripped)) {
-        return meshes[k];
-      }
-    }
+    if (meshes[orbKey]) return meshes[orbKey];
+    if (meshes[`0_${orbKey}`]) return meshes[`0_${orbKey}`];
   }
   return null;
 }
@@ -132,6 +113,7 @@ export function renderAtomCharges(glViewer, bundle, frame, symbols, coords, nato
   const traj = bundle.trajectory || {};
   const trajCharges = traj.trajectory_charges ? traj.trajectory_charges[frameIdx] : null;
   const charges = trajCharges || frame.charges || traj.charges || bundle.charges || bundle.manifest?.charges || [];
+  const labels = frame.atom_labels || (traj.trajectory_atom_labels ? traj.trajectory_atom_labels[frameIdx] : null) || null;
   for (let i = 0; i < natoms; i++) {
     let q = (charges && charges[i] !== undefined) ? charges[i] : null;
     if (q === null) {
@@ -139,7 +121,8 @@ export function renderAtomCharges(glViewer, bundle, frame, symbols, coords, nato
       q = s === 'H' ? 0.06 : (s === 'O' ? -0.50 : (s === 'N' ? -0.40 : 0.0));
     }
     const sign = q > 0 ? '+' : '';
-    glViewer.addLabel(`${symbols[i]}: ${sign}${Number(q).toFixed(2)}`, {
+    const tag = (labels && labels[i]) ? labels[i] : `${symbols[i]}`;
+    glViewer.addLabel(`${tag}: ${sign}${Number(q).toFixed(2)}`, {
       position: { x: coords[i][0], y: coords[i][1] + 0.35, z: coords[i][2] },
       fontSize: 10, fontColor: '#ffffff',
       backgroundColor: 'rgba(15, 23, 42, 0.75)', backgroundOpacity: 0.75

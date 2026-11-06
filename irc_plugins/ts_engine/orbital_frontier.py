@@ -22,12 +22,20 @@ def extract_frontier_orbitals(
     prev_mo_coeffs: Optional[Dict[str, np.ndarray]] = None,
     ibos_m: Optional[Dict[str, Any]] = None,
     star_m: Optional[Dict[str, Any]] = None,
-    ibos_v: Optional[Dict[str, np.ndarray]] = None
+    ibos_v: Optional[Dict[str, np.ndarray]] = None,
+    atom_labels: Optional[List[str]] = None
 ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, np.ndarray]]:
     """Extract canonical frontier MOs and clean fragment delocalized pi systems with smooth phase continuity."""
     nocc = mol.nelectron // 2 if mol.spin == 0 else mol.nelec[0]
     mo_coeff = mf.mo_coeff[0] if mol.spin > 0 else mf.mo_coeff
     mo_energy = mf.mo_energy[0] if mol.spin > 0 else mf.mo_energy
+
+    all_atom_ids = (
+        list(atom_labels)
+        if (atom_labels and len(atom_labels) == mol.natm)
+        else [f"{mol.atom_symbol(i)}{i}" for i in range(mol.natm)]
+    )
+    alias_to_idx = {aid: i for i, aid in enumerate(all_atom_ids)}
 
     s_cross = gto.intor_cross("int1e_ovlp", prev_mol, mol) if (prev_mol and prev_mo_coeffs) else None
 
@@ -110,7 +118,7 @@ def extract_frontier_orbitals(
     ovlp_mat = mol.intor_symmetric("int1e_ovlp")
 
     for f in frags:
-        atom_ids = [f"{mol.atom_symbol(i)}{i}" for i in f]
+        atom_ids = [all_atom_ids[i] for i in f]
         frag_lbl = "-".join(atom_ids)
         coords_f = coords[f]
         c = np.mean(coords_f, axis=0)
@@ -129,7 +137,9 @@ def extract_frontier_orbitals(
                     basis_keys.append(k)
                     basis_vecs.append(ibos_v[k])
                 elif typ == "lone_pair" and ats and (ats[0] in atom_ids):
-                    idx = int("".join(filter(str.isdigit, ats[0])))
+                    idx = alias_to_idx.get(ats[0])
+                    if idx is None:
+                        continue
                     pt_up = (coords[idx] + 0.5 * normal).reshape(1, 3) * ANG_TO_BOHR
                     pt_dn = (coords[idx] - 0.5 * normal).reshape(1, 3) * ANG_TO_BOHR
                     v = ibos_v[k]
@@ -144,7 +154,9 @@ def extract_frontier_orbitals(
             for k, v in zip(basis_keys, basis_vecs):
                 v_copy = v.copy()
                 at = ibos_m[k]["atoms"][0]
-                idx = int("".join(filter(str.isdigit, at)))
+                idx = alias_to_idx.get(at)
+                if idx is None:
+                    continue
                 pt_up = (coords[idx] + 0.5 * normal).reshape(1, 3) * ANG_TO_BOHR
                 val = float((mol.eval_gto("GTOval", pt_up) @ v_copy)[0])
                 if val < 0.0:
@@ -210,7 +222,9 @@ def extract_frontier_orbitals(
                 for k, v in zip(virt_keys, virt_vecs):
                     v_copy = v.copy()
                     at = star_m[k]["atoms"][0]
-                    idx = int("".join(filter(str.isdigit, at)))
+                    idx = alias_to_idx.get(at)
+                    if idx is None:
+                        continue
                     pt_up = (coords[idx] + 0.5 * normal).reshape(1, 3) * ANG_TO_BOHR
                     val = float((mol.eval_gto("GTOval", pt_up) @ v_copy)[0])
                     if val < 0.0:

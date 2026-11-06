@@ -123,21 +123,38 @@ def tag_orbital_classes(f_meta: Dict[str, Any], ibos_m: Dict[str, Any], star_m: 
 
 
 def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, scf_cache: Optional[Dict[int, Dict[str, Any]]] = None, ensure_fn: Optional[Any] = None) -> list:
-    """Enrich orbital timeline tracks with normal chemical nomenclature, role transitions, and frame maps."""
+    """Enrich orbital timeline tracks with exact track metadata, role transitions, and frame maps."""
     if not tracks:
         return tracks
     catalog = megajson.get("global_electron_tracks")
     if not catalog or len(catalog) <= 3:
-        catalog = get_or_build_catalog(megajson, scf_cache, ensure_fn)
+        try:
+            from .orbital_tracker import get_or_build_orbital_store
+            store = get_or_build_orbital_store(megajson)
+            catalog = store.get("registry", {}).get("tracks", {})
+        except Exception:
+            catalog = {}
 
+    n_frames = len(megajson.get("frames", []))
     for trk in tracks:
         if not isinstance(trk, dict):
             continue
         tid = trk.get("track_id") or trk.get("id") or trk.get("orbital_key", "")
+        if tid in ("track_esp_charge", "trk_esp") or trk.get("id") in ("trk_esp_charge", "trk_esp"):
+            trk["id"] = "trk_esp"
+            trk["track_id"] = "trk_esp"
+            trk["orbital_key"] = "track_esp_charge"
+            trk["label"] = trk["title"] = "ESP Surface"
+            trk["short_label"] = trk["role_transition"] = trk["category"] = "ESP"
+            trk["orbital_class"] = "esp"
+            trk.setdefault("default_on", True)
+            continue
+
         trk["id"] = tid
         trk["track_id"] = tid
         trk["orbital_key"] = tid
         trk.setdefault("default_on", True)
+
         if tid in catalog:
             c = catalog[tid]
             trk["frame_map"] = c["frame_map"]
@@ -145,23 +162,29 @@ def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, scf_cache: Op
             trk["role_transition"] = trk["short_label"] = c.get("role_transition", "")
             trk["category"] = c["category"]
             trk["orbital_class"] = c["orbital_class"]
+            trk["atoms"] = c.get("atoms", [])
             continue
 
-        ok = trk.get("orbital_key", "")
-        if ok in ("track_esp_charge", "trk_esp") or trk.get("id") in ("trk_esp_charge", "trk_esp"):
-            trk["track_id"] = "trk_esp"
-            trk["label"] = trk["title"] = "ESP Surface"
-            trk["short_label"] = trk["role_transition"] = trk["category"] = "ESP"
-            continue
+        # Migration lookup for legacy tracks (e.g. old IBO_xx or old track id by chemical match)
+        migrated = None
+        trk_atoms = set(trk.get("atoms", []))
+        trk_type = trk.get("type", "")
+        for c_tid, c in catalog.items():
+            if trk_atoms and set(c.get("atoms", [])) == trk_atoms:
+                if not trk_type or c.get("type") == trk_type or (("pi" in trk_type) == ("pi" in c.get("type", ""))):
+                    migrated = c
+                    break
 
-        ref_f = int(trk.get("ref_frame", 0) or 0)
-        is_star = "STAR" in ok or trk.get("orbital_class") == "antibonding"
-        frame_map, g_keys = build_track_frame_map(megajson, ref_f, ok, scf_cache, ensure_fn, is_star=is_star)
-        trk["frame_map"] = frame_map
-        label, trans, s_role, e_role = resolve_track_roles(megajson, frame_map, trk.get("title", ok), scf_cache, ensure_fn)
-        trk["label"] = trk["title"] = label
-        trk["role_transition"] = trk["short_label"] = trk["category"] = trans
-        if s_role: trk["start_role"] = s_role
-        if e_role: trk["end_role"] = e_role
+        if migrated:
+            m_tid = migrated["track_id"]
+            trk["id"] = trk["track_id"] = trk["orbital_key"] = m_tid
+            trk["frame_map"] = migrated["frame_map"]
+            trk["label"] = trk["title"] = migrated["label"]
+            trk["role_transition"] = trk["short_label"] = migrated.get("role_transition", "")
+            trk["category"] = migrated["category"]
+            trk["orbital_class"] = migrated["orbital_class"]
+            trk["atoms"] = migrated.get("atoms", [])
+        else:
+            trk["frame_map"] = [tid if trk.get("ref_frame") == f else None for f in range(n_frames)]
 
     return tracks
