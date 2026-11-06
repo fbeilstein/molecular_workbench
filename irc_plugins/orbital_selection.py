@@ -162,6 +162,7 @@ def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, scf_cache: Op
             trk["role_transition"] = trk["short_label"] = c.get("role_transition", "")
             trk["category"] = c["category"]
             trk["orbital_class"] = c["orbital_class"]
+            trk["type"] = c.get("type", trk.get("type", ""))
             trk["atoms"] = c.get("atoms", [])
             continue
 

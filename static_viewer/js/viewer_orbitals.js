@@ -198,7 +198,7 @@ export class ViewerOrbitalsPanel {
       if (trk.role === 'esp' || trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') return;
       const key = trk.track_id || trk.orbital_key;
       let title = trk.label || trk.title || key;
-      title = title.replace(/^Non-Bonding\s+/i, '').replace(/\[Antibond\]/i, '').trim();
+      title = title.replace(/Non-Bonding\s*/gi, '').replace(/\[Antibond\]/gi, '').trim();
       const color = trk.color || '#38bdf8';
       const item = { key, label: title, color };
 

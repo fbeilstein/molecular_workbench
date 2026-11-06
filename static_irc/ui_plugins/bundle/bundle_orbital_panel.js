@@ -80,10 +80,12 @@ export function formatOrbitalDisplay(trk) {
         name = cleanTechnicalKey(trk.chem_key || trk.orbital_key || '', trk.type);
     }
 
-    name = name.replace(/^Non-Bonding\s+/i, '');
+    name = name.replace(/Non-Bonding\s*/gi, '');
     name = name.replace(/\[Antibond\]/i, '').trim();
 
-    if (!badge || badge === 'val' || badge === 'bonding' || badge === 'antibonding') {
+    if (badge.includes('→') && badge.includes('(')) {
+        badge = badge.split('→').map(p => p.trim().split('(')[0]).join(' → ');
+    } else if (!badge || badge === 'val' || badge === 'bonding' || badge === 'antibonding') {
         if (name.includes('→')) {
             const parts = name.split('→').map(p => p.trim().split('(')[0]);
             badge = parts.join(' → ');

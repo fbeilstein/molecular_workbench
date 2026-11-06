@@ -189,7 +189,7 @@ def compute_frame_ibos(
                     return (0 if sym == "C" else (2 if sym == "H" else 1), num, sym)
                 atoms = sorted(atoms, key=_ask)
             if typ == "lone_pair":
-                cat, lbl = "non_bonding", f"Non-Bonding LP({atoms[0]})"
+                cat, lbl = "non_bonding", f"LP({atoms[0]})"
                 c_key = f"lp_{atoms[0]}"
             elif typ in ("sigma", "delocalized_sigma"):
                 cat, lbl = "bonding", f"σ({'-'.join(atoms)})"
@@ -208,16 +208,7 @@ def compute_frame_ibos(
         }
         vec_dict[key] = vec
 
-        cand_atoms = atoms if len(atoms) >= 2 else []
-        if not cand_atoms and typ == "lone_pair":
-            abs_p = np.abs(pops[k])
-            tot_p = abs_p.sum()
-            if tot_p > 1e-4:
-                fr = abs_p / tot_p
-                top2 = [(i, fr[i]) for i in range(len(fr)) if fr[i] > 0.06]
-                top2.sort(key=lambda x: -x[1])
-                if len(top2) >= 2:
-                    cand_atoms = [atom_ids[top2[0][0]], atom_ids[top2[1][0]]]
+        cand_atoms = atoms if (typ != "lone_pair" and len(atoms) >= 2) else []
 
         if virt_coeff is not None and len(cand_atoms) >= 2:
             a1, a2 = cand_atoms[0], cand_atoms[1]

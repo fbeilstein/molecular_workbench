@@ -45,6 +45,7 @@ export function getOrbitalTypeBadge(orb) {
     const isAnti = isAntiBondingOrbital(orb);
     const type = String(orb.type || orb || '').toLowerCase();
     const name = String(orb.name || orb.label || '').toUpperCase();
+    const rawTitle = String(orb.title || '');
 
     if (type.includes('esp')) {
         return { label: 'ESP', cls: 'badge-esp', style: 'background: rgba(168,85,247,0.2); color: #c084fc; border: 1px solid rgba(168,85,247,0.4);' };
@@ -52,6 +53,10 @@ export function getOrbitalTypeBadge(orb) {
     if (isAnti) {
         const lbl = name.includes('LUMO') ? name : (type.includes('pi') ? 'π* Antibond' : 'σ* Antibond');
         return { label: lbl, cls: 'badge-antibonding', style: 'background: rgba(251,146,60,0.2); color: #fb923c; border: 1px solid rgba(251,146,60,0.5); font-weight: 700;' };
+    }
+    if (rawTitle.includes('→')) {
+        const shortTrans = rawTitle.split('→').map(p => p.trim().split('(')[0]).join(' → ');
+        return { label: shortTrans, cls: 'badge-bonding', style: 'background: rgba(14,165,233,0.18); color: #0284c7; border: 1px solid rgba(14,165,233,0.45); font-weight: 700;' };
     }
     if (type.includes('core')) {
         return { label: 'Core', cls: 'badge-core', style: 'background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3);' };
@@ -61,6 +66,12 @@ export function getOrbitalTypeBadge(orb) {
     }
     if (name.includes('HOMO')) {
         return { label: name, cls: 'badge-bonding', style: 'background: rgba(56,189,248,0.25); color: #38bdf8; border: 1px solid rgba(56,189,248,0.5); font-weight: 700;' };
+    }
+    if (type === 'pi' || type === 'delocalized_pi') {
+        return { label: 'π Bond', cls: 'badge-bonding', style: 'background: rgba(56,189,248,0.2); color: #0284c7; border: 1px solid rgba(56,189,248,0.45); font-weight: 600;' };
+    }
+    if (type === 'sigma' || type === 'delocalized_sigma') {
+        return { label: 'σ Bond', cls: 'badge-bonding', style: 'background: rgba(56,189,248,0.15); color: #0284c7; border: 1px solid rgba(56,189,248,0.35); font-weight: 600;' };
     }
     return { label: 'Bonding', cls: 'badge-bonding', style: 'background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-weight: 600;' };
 }

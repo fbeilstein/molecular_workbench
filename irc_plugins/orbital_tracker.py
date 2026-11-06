@@ -149,6 +149,8 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
     frame_outputs: List[Dict[str, Any]] = []
 
     prev_mol: Optional[Any] = None
+    prev_atom_labels: Optional[List[str]] = None
+    prev_ao_atom: Optional[List[int]] = None
     active_core: List[Dict[str, Any]] = []
     active_valence: List[Dict[str, Any]] = []
     active_antibond: List[Dict[str, Any]] = []
@@ -163,6 +165,9 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
         fr = frames[t]
         symbols = fr.get("symbols") or megajson.get("symbols", [])
         coords = fr.get("coords", fr.get("positions", []))
+        curr_atom_labels = fr.get("atom_labels")
+        if not curr_atom_labels or len(curr_atom_labels) != len(symbols):
+            curr_atom_labels = [f"{symbols[i]}{i}" for i in range(len(symbols))]
         charge = get_system_charge(megajson, t)
 
         atom_str = "; ".join(f"{s} {p[0]} {p[1]} {p[2]}" for s, p in zip(symbols, coords))
@@ -183,6 +188,19 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
         s_cross = None
         if t > 0 and prev_mol is not None:
             s_cross = gto.intor_cross("int1e_ovlp", prev_mol, mol)
+            if (
+                prev_atom_labels is not None
+                and prev_ao_atom is not None
+                and set(prev_atom_labels) != set(curr_atom_labels)
+            ):
+                curr_set = set(curr_atom_labels)
+                prev_set = set(prev_atom_labels)
+                for mu, at_i in enumerate(prev_ao_atom):
+                    if prev_atom_labels[at_i] not in curr_set:
+                        s_cross[mu, :] = 0.0
+                for nu, at_j in enumerate(ao_atom):
+                    if curr_atom_labels[at_j] not in prev_set:
+                        s_cross[:, nu] = 0.0
 
         frame_tids: List[str] = []
         frame_vecs: List[np.ndarray] = []
@@ -216,12 +234,18 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
                     "atoms_set": set(atoms),
                     "frame_present": [False] * N,
                     "frame_roles": [None] * N,
+                    "frame_types": [None] * N,
+                    "frame_categories": [None] * N,
+                    "frame_atoms": [None] * N,
                     "frame_energies": [None] * N,
                     "frame_pops": [None] * N,
                 }
             rec = track_records[tid]
             rec["frame_present"][t] = True
             rec["frame_roles"][t] = role_lbl
+            rec["frame_types"][t] = typ
+            rec["frame_categories"][t] = cat
+            rec["frame_atoms"][t] = list(atoms)
             rec["frame_energies"][t] = round(float(energy_ev), 2)
             rec["frame_pops"][t] = pop_arr.round(2).tolist()
             rec["atoms_set"].update(atoms)
@@ -517,28 +541,43 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
         })
 
         prev_mol = mol
+        prev_atom_labels = curr_atom_labels
+        prev_ao_atom = ao_atom
 
     # ----------------------------------------------------
     # Post-Pass: Smoothing and Summary Label Construction
     # ----------------------------------------------------
+    def _role_prefix(lbl: Optional[str]) -> str:
+        if not lbl:
+            return ""
+        for pfx in ("π*", "σ*", "π", "σ", "LP", "Core"):
+            if lbl.startswith(pfx):
+                return pfx
+        return lbl.split("(")[0]
+
     registry_tracks: Dict[str, Dict[str, Any]] = {}
 
     for tid, rec in track_records.items():
         present = rec["frame_present"]
-        roles = rec["frame_roles"]
         if not any(present):
             continue
         s_f = min(i for i, p in enumerate(present) if p)
         e_f = max(i for i, p in enumerate(present) if p)
 
-        smoothed = list(roles)
+        smoothed = list(rec["frame_roles"])
+        smoothed_types = list(rec["frame_types"])
+        smoothed_cats = list(rec["frame_categories"])
+        smoothed_atoms = list(rec["frame_atoms"])
         for i in range(s_f + 1, e_f):
             if smoothed[i - 1] is not None and smoothed[i + 1] is not None and smoothed[i] is not None:
                 if smoothed[i - 1] == smoothed[i + 1] and smoothed[i] != smoothed[i - 1]:
                     smoothed[i] = smoothed[i - 1]
+                    smoothed_types[i] = smoothed_types[i - 1]
+                    smoothed_cats[i] = smoothed_cats[i - 1]
+                    smoothed_atoms[i] = smoothed_atoms[i - 1]
 
-        # Collect distinct roles persisting for >= 3 frames
-        filtered_roles = []
+        # Collect distinct role runs persisting for >= 3 frames
+        filtered_runs: List[Tuple[str, int]] = []
         cur_role = None
         cur_len = 0
         for i in range(s_f, e_f + 1):
@@ -547,29 +586,62 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
                 cur_len += 1
             else:
                 if cur_role is not None and cur_len >= 3:
-                    if not filtered_roles or filtered_roles[-1] != cur_role:
-                        filtered_roles.append(cur_role)
+                    if filtered_runs and filtered_runs[-1][0] == cur_role:
+                        filtered_runs[-1] = (cur_role, filtered_runs[-1][1] + cur_len)
+                    else:
+                        filtered_runs.append((cur_role, cur_len))
                 cur_role = r
                 cur_len = 1
         if cur_role is not None and cur_len >= 3:
-            if not filtered_roles or filtered_roles[-1] != cur_role:
-                filtered_roles.append(cur_role)
+            if filtered_runs and filtered_runs[-1][0] == cur_role:
+                filtered_runs[-1] = (cur_role, filtered_runs[-1][1] + cur_len)
+            else:
+                filtered_runs.append((cur_role, cur_len))
 
-        if not filtered_roles:
+        if not filtered_runs:
             valid = [r for r in smoothed[s_f:e_f + 1] if r is not None]
             if valid:
                 from collections import Counter
-                filtered_roles = [Counter(valid).most_common(1)[0][0]]
+                top_r, top_c = Counter(valid).most_common(1)[0]
+                filtered_runs = [(top_r, top_c)]
             else:
-                filtered_roles = [rec["type"]]
+                filtered_runs = [(rec["type"], 1)]
 
-        r_first, r_last = filtered_roles[0], filtered_roles[-1]
-        if r_first == r_last or len(filtered_roles) == 1:
-            summary_label = r_first
-            role_trans = r_first
-        else:
+        r_first, r_last = filtered_runs[0][0], filtered_runs[-1][0]
+        if rec["subspace"] == "deloc_pi" or len(filtered_runs) == 1:
+            summary_label = r_first if (r_first == r_last or len(filtered_runs) == 1) else f"{r_first} → {r_last}"
+        elif len(filtered_runs) == 2:
             summary_label = f"{r_first} → {r_last}"
-            role_trans = f"{r_first} → {r_last}"
+        else:
+            mid_candidates = [
+                (r_m, l_m) for (r_m, l_m) in filtered_runs[1:-1]
+                if r_m != r_first and r_m != r_last and (
+                    _role_prefix(r_m) != _role_prefix(r_first) or l_m >= 5
+                )
+            ]
+            if mid_candidates:
+                best_mid = max(mid_candidates, key=lambda x: x[1])[0]
+                summary_label = f"{r_first} → {best_mid} → {r_last}"
+            elif r_first == r_last:
+                summary_label = r_first
+            else:
+                summary_label = f"{r_first} → {r_last}"
+
+        role_trans = summary_label
+
+        # Determine representative track-level type/category (preserving bonding role if active >= 3 frames)
+        trk_type = rec["type"]
+        trk_cat = rec["category"]
+        if rec["subspace"] == "valence_ibo":
+            from collections import Counter
+            t_counts = Counter(ft for ft in smoothed_types[s_f:e_f + 1] if ft is not None)
+            if t_counts.get("pi", 0) >= 3:
+                trk_type, trk_cat = "pi", "bonding"
+            elif t_counts.get("sigma", 0) >= 3:
+                trk_type, trk_cat = "sigma", "bonding"
+            elif t_counts:
+                trk_type = t_counts.most_common(1)[0][0]
+                trk_cat = "non_bonding" if trk_type == "lone_pair" else "bonding"
 
         atoms_list = sorted(list(rec["atoms_set"]))
         registry_tracks[tid] = {
@@ -579,14 +651,17 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
             "label": summary_label,
             "role_transition": role_trans,
             "short_label": role_trans,
-            "category": rec["category"],
+            "category": trk_cat,
             "orbital_class": rec["orbital_class"],
-            "type": rec["type"],
+            "type": trk_type,
             "atoms": atoms_list,
             "start_frame": s_f,
             "end_frame": e_f,
             "frame_map": [tid if present[f] else None for f in range(N)],
             "frame_labels": smoothed,
+            "frame_types": smoothed_types,
+            "frame_categories": smoothed_cats,
+            "frame_atoms": smoothed_atoms,
         }
 
     # Disambiguate identical summary labels within same subspace
@@ -697,28 +772,57 @@ def get_frame_pool_payload(megajson: Dict[str, Any], frame_idx: int) -> Dict[str
     antibonds = []
     canonical_pi = []
 
-    for k, tid in enumerate(tids_f):
-        trk = tracks.get(str(tid))
+    raw_entries = []
+    frame_lbl_groups: Dict[str, List[str]] = {}
+    for k, tid_raw in enumerate(tids_f):
+        tid_s = str(tid_raw)
+        trk = tracks.get(tid_s)
         if not trk:
             continue
+        f_labels = trk.get("frame_labels", [])
+        f_types = trk.get("frame_types", [])
+        f_cats = trk.get("frame_categories", [])
+        f_atoms_arr = trk.get("frame_atoms", [])
+
+        raw_f_lbl = f_labels[frame_idx] if (frame_idx < len(f_labels) and f_labels[frame_idx]) else trk["label"]
+        f_type = f_types[frame_idx] if (frame_idx < len(f_types) and f_types[frame_idx]) else trk["type"]
+        f_cat = f_cats[frame_idx] if (frame_idx < len(f_cats) and f_cats[frame_idx]) else trk["category"]
+        f_atoms = f_atoms_arr[frame_idx] if (frame_idx < len(f_atoms_arr) and f_atoms_arr[frame_idx] is not None) else trk["atoms"]
+
+        grp_key = f"{trk['orbital_class']}::{f_type}::{raw_f_lbl}"
+        frame_lbl_groups.setdefault(grp_key, []).append(tid_s)
+        raw_entries.append((k, tid_s, trk, raw_f_lbl, f_type, f_cat, f_atoms, grp_key))
+
+    disambig_map: Dict[str, str] = {}
+    for grp_key, grp_tids in frame_lbl_groups.items():
+        if len(grp_tids) >= 2:
+            grp_tids_sorted = sorted(grp_tids, key=lambda x: (tracks[x].get("start_frame", 0), x))
+            base_lbl = grp_key.split("::", 2)[2]
+            for idx, tid_s in enumerate(grp_tids_sorted):
+                disambig_map[tid_s] = _add_subscript(base_lbl, SUBSCRIPTS[idx % len(SUBSCRIPTS)])
+
+    for k, tid_s, trk, raw_f_lbl, f_type, f_cat, f_atoms, _ in raw_entries:
         p_list = pops_f[k].tolist() if k < len(pops_f) else []
         e_val = float(energies_f[k]) if k < len(energies_f) else 0.0
+        disp_f_lbl = disambig_map.get(tid_s, raw_f_lbl)
 
         item = {
-            "track_id": str(tid),
-            "id": str(tid),
-            "key": str(tid),
-            "local_key": str(tid),
-            "orbital_key": str(tid),
-            "name": str(tid),
+            "track_id": tid_s,
+            "id": tid_s,
+            "key": tid_s,
+            "local_key": tid_s,
+            "orbital_key": tid_s,
+            "name": tid_s,
             "index": k,
-            "type": trk["type"],
-            "category": trk["category"],
+            "type": f_type,
+            "category": f_cat,
             "orbital_class": trk["orbital_class"],
-            "label": trk["label"],
-            "frame_label": trk["frame_labels"][frame_idx] if frame_idx < len(trk["frame_labels"]) else trk["label"],
+            "label": disp_f_lbl,
+            "frame_label": disp_f_lbl,
+            "track_label": trk["label"],
             "decoupled_label": trk["label"],
-            "atoms": trk["atoms"],
+            "atoms": f_atoms,
+            "track_atoms": trk["atoms"],
             "energy_ev": round(e_val, 2),
             "pop": p_list,
             "palette": (
@@ -728,14 +832,14 @@ def get_frame_pool_payload(megajson: Dict[str, Any], frame_idx: int) -> Dict[str
             ),
         }
 
-        if trk["type"] == "frontier":
-            f_key = next((fk for fk, mapped_tid in FRONTIER_TRACK_MAP.items() if mapped_tid == tid), tid)
+        if f_type == "frontier":
+            f_key = next((fk for fk, mapped_tid in FRONTIER_TRACK_MAP.items() if mapped_tid == tid_s), tid_s)
             frontier_orbitals[f_key] = item
-        elif trk["type"] in ("sigma_star", "pi_star") or trk["orbital_class"] == "antibonding":
+        elif f_type in ("sigma_star", "pi_star") or trk["orbital_class"] == "antibonding":
             antibonds.append(item)
-        elif trk["type"] in ("delocalized_pi", "delocalized_pistar"):
+        elif f_type in ("delocalized_pi", "delocalized_pistar"):
             canonical_pi.append(item)
-        elif trk["type"] != "core":
+        elif f_type != "core":
             all_ibos.append(item)
 
     return {

@@ -55,13 +55,14 @@ export class OrbitalsTimeline {
         const isAnti = isAntiBondingOrbital(orbital);
         const color = orbital.color || (isAnti ? '#fb923c' : (COLOR_PALETTE[this.tracks.length % COLOR_PALETTE.length]));
         const isFrontier = tid.startsWith('HOMO') || tid.startsWith('LUMO') || tid.startsWith('trk_');
+        const trackTitle = orbital.track_label || orbital.label || orbital.name || tid;
         const newTrack = {
             id: tid, track_id: tid, orbital_key: tid, local_key: orbital.local_key || tid,
             chem_key: orbital.chem_key || tid, ref_frame: this.currentFrame, step_index: isFrontier ? null : orbital.step_index,
             orbital_class: orbital.orbital_class || (isAnti ? 'antibonding' : 'bonding'),
-            type: orbital.type, palette: orbital.palette, title: orbital.label || orbital.name || tid,
+            type: orbital.type, palette: orbital.palette, title: trackTitle,
             color: color, default_on: true,
-            clips: [{ id: `c_${Date.now()}`, start: 0, end: Math.max(0, this.totalFrames - 1), title: orbital.label || orbital.name || tid }]
+            clips: [{ id: `c_${Date.now()}`, start: 0, end: Math.max(0, this.totalFrames - 1), title: trackTitle }]
         };
         this.tracks.push(newTrack);
         this.visibleSet.add(tid);
@@ -174,11 +175,13 @@ export class OrbitalsTimeline {
                         major.push(`${lbl}: ${(p * 50).toFixed(0)}%`);
                     }
                 }
-                const roleTag = (orbItem.label && orbItem.label !== trk.title) ? ` <span style="font-size:0.68rem;color:#0284c7;">[${orbItem.label}]</span>` : '';
+                const curLbl = orbItem.frame_label || orbItem.label;
+                const roleTag = (curLbl && curLbl !== trk.title) ? ` <span style="font-size:0.68rem;color:#0284c7;">[${curLbl}]</span>` : '';
                 el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> <strong style="color: #0f172a;">${major.join(' · ') || 'delocalized'}</strong>${roleTag}`;
-            } else if (orbItem && orbItem.label) {
+            } else if (orbItem && (orbItem.frame_label || orbItem.label)) {
+                const curLbl = orbItem.frame_label || orbItem.label;
                 const eTag = (orbItem.energy_ev !== undefined) ? ` · ${orbItem.energy_ev} eV` : '';
-                el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <strong style="color: #c2410c;">${orbItem.label}</strong><span style="font-size:0.68rem;color:#64748b;">${eTag}</span>`;
+                el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <strong style="color: #c2410c;">${curLbl}</strong><span style="font-size:0.68rem;color:#64748b;">${eTag}</span>`;
             } else if (tid.startsWith('trk_homo') || tid.startsWith('trk_lumo') || (trk.orbital_key && trk.orbital_key.includes('STAR'))) {
                 el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #334155; font-weight: 500;">Active across reaction</span>`;
             } else {

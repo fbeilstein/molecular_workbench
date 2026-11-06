@@ -47,11 +47,14 @@ export class OrbitalsPool {
                 const isCore = ibo.type === 'core', isLp = ibo.type === 'lone_pair';
                 const cat = isCore ? 'core' : (isLp ? 'lone_pairs' : 'bonding');
                 const key = ibo.key || ibo.name, tid = ibo.track_id || key;
+                const trkLbl = ibo.track_label || ibo.decoupled_label || ibo.label || key;
                 pool.push({
                     track_id: tid, orbital_key: tid, key: tid, local_key: key, audition_id: tid, step_index: stIdx,
-                    chem_key: ibo.chem_key || key, label: ibo.label || key, type: ibo.type || 'ibo', category: cat, orbital_class: isCore ? 'core' : 'bonding',
+                    chem_key: ibo.chem_key || key, label: ibo.label || key, frame_label: ibo.frame_label || ibo.label || key,
+                    track_label: trkLbl, type: ibo.type || 'ibo', category: cat, orbital_class: isCore ? 'core' : 'bonding',
                     desc: ibo.description || (isLp ? `Lone pair on ${ibo.atoms ? ibo.atoms[0] : 'atom'}` : `Bond ${ibo.atoms ? ibo.atoms.join('-') : ''}`),
-                    atoms: ibo.atoms || [], color: isCore ? '#94a3b8' : '#38bdf8', palette: ibo.palette || null, energy: ibo.energy_ev
+                    atoms: ibo.atoms || [], track_atoms: ibo.track_atoms || ibo.atoms || [],
+                    color: isCore ? '#94a3b8' : '#38bdf8', palette: ibo.palette || null, energy: ibo.energy_ev
                 });
             }
         }
@@ -59,12 +62,15 @@ export class OrbitalsPool {
             for (const cpi of frameData.canonical_pi) {
                 const isStar = (cpi.type && cpi.type.includes('star')) || (cpi.label && cpi.label.includes('π*'));
                 const key = cpi.key || cpi.name, tid = cpi.track_id || key;
+                const trkLbl = cpi.track_label || cpi.decoupled_label || cpi.label || key;
                 pool.push({
                     track_id: tid, orbital_key: tid, key: tid, local_key: key, audition_id: tid, step_index: stIdx,
-                    chem_key: cpi.chem_key || key, label: cpi.label || key, type: cpi.type || (isStar ? 'delocalized_pistar' : 'delocalized_pi'),
+                    chem_key: cpi.chem_key || key, label: cpi.label || key, frame_label: cpi.frame_label || cpi.label || key,
+                    track_label: trkLbl, type: cpi.type || (isStar ? 'delocalized_pistar' : 'delocalized_pi'),
                     category: isStar ? 'antibonding' : 'delocalized', orbital_class: isStar ? 'antibonding' : 'bonding',
                     desc: cpi.description || (isStar ? `Delocalized π* on ${cpi.atoms ? cpi.atoms.join('-') : 'fragment'}` : 'Delocalized conjugated π system'),
-                    atoms: cpi.atoms || [], color: isStar ? '#fb923c' : '#38bdf8', palette: cpi.palette || null, energy: cpi.energy_ev
+                    atoms: cpi.atoms || [], track_atoms: cpi.track_atoms || cpi.atoms || [],
+                    color: isStar ? '#fb923c' : '#38bdf8', palette: cpi.palette || null, energy: cpi.energy_ev
                 });
             }
         }
@@ -72,10 +78,12 @@ export class OrbitalsPool {
             for (const ab of frameData.antibonds) {
                 const isPiStar = (ab.type && ab.type.includes('pi')) || (ab.label && ab.label.includes('π*'));
                 const key = ab.key || ab.name, tid = ab.track_id || key;
+                const trkLbl = ab.track_label || ab.decoupled_label || ab.label || key;
                 pool.push({
                     track_id: tid, orbital_key: tid, key: tid, local_key: key, audition_id: tid, step_index: stIdx,
-                    chem_key: ab.chem_key || key, label: ab.label || key, type: ab.type || 'antibonding', category: 'antibonding', orbital_class: 'antibonding',
-                    desc: ab.description || `Antibond ${ab.label}`, atoms: ab.atoms || [],
+                    chem_key: ab.chem_key || key, label: ab.label || key, frame_label: ab.frame_label || ab.label || key,
+                    track_label: trkLbl, type: ab.type || 'antibonding', category: 'antibonding', orbital_class: 'antibonding',
+                    desc: ab.description || `Antibond ${ab.label}`, atoms: ab.atoms || [], track_atoms: ab.track_atoms || ab.atoms || [],
                     color: isPiStar ? '#db2777' : '#fb923c', palette: ab.palette || null, energy: ab.energy_ev
                 });
             }
@@ -122,8 +130,10 @@ export class OrbitalsPool {
             if (this.searchQuery) {
                 const q = this.searchQuery;
                 return (o.track_id || '').toLowerCase().includes(q) || (o.key || '').toLowerCase().includes(q) ||
-                    (o.label || '').toLowerCase().includes(q) || (o.desc || '').toLowerCase().includes(q) ||
-                    (o.type || '').toLowerCase().includes(q) || (o.atoms && o.atoms.some(a => String(a).toLowerCase().includes(q)));
+                    (o.label || '').toLowerCase().includes(q) || (o.track_label || '').toLowerCase().includes(q) ||
+                    (o.desc || '').toLowerCase().includes(q) || (o.type || '').toLowerCase().includes(q) ||
+                    (o.atoms && o.atoms.some(a => String(a).toLowerCase().includes(q))) ||
+                    (o.track_atoms && o.track_atoms.some(a => String(a).toLowerCase().includes(q)));
             }
             return true;
         });
@@ -142,6 +152,9 @@ export class OrbitalsPool {
             const atomStr = item.atoms && item.atoms.length > 0 ? `[${item.atoms.join(', ')}]` : '';
             const isEsp = item.track_id === 'trk_esp' || item.key === 'track_esp_charge';
             const tid = item.track_id || item.key;
+            const transPill = (item.track_label && item.track_label.includes('→'))
+                ? `<span style="font-size: 0.65rem; padding: 0.05rem 0.35rem; border-radius: 3px; background: #e0f2fe; color: #0369a1; font-weight: 500;" title="Reaction trajectory">${item.track_label}</span>`
+                : '';
 
             let cardBorder = isAuditioning ? (isAnti ? '#ea580c' : '#0284c7') : (isAnti ? '#fed7aa' : (isEsp ? '#e9d5ff' : '#e2e8f0'));
             let cardBg = isAuditioning ? (isAnti ? '#fff7ed' : '#f0f9ff') : (isAnti ? '#fffbeb' : '#ffffff');
@@ -152,6 +165,7 @@ export class OrbitalsPool {
                         <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                             <span style="font-weight: 600; font-size: 0.82rem; color: #0f172a;">${item.label}</span>
                             <span class="badge ${badge.cls}" style="font-size: 0.65rem; padding: 0.05rem 0.35rem; border-radius: 3px; ${badge.style}">${badge.label}</span>
+                            ${transPill}
                             <span style="font-size: 0.7rem; color: #64748b;">${tid}</span>
                         </div>
                         <div style="font-size: 0.7rem; color: #475569; margin-top: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
