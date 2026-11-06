@@ -11,7 +11,18 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
         return;
     }
 
-    tracks.forEach(trk => {
+    // Filter out ESP from the orbital tracks list to avoid duplicate ESP checkboxes (ESP is cleanly controlled in the toolbar)
+    const moTracks = tracks.filter(trk => {
+        const tid = (trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') ? 'track_esp_charge' : (trk.track_id || trk.orbital_key || trk.id);
+        return tid !== 'track_esp_charge' && tid !== 'trk_esp';
+    });
+
+    if (moTracks.length === 0) {
+        container.innerHTML = `<div style="font-size: 0.72rem; color: #64748b; padding: 0.5rem;">No tracked orbital continuous series available.</div>`;
+        return;
+    }
+
+    moTracks.forEach(trk => {
         const display = formatOrbitalDisplay(trk);
         const row = document.createElement('label');
         row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.6rem; border-radius: 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); cursor: pointer; font-size: 0.75rem;';

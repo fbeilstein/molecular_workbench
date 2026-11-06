@@ -107,13 +107,13 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                         <input type="range" id="slider-bundle-isovalue" min="0.01" max="0.08" step="0.005" value="${state.isovalue}" class="scrub-slider">
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 2px; flex-wrap: wrap;">
-                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;" title="Toggle atom labels (L)">
                             <input type="checkbox" id="chk-bundle-labels" ${state.showLabels ? 'checked' : ''} style="accent-color: #38bdf8;"> 🏷 Labels
                         </label>
-                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                            <input type="checkbox" id="chk-bundle-charges" ${state.showCharges ? 'checked' : ''} style="accent-color: #a855f7;"> 🏷 Atom Charges
+                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;" title="Toggle numerical atomic partial charges">
+                            <input type="checkbox" id="chk-bundle-charges" ${state.showCharges ? 'checked' : ''} style="accent-color: #a855f7;"> ± Charges
                         </label>
-                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;" title="Toggle 3D continuous Electrostatic Potential surface">
                             <input type="checkbox" id="chk-bundle-esp-surface" ${state.showEspSurface ? 'checked' : ''} style="accent-color: #38bdf8;"> ⚡ ESP Surface
                         </label>
                     </div>

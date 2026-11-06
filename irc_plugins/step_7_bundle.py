@@ -241,7 +241,60 @@ class Step7Bundle(PipelineStep):
         megajson = self._get_megajson(global_state)
         if not megajson:
             return StepResult(success=False, error_message="No reaction cascade available.")
-        return StepResult(success=True, data={"completed": True, "megajson": megajson})
+
+        user_input = user_input or {}
+        # Save isovalue if provided
+        if "isovalue" in user_input and user_input["isovalue"]:
+            try:
+                iso = float(user_input["isovalue"])
+                megajson["orbital_isovalue"] = megajson["isovalue"] = iso
+            except (ValueError, TypeError):
+                pass
+
+        # Save SVG wiring if provided
+        if user_input.get("svg_wiring"):
+            megajson["svg_wiring"] = user_input["svg_wiring"]
+
+        # Save mechanism SVG if provided
+        if user_input.get("mechanism_svg"):
+            megajson["mechanism_svg"] = normalize_svg_text(user_input["mechanism_svg"])
+
+        # STRICT INVARIANT: Preserve chosen orbital tracks under all circumstances.
+        user_tl = user_input.get("timeline")
+        if user_tl and isinstance(user_tl, dict) and user_tl.get("tracks"):
+            megajson["orbital_timeline"] = user_tl
+        elif not megajson.get("orbital_timeline") or not megajson["orbital_timeline"].get("tracks"):
+            s6_tl = global_state.get("step_6_orbitals", {}).get("orbital_timeline")
+            if s6_tl and isinstance(s6_tl, dict) and s6_tl.get("tracks"):
+                megajson["orbital_timeline"] = s6_tl
+            elif os.path.exists(PROLONGED_PATH):
+                try:
+                    with open(PROLONGED_PATH, "r") as pf:
+                        disk_tl = json.load(pf).get("orbital_timeline")
+                        if disk_tl and disk_tl.get("tracks"):
+                            megajson["orbital_timeline"] = disk_tl
+                except Exception:
+                    pass
+
+        # Persist to prolonged_pathway.json
+        try:
+            os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
+            with open(PROLONGED_PATH, "w") as pf:
+                json.dump(megajson, pf, indent=2)
+        except Exception:
+            pass
+
+        # Also persist to global_state
+        for sk in ("step_7_bundle", "step_6_orbitals", "step_5_cascade"):
+            if sk in global_state and isinstance(global_state[sk], dict) and isinstance(global_state[sk].get("megajson"), dict):
+                global_state[sk]["megajson"] = megajson
+        save_state_to_file(global_state)
+
+        return StepResult(success=True, data={
+            "completed": True,
+            "megajson": megajson,
+            "orbital_timeline": megajson.get("orbital_timeline", {})
+        })
 
     def validate(self, step_data: Dict[str, Any]) -> bool:
         return bool(step_data and step_data.get("completed"))

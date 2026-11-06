@@ -239,5 +239,41 @@ export const BundleViewerUI = {
         b[molId] = bundleData;
         if (molName) b[molName] = bundleData;
         if (bundleData.molecule_key) b[bundleData.molecule_key] = bundleData;
+    },
+
+    async getData(ui) {
+        const wiring = this.state.svgManager?.wiring || this.state.megajson?.svg_wiring || {};
+        const svg = this.state.svgManager?.currentSvg || this.state.megajson?.mechanism_svg || '';
+        const iso = this.state.isovalue || 0.03;
+
+        // Preserve all existing chosen tracks exactly as chosen by the user in Step 6
+        let timeline = undefined;
+        if (this.state.tracks && this.state.tracks.length > 0) {
+            const updatedTracks = this.state.tracks.map(t => {
+                const tid = (t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp')
+                    ? 'track_esp_charge'
+                    : (t.track_id || t.orbital_key || t.id);
+                return {
+                    ...t,
+                    default_on: this.state.activeOrbitals ? this.state.activeOrbitals.has(tid) : (t.default_on !== false)
+                };
+            });
+            timeline = {
+                default_isovalue: iso,
+                tracks: updatedTracks
+            };
+        } else if (this.state.megajson?.orbital_timeline?.tracks?.length > 0) {
+            timeline = this.state.megajson.orbital_timeline;
+        }
+
+        return {
+            isovalue: iso,
+            showEspSurface: this.state.showEspSurface || (this.state.activeOrbitals?.has('track_esp_charge') ?? false),
+            showCharges: this.state.showCharges ?? false,
+            showLabels: this.state.showLabels ?? false,
+            svg_wiring: wiring,
+            mechanism_svg: svg,
+            timeline: timeline
+        };
     }
 };
