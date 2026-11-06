@@ -923,42 +923,25 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
      * Helper to format reaction pathway tracks into Molecular Explorer style categories
      */
     static parsePathwayTracks(tracks = []) {
-      const categoriesMap = {
-        "Frontier": [],
-        "Transforming Orbitals": [],
-        "\u03C3 Bonds": [],
-        "\u03C0 Bonds": [],
-        "\u03C3* Anti-Bonds": [],
-        "\u03C0* Anti-Bonds": [],
-        "Lone Pairs": [],
-        "Reaction Orbitals": []
-      };
+      const items = [];
       tracks.forEach((trk) => {
         if (trk.role === "esp" || trk.orbital_key === "track_esp_charge" || trk.track_id === "trk_esp") return;
         const key = trk.track_id || trk.orbital_key;
         let title = trk.label || trk.title || key;
         title = title.replace(/Non-Bonding\s*/gi, "").replace(/\[Antibond\]/gi, "").trim();
-        const color = trk.color || "#38bdf8";
-        const item = { key, label: title, color };
-        if (title.includes("\u2192") || title.includes("->")) {
-          categoriesMap["Transforming Orbitals"].push(item);
-        } else if (title.includes("HOMO") || title.includes("LUMO")) {
-          categoriesMap["Frontier"].push(item);
-        } else if (title.includes("\u03C0*") || title.includes("pistar")) {
-          categoriesMap["\u03C0* Anti-Bonds"].push(item);
-        } else if (title.includes("\u03C3*") || title.includes("sigmastar")) {
-          categoriesMap["\u03C3* Anti-Bonds"].push(item);
-        } else if (title.includes("\u03C0") || title.includes("pi_")) {
-          categoriesMap["\u03C0 Bonds"].push(item);
-        } else if (title.includes("\u03C3") || title.includes("sigma_")) {
-          categoriesMap["\u03C3 Bonds"].push(item);
-        } else if (title.includes("LP") || title.includes("lp_")) {
-          categoriesMap["Lone Pairs"].push(item);
-        } else {
-          categoriesMap["Reaction Orbitals"].push(item);
-        }
+        const sKey = `${trk.track_id || ''} ${trk.orbital_key || ''} ${title} ${trk.type || ''}`.toLowerCase();
+        const isAnti = sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
+        const color = trk.color || (isAnti ? '#fb923c' : '#38bdf8');
+        items.push({
+          key,
+          label: title,
+          color,
+          isAntiBonding: isAnti,
+          energy_ev: trk.energy_ev
+        });
       });
-      return Object.entries(categoriesMap).filter(([_, items]) => items.length > 0).map(([name, items]) => ({ name, items }));
+      if (items.length === 0) return [];
+      return [{ name: "Reaction Orbitals", items }];
     }
     /**
      * Helper to format raw orbital keys (e.g. from bundle.orbitalMeshes) into Molecular Explorer categories

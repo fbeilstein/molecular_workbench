@@ -132,6 +132,18 @@ def handle_bundle_export(
         megajson.setdefault("esp_surfaces", {}).update(esp_surfaces)
         save_state_to_file(global_state)
 
+    tl_input = user_input.get("timeline")
+    if tl_input and isinstance(tl_input, dict) and tl_input.get("tracks"):
+        megajson["orbital_timeline"] = tl_input
+        for s_key in ("step_7_bundle", "step_6_orbitals", "step_5_cascade"):
+            if s_key in global_state and isinstance(global_state[s_key], dict):
+                s_mj = global_state[s_key].get("megajson")
+                if isinstance(s_mj, dict):
+                    s_mj["orbital_timeline"] = tl_input
+                if s_key in ("step_7_bundle", "step_6_orbitals"):
+                    global_state[s_key]["orbital_timeline"] = tl_input
+        save_state_to_file(global_state)
+
     bundle_dir = os.path.join(root_dir, "out", "bundles")
     os.makedirs(bundle_dir, exist_ok=True)
     bundle_filename = "multistep_reaction_bundle_maxcomp.zip"

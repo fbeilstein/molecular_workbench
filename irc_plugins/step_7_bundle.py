@@ -286,8 +286,11 @@ class Step7Bundle(PipelineStep):
 
         # Also persist to global_state
         for sk in ("step_7_bundle", "step_6_orbitals", "step_5_cascade"):
-            if sk in global_state and isinstance(global_state[sk], dict) and isinstance(global_state[sk].get("megajson"), dict):
-                global_state[sk]["megajson"] = megajson
+            if sk in global_state and isinstance(global_state[sk], dict):
+                if isinstance(global_state[sk].get("megajson"), dict):
+                    global_state[sk]["megajson"] = megajson
+                if sk in ("step_7_bundle", "step_6_orbitals") and "orbital_timeline" in megajson:
+                    global_state[sk]["orbital_timeline"] = megajson["orbital_timeline"]
         save_state_to_file(global_state)
 
         return StepResult(success=True, data={

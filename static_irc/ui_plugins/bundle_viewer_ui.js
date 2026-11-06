@@ -118,6 +118,14 @@ export const BundleViewerUI = {
                 if (espCb) espCb.checked = this.state.activeOrbitals.has('track_esp_charge');
                 this.state.showEspSurface = this.state.activeOrbitals.has('track_esp_charge');
                 this.refreshViewer();
+            },
+            onReorder: (newTracks) => {
+                this.state.tracks = newTracks;
+                if (this.state.megajson && this.state.megajson.orbital_timeline) {
+                    this.state.megajson.orbital_timeline.tracks = newTracks;
+                }
+                this.renderTracksList();
+                this.refreshViewer();
             }
         });
     },

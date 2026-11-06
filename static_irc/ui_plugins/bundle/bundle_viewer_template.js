@@ -92,30 +92,34 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                 </div>
 
                 <!-- Middle: Tracks Sidebar -->
-                <div style="width: 250px; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem; gap: 0.4rem;">
-                    <div style="font-size: 0.8rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                <div style="width: 250px; display: flex; flex-direction: column; background: var(--bg-surface, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 0.5rem; gap: 0.4rem;">
+                    <div style="font-size: 0.8rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; color: var(--text-main, #0f172a);">
                         <span>Orbital Tracks</span>
-                        <label style="font-size: 0.7rem; color: #94a3b8; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <label style="font-size: 0.7rem; color: var(--text-muted, #64748b); display: flex; align-items: center; gap: 4px; cursor: pointer;">
                             <input type="checkbox" id="chk-bundle-mute" style="accent-color: #ef4444;"> Mute
                         </label>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.3rem;">
-                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #94a3b8;">
+                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted, #64748b);">
                             <span>Isovalue:</span>
-                            <span id="label-bundle-isovalue">${state.isovalue}</span>
+                            <span id="label-bundle-isovalue" style="font-weight: 600; color: var(--text-main, #0f172a);">${state.isovalue}</span>
                         </div>
                         <input type="range" id="slider-bundle-isovalue" min="0.01" max="0.08" step="0.005" value="${state.isovalue}" class="scrub-slider">
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 2px; flex-wrap: wrap;">
-                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;" title="Toggle atom labels (L)">
+                        <label style="font-size: 0.72rem; color: var(--text-main, #0f172a); display: flex; align-items: center; gap: 5px; cursor: pointer; font-weight: 500;" title="Toggle atom labels (L)">
                             <input type="checkbox" id="chk-bundle-labels" ${state.showLabels ? 'checked' : ''} style="accent-color: #38bdf8;"> 🏷 Labels
                         </label>
-                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;" title="Toggle numerical atomic partial charges">
+                        <label style="font-size: 0.72rem; color: var(--text-main, #0f172a); display: flex; align-items: center; gap: 5px; cursor: pointer; font-weight: 500;" title="Toggle numerical atomic partial charges">
                             <input type="checkbox" id="chk-bundle-charges" ${state.showCharges ? 'checked' : ''} style="accent-color: #a855f7;"> ± Charges
                         </label>
-                        <label style="font-size: 0.72rem; color: #cbd5e1; display: flex; align-items: center; gap: 5px; cursor: pointer;" title="Toggle 3D continuous Electrostatic Potential surface">
+                        <label style="font-size: 0.72rem; color: var(--text-main, #0f172a); display: flex; align-items: center; gap: 5px; cursor: pointer; font-weight: 500;" title="Toggle 3D continuous Electrostatic Potential surface">
                             <input type="checkbox" id="chk-bundle-esp-surface" ${state.showEspSurface ? 'checked' : ''} style="accent-color: #38bdf8;"> ⚡ ESP Surface
                         </label>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
+                        <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted, #475569); text-transform: uppercase; letter-spacing: 0.05em;">Tracked Orbitals</span>
+                        <span style="font-size: 0.65rem; color: var(--text-muted, #64748b);">Drag or ▲/▼ to reorder</span>
                     </div>
                     <div id="bundle-tracks-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem;"></div>
                 </div>

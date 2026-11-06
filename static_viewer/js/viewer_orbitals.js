@@ -183,47 +183,26 @@ export class ViewerOrbitalsPanel {
    * Helper to format reaction pathway tracks into Molecular Explorer style categories
    */
   static parsePathwayTracks(tracks = []) {
-    const categoriesMap = {
-      'Frontier': [],
-      'Transforming Orbitals': [],
-      'σ Bonds': [],
-      'π Bonds': [],
-      'σ* Anti-Bonds': [],
-      'π* Anti-Bonds': [],
-      'Lone Pairs': [],
-      'Reaction Orbitals': []
-    };
-
+    const items = [];
     tracks.forEach(trk => {
       if (trk.role === 'esp' || trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') return;
       const key = trk.track_id || trk.orbital_key;
       let title = trk.label || trk.title || key;
       title = title.replace(/Non-Bonding\s*/gi, '').replace(/\[Antibond\]/gi, '').trim();
-      const color = trk.color || '#38bdf8';
-      const item = { key, label: title, color };
-
-      if (title.includes('→') || title.includes('->')) {
-        categoriesMap['Transforming Orbitals'].push(item);
-      } else if (title.includes('HOMO') || title.includes('LUMO')) {
-        categoriesMap['Frontier'].push(item);
-      } else if (title.includes('π*') || title.includes('pistar')) {
-        categoriesMap['π* Anti-Bonds'].push(item);
-      } else if (title.includes('σ*') || title.includes('sigmastar')) {
-        categoriesMap['σ* Anti-Bonds'].push(item);
-      } else if (title.includes('π') || title.includes('pi_')) {
-        categoriesMap['π Bonds'].push(item);
-      } else if (title.includes('σ') || title.includes('sigma_')) {
-        categoriesMap['σ Bonds'].push(item);
-      } else if (title.includes('LP') || title.includes('lp_')) {
-        categoriesMap['Lone Pairs'].push(item);
-      } else {
-        categoriesMap['Reaction Orbitals'].push(item);
-      }
+      const sKey = `${trk.track_id || ''} ${trk.orbital_key || ''} ${title} ${trk.type || ''}`.toLowerCase();
+      const isAnti = sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
+      const color = trk.color || (isAnti ? '#fb923c' : '#38bdf8');
+      items.push({
+        key,
+        label: title,
+        color,
+        isAntiBonding: isAnti,
+        energy_ev: trk.energy_ev
+      });
     });
 
-    return Object.entries(categoriesMap)
-      .filter(([_, items]) => items.length > 0)
-      .map(([name, items]) => ({ name, items }));
+    if (items.length === 0) return [];
+    return [{ name: 'Reaction Orbitals', items }];
   }
 
   /**

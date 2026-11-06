@@ -62,7 +62,19 @@ export function bindBundleEvents(container, ui) {
     });
 
     container.querySelector('#btn-recompute-highres')?.addEventListener('click', () => s.highresManager.renderModal(container, s.tracks));
-    container.querySelector('#btn-export-bundle-zip')?.addEventListener('click', () => exportMaxCompBundleZip(s.stepId, { isovalue: s.isovalue, esp_surfaces: s.viewer3D?.espMeshCache || {} }));
+    container.querySelector('#btn-export-bundle-zip')?.addEventListener('click', () => {
+        const payload = {
+            isovalue: s.isovalue,
+            esp_surfaces: s.viewer3D?.espMeshCache || {}
+        };
+        if (s.tracks && s.tracks.length > 0) {
+            payload.timeline = {
+                default_isovalue: s.isovalue,
+                tracks: s.tracks
+            };
+        }
+        exportMaxCompBundleZip(s.stepId, payload);
+    });
     container.querySelector('#btn-bundle-zoom-in')?.addEventListener('click', () => s.viewer3D?.zoomIn());
     container.querySelector('#btn-bundle-zoom-out')?.addEventListener('click', () => s.viewer3D?.zoomOut());
     container.querySelector('#btn-bundle-zoom-fit')?.addEventListener('click', () => s.viewer3D?.resetCamera());
