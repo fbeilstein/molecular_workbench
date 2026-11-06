@@ -26,6 +26,7 @@ export class OrbitalsPool {
 
     setFrameData(frameData) {
         if (!frameData) return;
+        this.frameData = frameData;
         const pool = [];
         const stIdx = frameData.step_index;
 
@@ -37,8 +38,9 @@ export class OrbitalsPool {
                     track_id: tid, orbital_key: tid, key: tid, local_key: k, audition_id: tid, step_index: null,
                     chem_key: fmo.chem_key || k, label: fmo.label || k, type: isLumo ? 'LUMO' : 'HOMO',
                     category: 'frontier', orbital_class: isLumo ? 'antibonding' : 'bonding',
-                    desc: fmo.description || `Frontier MO (${fmo.energy_ev != null ? fmo.energy_ev.toFixed(2) + ' eV' : ''})`,
-                    atoms: fmo.atoms || [], color: isLumo ? '#fb923c' : '#38bdf8', palette: fmo.palette || null, energy: fmo.energy_ev
+                    desc: fmo.description || `Frontier MO (${fmo.energy_ev != null ? (fmo.energy_ev > 0 ? '+' : '') + fmo.energy_ev.toFixed(2) + ' eV' : ''})`,
+                    atoms: fmo.atoms || [], color: isLumo ? '#fb923c' : '#38bdf8', palette: fmo.palette || null,
+                    energy: fmo.energy_ev, energy_ev: fmo.energy_ev, pop: fmo.pop || []
                 });
             }
         }
@@ -54,7 +56,8 @@ export class OrbitalsPool {
                     track_label: trkLbl, type: ibo.type || 'ibo', category: cat, orbital_class: isCore ? 'core' : 'bonding',
                     desc: ibo.description || (isLp ? `Lone pair on ${ibo.atoms ? ibo.atoms[0] : 'atom'}` : `Bond ${ibo.atoms ? ibo.atoms.join('-') : ''}`),
                     atoms: ibo.atoms || [], track_atoms: ibo.track_atoms || ibo.atoms || [],
-                    color: isCore ? '#94a3b8' : '#38bdf8', palette: ibo.palette || null, energy: ibo.energy_ev
+                    color: isCore ? '#94a3b8' : '#38bdf8', palette: ibo.palette || null,
+                    energy: ibo.energy_ev, energy_ev: ibo.energy_ev, pop: ibo.pop || []
                 });
             }
         }
@@ -70,7 +73,8 @@ export class OrbitalsPool {
                     category: isStar ? 'antibonding' : 'delocalized', orbital_class: isStar ? 'antibonding' : 'bonding',
                     desc: cpi.description || (isStar ? `Delocalized π* on ${cpi.atoms ? cpi.atoms.join('-') : 'fragment'}` : 'Delocalized conjugated π system'),
                     atoms: cpi.atoms || [], track_atoms: cpi.track_atoms || cpi.atoms || [],
-                    color: isStar ? '#fb923c' : '#38bdf8', palette: cpi.palette || null, energy: cpi.energy_ev
+                    color: isStar ? '#fb923c' : '#38bdf8', palette: cpi.palette || null,
+                    energy: cpi.energy_ev, energy_ev: cpi.energy_ev, pop: cpi.pop || []
                 });
             }
         }
@@ -84,7 +88,8 @@ export class OrbitalsPool {
                     chem_key: ab.chem_key || key, label: ab.label || key, frame_label: ab.frame_label || ab.label || key,
                     track_label: trkLbl, type: ab.type || 'antibonding', category: 'antibonding', orbital_class: 'antibonding',
                     desc: ab.description || `Antibond ${ab.label}`, atoms: ab.atoms || [], track_atoms: ab.track_atoms || ab.atoms || [],
-                    color: isPiStar ? '#db2777' : '#fb923c', palette: ab.palette || null, energy: ab.energy_ev
+                    color: isPiStar ? '#db2777' : '#fb923c', palette: ab.palette || null,
+                    energy: ab.energy_ev, energy_ev: ab.energy_ev, pop: ab.pop || []
                 });
             }
         }
@@ -129,9 +134,12 @@ export class OrbitalsPool {
             }
             if (this.searchQuery) {
                 const q = this.searchQuery;
+                const eVal = (typeof o.energy_ev === 'number') ? o.energy_ev : (typeof o.energy === 'number' ? o.energy : null);
+                const eStr = eVal !== null ? `${eVal > 0 ? '+' : ''}${eVal.toFixed(2)}` : '';
                 return (o.track_id || '').toLowerCase().includes(q) || (o.key || '').toLowerCase().includes(q) ||
                     (o.label || '').toLowerCase().includes(q) || (o.track_label || '').toLowerCase().includes(q) ||
                     (o.desc || '').toLowerCase().includes(q) || (o.type || '').toLowerCase().includes(q) ||
+                    eStr.includes(q) ||
                     (o.atoms && o.atoms.some(a => String(a).toLowerCase().includes(q))) ||
                     (o.track_atoms && o.track_atoms.some(a => String(a).toLowerCase().includes(q)));
             }
@@ -146,6 +154,9 @@ export class OrbitalsPool {
         }
 
         let html = '<div style="display: flex; flex-direction: column; gap: 0.35rem;">';
+        const atomLabels = this.frameData?.atom_labels || [];
+        const symbols = this.frameData?.symbols || [];
+
         for (const item of filtered) {
             const isAuditioning = this.isAuditioning(item);
             const badge = getOrbitalTypeBadge(item), isAnti = isAntiBondingOrbital(item);
@@ -156,8 +167,31 @@ export class OrbitalsPool {
                 ? `<span style="font-size: 0.65rem; padding: 0.05rem 0.35rem; border-radius: 3px; background: #e0f2fe; color: #0369a1; font-weight: 500;" title="Reaction trajectory">${item.track_label}</span>`
                 : '';
 
+            const energyVal = (typeof item.energy_ev === 'number') ? item.energy_ev : (typeof item.energy === 'number' ? item.energy : null);
+            const energyBadge = (energyVal !== null && !isNaN(energyVal))
+                ? `<span class="badge-energy" style="font-size: 0.68rem; font-family: monospace; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 3px; background: ${isAnti ? 'rgba(251,146,60,0.18)' : 'rgba(14,165,233,0.15)'}; color: ${isAnti ? '#c2410c' : '#0369a1'}; border: 1px solid ${isAnti ? 'rgba(251,146,60,0.4)' : 'rgba(14,165,233,0.35)'};" title="Orbital Energy at current frame">${energyVal > 0 ? '+' : ''}${energyVal.toFixed(2)} eV</span>`
+                : '';
+
             let cardBorder = isAuditioning ? (isAnti ? '#ea580c' : '#0284c7') : (isAnti ? '#fed7aa' : (isEsp ? '#e9d5ff' : '#e2e8f0'));
             let cardBg = isAuditioning ? (isAnti ? '#fff7ed' : '#f0f9ff') : (isAnti ? '#fffbeb' : '#ffffff');
+
+            // Compute top atomic populations if available (e.g. for delocalized & antibonding orbitals)
+            let popDetail = '';
+            if (item.pop && Array.isArray(item.pop) && item.pop.length > 0) {
+                const scored = [];
+                const n = Math.min(item.pop.length, symbols.length || item.pop.length);
+                for (let i = 0; i < n; i++) {
+                    const p = item.pop[i] || 0;
+                    if (p > 0.08) {
+                        const lbl = atomLabels[i] || `${symbols[i] || 'Atom'}${i}`;
+                        scored.push({ lbl, pct: (p * 50).toFixed(0), val: p });
+                    }
+                }
+                if (scored.length > 0) {
+                    scored.sort((a, b) => b.val - a.val);
+                    popDetail = scored.slice(0, 4).map(s => `${s.lbl}: ${s.pct}%`).join(' · ');
+                }
+            }
 
             html += `
                 <div class="orbital-pool-card" data-tid="${tid}" style="background: ${cardBg}; border: 1px solid ${cardBorder}; border-radius: 6px; padding: 0.45rem 0.6rem; display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
@@ -165,11 +199,12 @@ export class OrbitalsPool {
                         <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                             <span style="font-weight: 600; font-size: 0.82rem; color: #0f172a;">${item.label}</span>
                             <span class="badge ${badge.cls}" style="font-size: 0.65rem; padding: 0.05rem 0.35rem; border-radius: 3px; ${badge.style}">${badge.label}</span>
+                            ${energyBadge}
                             ${transPill}
                             <span style="font-size: 0.7rem; color: #64748b;">${tid}</span>
                         </div>
-                        <div style="font-size: 0.7rem; color: #475569; margin-top: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                            ${item.desc} ${atomStr}
+                        <div style="font-size: 0.7rem; color: #475569; margin-top: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${popDetail ? `${item.desc} (${popDetail})` : item.desc}">
+                            ${popDetail ? `<strong style="color: #0f172a;">${popDetail}</strong> · ` : ''}${item.desc} ${atomStr}
                         </div>
                     </div>
                     <div style="display: flex; gap: 0.3rem; align-items: center;">

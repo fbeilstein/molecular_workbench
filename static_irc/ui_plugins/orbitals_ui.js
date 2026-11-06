@@ -239,6 +239,7 @@ export const OrbitalsUI = {
             const src = live || tl;
             if (!src) continue;
             const isAnti = isAntiBondingOrbital(src);
+            const eVal = (live && live.energy_ev != null) ? live.energy_ev : (src.energy_ev != null ? src.energy_ev : src.energy);
             active.push({
                 id: tid,
                 track_id: tid,
@@ -248,7 +249,8 @@ export const OrbitalsUI = {
                 type: src.type,
                 palette: src.palette,
                 color: (tl && tl.color) || src.color || (isAnti ? '#fb923c' : '#38bdf8'),
-                title: (tl && tl.title) || src.label || tid
+                title: (tl && tl.title) || src.label || tid,
+                energy_ev: (typeof eVal === 'number' && !isNaN(eVal)) ? eVal : undefined
             });
         }
         return active;
@@ -305,11 +307,13 @@ export const OrbitalsUI = {
                 const tid = orb.track_id || orb.orbital_key || orb.key || orb;
                 const ok = orb.local_key || orb.orbital_key || tid, ck = orb.chem_key || ok;
                 if (!this.state.viewer3D.cubeCache[`${frameIdx}_${tid}`]) {
-                    this.state.viewer3D.setStatus(`Frame ${frameIdx} | Computing orbital ${orb.title || tid}...`);
+                    const eTag = (orb.energy_ev != null) ? ` (${orb.energy_ev > 0 ? '+' : ''}${orb.energy_ev.toFixed(2)} eV)` : '';
+                    this.state.viewer3D.setStatus(`Frame ${frameIdx} | Computing orbital ${orb.title || tid}${eTag}...`);
                     this.fetchCube(frameIdx, ok, ck, this.state.isovalue, tid).then(res => {
                         if (res && res.success && res.cube && this.state.currentFrame === frameIdx) {
                             this.state.viewer3D.renderFastFrame(symbols, coords, moTracks, this.state.isovalue, frameIdx, charges, this.state.showCharges || espActive, bonds, this.state.showLabels, atomLabels);
-                            this.state.viewer3D.setStatus(`Frame ${frameIdx} | Ready`);
+                            const activeLabels = moTracks.map(o => `${o.title || o.track_id}${o.energy_ev != null ? ` (${o.energy_ev > 0 ? '+' : ''}${o.energy_ev.toFixed(2)} eV)` : ''}`).join(', ');
+                            this.state.viewer3D.setStatus(`Frame ${frameIdx} | ${activeLabels || 'Ready'}`);
                         }
                     }).catch(() => {});
                 }

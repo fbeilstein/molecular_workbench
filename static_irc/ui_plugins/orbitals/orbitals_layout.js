@@ -25,12 +25,13 @@ export function buildOrbitalsLayout(container, maxF) {
                 </div>
             </div>
             <div style="display: flex; gap: 0.5rem; height: 480px; max-height: 480px;">
-                <div style="width: 340px; height: 100%; display: flex; flex-direction: column; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+                <div style="width: 360px; height: 100%; display: flex; flex-direction: column; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
                         <span style="font-size: 0.8rem; font-weight: 700; color: #1e293b;">Orbital Media Pool</span>
-                        <div style="display: flex; gap: 0.2rem;" id="pool-category-tabs">
+                        <div style="display: flex; gap: 0.2rem; flex-wrap: wrap;" id="pool-category-tabs">
                             <button class="btn btn-xs btn-primary tab-cat" data-cat="all">All</button>
                             <button class="btn btn-xs btn-secondary tab-cat" data-cat="frontier">Frontier</button>
+                            <button class="btn btn-xs btn-secondary tab-cat" data-cat="delocalized">Deloc π</button>
                             <button class="btn btn-xs btn-secondary tab-cat" data-cat="bonding">Bonds</button>
                             <button class="btn btn-xs btn-secondary tab-cat" data-cat="lone_pairs">LP</button>
                             <button class="btn btn-xs btn-secondary tab-cat" data-cat="antibonding">π* / Antibonds</button>

@@ -166,6 +166,12 @@ export class OrbitalsTimeline {
                 }
             }
             const orbItem = allPool.find(i => (i.track_id && i.track_id === tid) || i.key === activeKey || i.local_key === activeKey);
+            const isAnti = isAntiBondingOrbital(trk);
+            const eVal = (typeof orbItem?.energy_ev === 'number') ? orbItem.energy_ev : (typeof orbItem?.energy === 'number' ? orbItem.energy : null);
+            const eBadge = (eVal !== null && !isNaN(eVal))
+                ? `<span style="font-size: 0.68rem; font-family: monospace; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: ${isAnti ? 'rgba(251,146,60,0.18)' : 'rgba(14,165,233,0.15)'}; color: ${isAnti ? '#c2410c' : '#0369a1'}; border: 1px solid ${isAnti ? 'rgba(251,146,60,0.35)' : 'rgba(14,165,233,0.3)'}; margin-right: 4px;" title="Orbital energy at this frame">${eVal > 0 ? '+' : ''}${eVal.toFixed(2)} eV</span>`
+                : '';
+
             if (orbItem && orbItem.pop && orbItem.pop.length && this.symbols.length) {
                 const major = [];
                 for (let i = 0; i < this.symbols.length; i++) {
@@ -177,15 +183,14 @@ export class OrbitalsTimeline {
                 }
                 const curLbl = orbItem.frame_label || orbItem.label;
                 const roleTag = (curLbl && curLbl !== trk.title) ? ` <span style="font-size:0.68rem;color:#0284c7;">[${curLbl}]</span>` : '';
-                el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> <strong style="color: #0f172a;">${major.join(' · ') || 'delocalized'}</strong>${roleTag}`;
+                el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> ${eBadge}<strong style="color: #0f172a;">${major.join(' · ') || 'delocalized'}</strong>${roleTag}`;
             } else if (orbItem && (orbItem.frame_label || orbItem.label)) {
                 const curLbl = orbItem.frame_label || orbItem.label;
-                const eTag = (orbItem.energy_ev !== undefined) ? ` · ${orbItem.energy_ev} eV` : '';
-                el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <strong style="color: #c2410c;">${curLbl}</strong><span style="font-size:0.68rem;color:#64748b;">${eTag}</span>`;
+                el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> ${eBadge}<strong style="color: #c2410c;">${curLbl}</strong>`;
             } else if (tid.startsWith('trk_homo') || tid.startsWith('trk_lumo') || (trk.orbital_key && trk.orbital_key.includes('STAR'))) {
-                el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #334155; font-weight: 500;">Active across reaction</span>`;
+                el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> ${eBadge}<span style="color: #334155; font-weight: 500;">Active across reaction</span>`;
             } else {
-                el.innerHTML = `<span style="color: #64748b;">F${frameIdx}:</span> <span style="color: #64748b; font-style: italic;">Bond not formed at this frame</span>`;
+                el.innerHTML = `<span style="color: #64748b;">Frame ${frameIdx}:</span> <span style="color: #64748b; font-style: italic;">Bond not formed at this frame</span>`;
             }
         }
     }
