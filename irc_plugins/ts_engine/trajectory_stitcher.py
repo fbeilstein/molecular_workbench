@@ -305,7 +305,7 @@ def stitch_multistep_trajectories(
     if balance_energies and len(trajectories) >= 1:
         try:
             from .energy_balancer import balance_pathway_energies
-            res = balance_pathway_energies(res, trajectories, solvent=solvent, recalculate_with_xtb=False)
+            res = balance_pathway_energies(res, trajectories, solvent=solvent, recalculate_with_xtb=True)
         except Exception as eb_err:
             import logging
             logging.getLogger("irc_workbench").warning(f"Failed to balance pathway energies: {eb_err}")

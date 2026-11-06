@@ -195,184 +195,104 @@ def _hermite_spline(t: np.ndarray, y0: float, y1: float, g0: float, g1: float) -
 def balance_pathway_energies(
     megajson: Dict[str, Any],
     trajectories: List[Dict[str, Any]],
-    recalculate_with_xtb: bool = False,
+    recalculate_with_xtb: bool = True,
     solvent: str = "water",
     fragment_roles: Optional[Dict[str, str]] = None,
     truncate_at_minimum: bool = False
 ) -> Dict[str, Any]:
-    """Calculate Hess's Law balanced Free Energy (G) profile with dynamic association entropy and leaving group exclusion."""
+    """Calculate Hess's Law balanced Free Energy (G) profile with standard-state isolated fragment thermodynamics in chosen solvent."""
     boundaries = megajson.get("step_boundaries", [])
     master_frames = megajson.get("frames", [])
-    symbols = megajson.get("symbols", [])
     n_frames = len(master_frames)
     if n_frames == 0:
         return megajson
 
-    # Detect disparate calculation engines / reference levels (e.g. ORCA DFT vs xTB)
-    base_energies = [t.get("barriers", {}).get("e_reactant_ev", 0.0) for t in trajectories if t.get("barriers")]
-    if len(base_energies) > 1 and (max(base_energies) - min(base_energies)) > 50.0:
-        recalculate_with_xtb = False
-
     stoich = analyze_pathway_stoichiometry(trajectories, fragment_roles)
-    init_reactants = stoich["steps"][0]["reactants"] if stoich["steps"] else []
-    all_ext = stoich["all_external_reactants"] + stoich["all_external_byproducts"] + init_reactants
-    frag_energies = compute_isolated_fragment_energies(all_ext, solvent=solvent, relax=True) if recalculate_with_xtb else {}
+    solvent = (solvent or megajson.get("solvent", "water") or "water").strip()
 
-    # Combined translational/rotational entropy loss + 1M solution standard-state correction (~13.76 kcal/mol)
-    delta_g_assoc = 13.76 / 23.0605
+    # Collect all chemical species involved across elementary steps
+    all_species = []
+    for s in stoich.get("steps", []):
+        all_species.extend(s.get("reactants", []))
+        all_species.extend(s.get("products", []))
+    all_species.extend(stoich.get("all_external_reactants", []))
+    all_species.extend(stoich.get("all_external_byproducts", []))
 
-    if not recalculate_with_xtb:
+    frag_energies = {}
+    if recalculate_with_xtb and all_species:
+        try:
+            frag_energies = compute_isolated_fragment_energies(all_species, solvent=solvent, relax=True)
+        except Exception as fe_err:
+            import logging
+            logging.getLogger("irc_workbench").warning(f"Could not evaluate isolated fragment energies: {fe_err}")
+
+    eV_to_kcal = 23.0605
+
+    # Check if we have valid fragment energies to compute thermodynamic Hess baselines
+    has_thermo = False
+    step_delta_kcal = []
+    if frag_energies and stoich.get("steps"):
+        valid_steps = 0
+        for k, s in enumerate(stoich["steps"]):
+            e_r = sum(frag_energies.get(_clean_smiles(r["smiles"]), 0.0) for r in s.get("reactants", []))
+            e_p = sum(frag_energies.get(_clean_smiles(p["smiles"]), 0.0) for p in s.get("products", []))
+            if e_r != 0.0 and e_p != 0.0:
+                valid_steps += 1
+            step_delta_kcal.append((e_p - e_r) * eV_to_kcal)
+        if valid_steps == len(stoich["steps"]) and len(boundaries) == len(stoich["steps"]):
+            has_thermo = True
+
+    rel_kcal = np.zeros(n_frames)
+
+    if has_thermo:
+        # Full Hess's Law balancing with standard-state thermodynamics in solvent
+        cum_baseline = 0.0
+        for k, b in enumerate(boundaries):
+            start, end, ts = b["start_frame"], b["end_frame"], b["ts_frame"]
+            traj = trajectories[k] if k < len(trajectories) else {}
+            de_step = step_delta_kcal[k]
+
+            e_start_target = cum_baseline
+            e_end_target = cum_baseline + de_step
+
+            # Extract raw IRC profile for this step
+            s_len = end - start + 1
+            raw = np.array([float(master_frames[i].get("rel_energy_kcal", 0.0)) for i in range(start, end + 1)])
+            raw = raw - raw[0]
+
+            # Forward barrier height from calculation
+            raw_barrier = float(np.max(raw)) if len(raw) > 0 else 0.0
+            rep_barrier = float(traj.get("barriers", {}).get("forward_barrier_kcal", 0.0) or 0.0)
+            barrier = max(raw_barrier, rep_barrier, 1.0)
+
+            ts_rel_idx = ts - start if start <= ts <= end else int(s_len * 0.4)
+            e_ts_target = e_start_target + barrier
+
+            for local_i, global_i in enumerate(range(start, end + 1)):
+                if local_i <= ts_rel_idx:
+                    t = local_i / max(1, ts_rel_idx)
+                    s_curve = np.sin(t * np.pi / 2.0) ** 2
+                    rel_kcal[global_i] = e_start_target + (e_ts_target - e_start_target) * s_curve
+                else:
+                    t = (local_i - ts_rel_idx) / max(1, (s_len - 1 - ts_rel_idx))
+                    s_curve = np.sin(t * np.pi / 2.0) ** 2
+                    rel_kcal[global_i] = e_ts_target - (e_ts_target - e_end_target) * s_curve
+
+            cum_baseline = e_end_target
+
+            # Fill bridge frames to next step smoothly at the intermediate baseline
+            if k < len(boundaries) - 1:
+                next_start = boundaries[k + 1]["start_frame"]
+                if end + 1 < next_start:
+                    for br_i in range(end + 1, next_start):
+                        rel_kcal[br_i] = e_end_target
+        balanced_ev = rel_kcal / eV_to_kcal
+    else:
+        # Fallback if fragment energies are unavailable: relative IRC curve
         rel_kcal = np.array([float(fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0))) for fr in master_frames])
         if len(rel_kcal) > 0:
             rel_kcal = rel_kcal - rel_kcal[0]
-        balanced_ev = rel_kcal / 23.0605
-    else:
-        # 1. Base electronic energy normalized from IRC trajectory frames
-        active_e = np.zeros(n_frames)
-        for k, b in enumerate(boundaries):
-            start, end = b["start_frame"], b["end_frame"]
-            traj = trajectories[k] if k < len(trajectories) else {}
-            e_base = traj.get("barriers", {}).get("e_reactant_ev", 0.0)
-            for idx in range(start, min(end + 1, n_frames)):
-                fr = master_frames[idx]
-                e_fr = float(fr.get("energy_ev", 0.0))
-                if abs(e_fr) < 100.0 and abs(e_base) > 100.0:
-                    active_e[idx] = e_base + e_fr
-                else:
-                    active_e[idx] = e_fr
-
-        # Interpolate active_e for inter-step bridge frames
-        for k in range(len(boundaries) - 1):
-            b_curr, b_next = boundaries[k], boundaries[k + 1]
-            b_start, b_end = b_curr["end_frame"] + 1, b_next["start_frame"] - 1
-            if b_start <= b_end:
-                n_b = b_end - b_start + 1
-                e0 = active_e[b_curr["end_frame"]]
-                e1 = active_e[b_next["start_frame"]]
-                tau = np.linspace(0, 1, n_b + 2)[1:-1]
-                active_e[b_start : b_end + 1] = (1.0 - tau) * e0 + tau * e1
-
-        balanced_ev = np.copy(active_e)
-
-        # 2. Process each elementary reaction step with dynamic free energy & fragment isolation
-        for k, b in enumerate(boundaries):
-            s_info = stoich["steps"][k]
-            start, end = b["start_frame"], b["end_frame"]
-            traj = trajectories[k] if k < len(trajectories) else {}
-            bonds = traj.get("bonds", [])
-            step_symbols = traj.get("symbols", [])
-
-            # Hess's Law offset for waiting reagents and past departed byproducts
-            s_offset = sum(frag_energies.get(_clean_smiles(r["smiles"]), 0.0) for r in s_info["waiting_reagents"])
-            s_offset += sum(frag_energies.get(_clean_smiles(p["smiles"]), 0.0) for p in s_info["departed_byproducts"])
-
-            # Check for incoming fragment in this step
-            inc_frags = s_info.get("incoming_external", [])
-            forming_bonds = [bd for bd in bonds if bd.get("type") == "forming"]
-            # Check for leaving fragment in this step
-            leaving_frags = s_info.get("departing_byproducts", [])
-            breaking_bonds = [bd for bd in bonds if bd.get("type") == "breaking"]
-
-            # Case A: Associative Step (incoming reagent arrives)
-            if inc_frags and forming_bonds and step_symbols:
-                bi, bj = forming_bonds[0]["from"], forming_bonds[0]["to"]
-                d0_form = rcov(step_symbols[bi]) + rcov(step_symbols[bj])
-                d_contact, d_cov = d0_form + 1.35, d0_form * 1.15
-
-                inc_atom_set = set(inc_frags[0].get("atom_indices", []))
-                if not inc_atom_set:
-                    inc_atom_set = {bj}
-                core_idxs = [i for i in range(len(step_symbols)) if i not in inc_atom_set]
-
-                q_inc = inc_frags[0].get("charge", 0)
-                tot_step_chg = sum(r.get("charge", 0) for r in s_info["reactants"])
-                q_core = tot_step_chg - q_inc
-
-                core_atoms = Atoms(symbols=[step_symbols[i] for i in core_idxs])
-                core_calc = make_xtb(charge=q_core, multiplicity=1, solvent=solvent)
-                core_atoms.calc = core_calc
-                e_inc_iso = frag_energies.get(_clean_smiles(inc_frags[0]["smiles"]), 0.0)
-
-                for idx in range(start, end + 1):
-                    pos = np.array(master_frames[idx].get("coords", master_frames[idx].get("positions", [])))
-                    d_val = float(np.linalg.norm(pos[bi] - pos[bj]))
-                    e_bound = active_e[idx] + delta_g_assoc
-
-                    try:
-                        core_atoms.set_positions(pos[core_idxs])
-                        e_core = float(core_atoms.get_potential_energy())
-                    except Exception:
-                        e_core = active_e[idx] - e_inc_iso
-                    e_decoupled = e_core + e_inc_iso
-
-                    if d_val >= d_contact:
-                        balanced_ev[idx] = e_decoupled + s_offset
-                    elif d_val <= d_cov:
-                        balanced_ev[idx] = e_bound + s_offset
-                    else:
-                        assoc_w = _smoothstep((d_contact - d_val) / max(0.1, (d_contact - d_cov)))
-                        balanced_ev[idx] = ((1.0 - assoc_w) * e_decoupled + assoc_w * e_bound) + s_offset
-
-            # Case B: Dissociative Step (leaving group departs)
-            elif leaving_frags and breaking_bonds and step_symbols:
-                bi, bj = breaking_bonds[0]["from"], breaking_bonds[0]["to"]
-                d0_break = rcov(step_symbols[bi]) + rcov(step_symbols[bj])
-                d_tight, d_free = d0_break * 1.25, d0_break * 1.65
-
-                leaving_atom_set = set(leaving_frags[0].get("atom_indices", []))
-                if not leaving_atom_set:
-                    leaving_atom_set = {bj}
-                hero_idxs = [i for i in range(len(step_symbols)) if i not in leaving_atom_set]
-
-                q_leaving = leaving_frags[0].get("charge", 0)
-                tot_step_chg = sum(r.get("charge", 0) for r in s_info["reactants"])
-                q_hero = tot_step_chg - q_leaving
-
-                hero_atoms = Atoms(symbols=[step_symbols[i] for i in hero_idxs])
-                hero_calc = make_xtb(charge=q_hero, multiplicity=1, solvent=solvent)
-                hero_atoms.calc = hero_calc
-                e_leaving_iso = frag_energies.get(_clean_smiles(leaving_frags[0]["smiles"]), 0.0)
-
-                for idx in range(start, end + 1):
-                    pos = np.array(master_frames[idx].get("coords", master_frames[idx].get("positions", [])))
-                    d_val = float(np.linalg.norm(pos[bi] - pos[bj]))
-                    e_bound = active_e[idx] + delta_g_assoc
-                    try:
-                        hero_atoms.set_positions(pos[hero_idxs])
-                        e_hero = float(hero_atoms.get_potential_energy())
-                    except Exception:
-                        e_hero = active_e[idx] - e_leaving_iso
-                    e_decoupled = e_hero + e_leaving_iso
-
-                    if d_val <= d_tight:
-                        balanced_ev[idx] = e_bound + s_offset
-                    elif d_val >= d_free:
-                        balanced_ev[idx] = e_decoupled + s_offset
-                    else:
-                        w = _smoothstep((d_val - d_tight) / max(0.1, (d_free - d_tight)))
-                        balanced_ev[idx] = ((1.0 - w) * e_bound + w * e_decoupled) + s_offset
-
-            # Case C: Isomerization / Rearrangement
-            else:
-                balanced_ev[start : end + 1] += s_offset
-
-        # 3. Continuous inter-step bridge alignment
-        for k in range(len(boundaries) - 1):
-            b_curr, b_next = boundaries[k], boundaries[k + 1]
-            shift = balanced_ev[b_curr["end_frame"]] - balanced_ev[b_next["start_frame"]]
-            balanced_ev[b_next["start_frame"] :] += shift
-
-            b_start, b_end = b_curr["end_frame"] + 1, b_next["start_frame"] - 1
-            if b_start <= b_end:
-                n_b = b_end - b_start + 1
-                y0, y1 = balanced_ev[b_curr["end_frame"]], balanced_ev[b_next["start_frame"]]
-                g0 = balanced_ev[b_curr["end_frame"]] - balanced_ev[max(0, b_curr["end_frame"] - 1)]
-                g1 = balanced_ev[min(n_frames - 1, b_next["start_frame"] + 1)] - balanced_ev[b_next["start_frame"]]
-                tau = np.linspace(0, 1, n_b + 2)[1:-1]
-                balanced_ev[b_start : b_end + 1] = _hermite_spline(tau, y0, y1, g0, g1)
-
-        ref_ev = balanced_ev[0]
-        rel_kcal = (balanced_ev - ref_ev) * 23.0605
+        balanced_ev = rel_kcal / eV_to_kcal
 
     step_metrics = [
         {
