@@ -19,11 +19,27 @@ class ValenceLocalizer:
         and projecting them onto the virtual space.
         """
         orbitals = []
-        if not cols_to_localize:
+        if cols_to_localize is None:
+            return orbitals
+        if isinstance(cols_to_localize, (list, tuple)) and len(cols_to_localize) == 0:
+            return orbitals
+        if isinstance(cols_to_localize, np.ndarray) and cols_to_localize.size == 0:
             return orbitals
 
-        occ_coeff = self.mo_coeff[:, cols_to_localize]
-        virt_coeff = self.mo_coeff[:, virt_cols] if virt_cols else None
+        if isinstance(cols_to_localize, np.ndarray) and cols_to_localize.ndim == 2:
+            occ_coeff = cols_to_localize
+        else:
+            occ_coeff = self.mo_coeff[:, cols_to_localize]
+
+        if virt_cols is not None:
+            if isinstance(virt_cols, np.ndarray) and virt_cols.ndim == 2:
+                virt_coeff = virt_cols
+            elif isinstance(virt_cols, (list, tuple)) and len(virt_cols) > 0:
+                virt_coeff = self.mo_coeff[:, virt_cols]
+            else:
+                virt_coeff = None
+        else:
+            virt_coeff = None
         
         ao_labels = self.mol.ao_labels(fmt=False)
         
