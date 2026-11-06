@@ -45,17 +45,22 @@ def compute_density_flux(
 
 
 def compute_frame_ibos(
-    mol: Any, mf: Any, symbols: List[str], prev_data: Optional[Dict[str, Any]] = None,
-    atom_labels: Optional[List[str]] = None
+    mol: Any,
+    mf: Any,
+    symbols: List[str],
+    prev_data: Optional[Dict[str, Any]] = None,
+    atom_labels: Optional[List[str]] = None,
+    non_pi_occ_coeff: Optional[np.ndarray] = None,
+    non_pi_virt_coeff: Optional[np.ndarray] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, np.ndarray], np.ndarray, np.ndarray]:
-    """Compute all IBOs with cross-frame orbital continuity and textbook antibonds."""
+    """Compute non-conjugated localized IBOs (respecting Step-0 pi exclusion) and textbook antibonds."""
     nocc = mol.nelectron // 2 if mol.spin == 0 else mol.nelec[0]
     occ_mo = mf.mo_coeff[:, :nocc] if mol.spin == 0 else mf.mo_coeff[0][:, :nocc]
     mo_e = (mf.mo_energy[:nocc] if mol.spin == 0 else mf.mo_energy[0][:nocc]) * 27.2114
     core_mask = mo_e < -50.0
     core_mo = occ_mo[:, core_mask]
-    val_mo = occ_mo[:, ~core_mask]
-    ibo_val = lo.ibo.ibo(mol, val_mo, verbose=0)
+    val_mo = non_pi_occ_coeff.copy() if non_pi_occ_coeff is not None else occ_mo[:, ~core_mask]
+    ibo_val = lo.ibo.ibo(mol, val_mo, verbose=0) if val_mo.shape[1] > 0 else np.zeros((mol.nao, 0))
     ovlp = mol.intor_symmetric("int1e_ovlp")
     ao_atom = [int(l.split()[0]) for l in mol.ao_labels()]
 
@@ -149,7 +154,8 @@ def compute_frame_ibos(
                     ibo_val[:, k] = -ibo_val[:, k]
 
     ibo_coeff = np.hstack([core_mo, ibo_val])
-    pops = np.zeros((nocc, mol.natm))
+    n_ibo_tot = ibo_coeff.shape[1]
+    pops = np.zeros((n_ibo_tot, mol.natm))
     n_c = core_mo.shape[1]
     for k in range(n_c):
         v = core_mo[:, k]
@@ -165,14 +171,18 @@ def compute_frame_ibos(
     elem_symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
     atom_ids = atom_labels if (atom_labels and len(atom_labels) == mol.natm) else [f"{mol.atom_symbol(i)}{i}" for i in range(mol.natm)]
     ao_labels = mol.ao_labels(fmt=False)
-    virt_coeff = mf.mo_coeff[:, nocc:] if mol.spin == 0 else mf.mo_coeff[0][:, nocc:]
+    virt_coeff = (
+        non_pi_virt_coeff
+        if non_pi_virt_coeff is not None
+        else (mf.mo_coeff[:, nocc:] if mol.spin == 0 else mf.mo_coeff[0][:, nocc:])
+    )
 
     ibo_dict, star_dict, vec_dict = {}, {}, {}
-    for k in range(nocc):
+    for k in range(n_ibo_tot):
         key = f"IBO_{k:02d}"
         vec = ibo_coeff[:, k]
         e_ev = float(energies_ev[k])
-        if e_ev < -50.0:
+        if k < n_c:
             ai = int(np.argmax(pops[k]))
             typ, cat = "core", "core"
             lbl = f"Core({atom_ids[ai]})"
@@ -230,7 +240,7 @@ def compute_frame_ibos(
                     e_star = float(c_star.T @ fock @ c_star) * 27.2114
                     star_dict[star_key] = {
                         "key": star_key, "name": star_key, "index": 100 + k, "type": star_type,
-                        "category": "antibonding", "label": f"{star_sym}({a1}-{a2}) [Antibond]",
+                        "category": "antibonding", "label": f"{star_sym}({a1}-{a2})",
                         "atoms": [a1, a2], "chem_key": f"{star_type}_{a1}-{a2}",
                         "energy_ev": round(e_star, 2), "pop": []
                     }

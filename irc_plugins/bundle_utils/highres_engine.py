@@ -1,7 +1,7 @@
 import os
 from typing import Any, Dict, List, Optional
 from irc_plugins.ts_engine import orbital_engine
-from ..step_6_orbitals import Step6Orbitals, _resolve_orbital_key
+from ..orbital_tracker import get_track_vector_and_mol
 
 _HIGHRES_GRID_CACHE: Dict[int, Any] = {}
 _HIGHRES_CUBE_CACHE: Dict[str, str] = {}
@@ -52,7 +52,6 @@ def recompute_highres_batch(
 ) -> Dict[str, Any]:
     """Compute high-resolution grid and volumetric orbital cubes for a range of frames."""
     lo, step, npts = get_highres_grid(megajson, resolution)
-    s6 = Step6Orbitals()
     total_frames = len(megajson["frames"])
     ef = min(end_frame, total_frames - 1)
     sf = max(0, start_frame)
@@ -62,28 +61,26 @@ def recompute_highres_batch(
     megajson["orbital_resolution"] = resolution
 
     for fi in range(sf, ef + 1):
-        d = s6._ensure_frame_computed(fi, megajson)
-        symbols = megajson["symbols"]
-        coords = megajson["frames"][fi].get("coords") or megajson["frames"][fi].get("positions", [])
+        fr = megajson["frames"][fi]
+        symbols = fr.get("symbols") or megajson.get("symbols", [])
+        coords = fr.get("coords") or fr.get("positions", [])
 
         for trk in tracks:
             if isinstance(trk, dict):
-                ok = trk.get("orbital_key")
-                ck = trk.get("chem_key")
+                ok = trk.get("track_id") or trk.get("orbital_key")
             else:
                 ok = str(trk)
-                ck = None
 
-            if not ok or ok == "track_esp_charge":
+            if not ok or ok in ("track_esp_charge", "trk_esp"):
                 continue
 
-            rk = _resolve_orbital_key(d, ok, ck)
-            if rk and rk in d.get("vecs", {}):
-                kr = f"{resolution}_{fi}_{rk}"
+            mol, vec, _ = get_track_vector_and_mol(megajson, fi, ok)
+            if mol is not None and vec is not None:
+                kr = f"{resolution}_{fi}_{ok}"
                 if kr not in _HIGHRES_CUBE_CACHE:
-                    v = orbital_engine.evaluate_mo_grid(d["mol"], d["vecs"][rk], lo, step, npts)
+                    v = orbital_engine.evaluate_mo_grid(mol, vec, lo, step, npts)
                     cube_str = orbital_engine.generate_cube_text(
-                        f"F{fi}_{rk}_res{resolution}", symbols, coords, v, lo, step, npts
+                        f"F{fi}_{ok}_res{resolution}", symbols, coords, v, lo, step, npts
                     )
                     _HIGHRES_CUBE_CACHE[kr] = cube_str
 

@@ -51,7 +51,7 @@ export function getOrbitalTypeBadge(orb) {
         return { label: 'ESP', cls: 'badge-esp', style: 'background: rgba(168,85,247,0.2); color: #c084fc; border: 1px solid rgba(168,85,247,0.4);' };
     }
     if (isAnti) {
-        const lbl = name.includes('LUMO') ? name : (type.includes('pi') ? 'π* Antibond' : 'σ* Antibond');
+        const lbl = name.includes('LUMO') ? name : (type === 'delocalized_pistar' ? 'Deloc π*' : (type.includes('pi') ? 'π* Antibond' : 'σ* Antibond'));
         return { label: lbl, cls: 'badge-antibonding', style: 'background: rgba(251,146,60,0.2); color: #fb923c; border: 1px solid rgba(251,146,60,0.5); font-weight: 700;' };
     }
     if (rawTitle.includes('→')) {
@@ -67,7 +67,10 @@ export function getOrbitalTypeBadge(orb) {
     if (name.includes('HOMO')) {
         return { label: name, cls: 'badge-bonding', style: 'background: rgba(56,189,248,0.25); color: #38bdf8; border: 1px solid rgba(56,189,248,0.5); font-weight: 700;' };
     }
-    if (type === 'pi' || type === 'delocalized_pi') {
+    if (type === 'delocalized_pi') {
+        return { label: 'Deloc π', cls: 'badge-bonding', style: 'background: rgba(56,189,248,0.22); color: #0284c7; border: 1px solid rgba(56,189,248,0.5); font-weight: 600;' };
+    }
+    if (type === 'pi') {
         return { label: 'π Bond', cls: 'badge-bonding', style: 'background: rgba(56,189,248,0.2); color: #0284c7; border: 1px solid rgba(56,189,248,0.45); font-weight: 600;' };
     }
     if (type === 'sigma' || type === 'delocalized_sigma') {

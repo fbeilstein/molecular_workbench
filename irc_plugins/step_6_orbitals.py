@@ -63,7 +63,11 @@ class Step6Orbitals(PipelineStep):
                     mj["step_atom_labels"] = disk["step_atom_labels"]
                 if disk.get("frames"):
                     mj["frames"] = disk["frames"]
+                if disk.get("solvent") and "solvent" not in mj:
+                    mj["solvent"] = disk["solvent"]
             except Exception: pass
+        if mj and current_state.get("solvent"):
+            mj["solvent"] = current_state["solvent"]
         return mj or {}
 
     def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:

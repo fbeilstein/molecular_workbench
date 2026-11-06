@@ -7,6 +7,47 @@ import re
 from typing import Any, Dict, List, Optional
 from rdkit import Chem
 
+SOLVENT_DIELECTRICS: Dict[str, float] = {
+    "water": 80.4,
+    "h2o": 80.4,
+    "acetonitrile": 37.5,
+    "mecn": 37.5,
+    "ch3cn": 37.5,
+    "dmso": 46.7,
+    "dmf": 37.2,
+    "methanol": 32.7,
+    "meoh": 32.7,
+    "ethanol": 24.5,
+    "etoh": 24.5,
+    "acetone": 20.7,
+    "ch2cl2": 8.93,
+    "dcm": 8.93,
+    "dichloromethane": 8.93,
+    "thf": 7.58,
+    "chloroform": 4.81,
+    "chcl3": 4.81,
+    "ether": 4.33,
+    "diethylether": 4.33,
+    "toluene": 2.38,
+    "benzene": 2.27,
+    "hexane": 1.88,
+}
+
+
+def get_system_solvent(megajson: Dict[str, Any]) -> Optional[str]:
+    """Return normalized implicit solvent key from megajson/project, or None for gas/vacuum."""
+    raw = megajson.get("solvent")
+    if raw is None:
+        try:
+            from .project_manager import init_project
+            raw = init_project().get("solvent", "water")
+        except Exception:
+            raw = "water"
+    s = str(raw).strip().lower()
+    if not s or s in ("gas", "none", "vacuum", "gas_phase"):
+        return None
+    return s
+
 
 def get_system_charge(megajson: Dict[str, Any], fi: Optional[int] = None) -> int:
     """Infer molecular system net formal charge for a specific frame or overall."""
@@ -118,8 +159,14 @@ def tag_orbital_classes(f_meta: Dict[str, Any], ibos_m: Dict[str, Any], star_m: 
         m["palette"] = {"pos": "#fb923c", "neg": "#db2777"}
 
     for k, m in c_meta.items():
-        m["orbital_class"] = "bonding"
-        m["palette"] = {"pos": "#38bdf8", "neg": "#1d4ed8"}
+        t = str(m.get("type", "")).lower()
+        lbl = str(m.get("label", ""))
+        if "star" in t or "π*" in lbl:
+            m["orbital_class"] = "antibonding"
+            m["palette"] = {"pos": "#fb923c", "neg": "#db2777"}
+        else:
+            m["orbital_class"] = "bonding"
+            m["palette"] = {"pos": "#38bdf8", "neg": "#1d4ed8"}
 
 
 def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, scf_cache: Optional[Dict[int, Dict[str, Any]]] = None, ensure_fn: Optional[Any] = None) -> list:

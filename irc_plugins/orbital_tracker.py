@@ -15,13 +15,13 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-from pyscf import gto, scf, lo
+from pyscf import gto, scf, lo, lib as pyscf_lib
 from scipy.optimize import linear_sum_assignment
 
 from .ts_engine.orbital_engine import compute_frame_scf
 from .ts_engine.orbital_ibo import compute_frame_ibos
-from .ts_engine.orbital_frontier import extract_frontier_orbitals
-from .orbital_selection import get_system_charge, tag_orbital_classes
+from .ts_engine.orbital_frontier import extract_step0_planar_pi, extract_frontier_orbitals
+from .orbital_selection import get_system_charge, get_system_solvent, tag_orbital_classes
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 TRAJECTORIES_DIR = os.path.join(ROOT_DIR, "trajectories")
@@ -46,8 +46,9 @@ SUBSCRIPTS = ["₁", "₂", "₃", "₄", "₅"]
 
 
 def compute_pathway_fingerprint(megajson: Dict[str, Any]) -> str:
-    """SHA-256 hex digest (first 16 chars) capturing pathway geometry and identity."""
+    """SHA-256 hex digest (first 16 chars) capturing pathway geometry, charges, and solvent."""
     frames = megajson.get("frames", [])
+    solvent = get_system_solvent(megajson) or "gas"
     data = []
     for i, f in enumerate(frames):
         syms = f.get("symbols") or megajson.get("symbols", [])
@@ -55,7 +56,7 @@ def compute_pathway_fingerprint(megajson: Dict[str, Any]) -> str:
         coords = np.round(np.array(f.get("coords", f.get("positions", []))), 3).tolist()
         chg = get_system_charge(megajson, i)
         data.append((syms, lbls, coords, chg))
-    raw = json.dumps(data, sort_keys=True)
+    raw = json.dumps({"solvent": solvent, "frames": data}, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -80,7 +81,7 @@ def clear_orbital_store():
 
 
 def _add_subscript(label: str, sub: str) -> str:
-    for prefix in ("π*(", "π(", "σ*(", "σ(", "LP("):
+    for prefix in ("π*_deloc(", "π_deloc(", "π*(", "π(", "σ*(", "σ(", "LP("):
         if prefix in label:
             pos = label.index(prefix) + len(prefix) - 1
             return label[:pos] + sub + label[pos:]
@@ -105,15 +106,23 @@ def _align_degenerate_2d_pair(
     return curr_pair
 
 
-def _worker_compute_frame(args: Tuple[int, List[str], List[List[float]], Optional[List[str]], int]) -> Tuple[int, List[float], Dict[str, Any], Dict[str, Any], Dict[str, np.ndarray], np.ndarray, Dict[str, Any], Dict[str, Any], Dict[str, np.ndarray]]:
-    """Worker function for parallel SCF + IBO evaluation."""
-    t, symbols, coords, atom_labels, charge = args
-    mol, mf, mull = compute_frame_scf(symbols, coords, charge=charge, spin=0, basis="sto-3g")
+def _worker_compute_frame(args: Tuple[int, List[str], List[List[float]], Optional[List[str]], int, Optional[str]]) -> Tuple[int, List[float], Dict[str, Any], Dict[str, Any], Dict[str, np.ndarray], np.ndarray, Dict[str, Any], Dict[str, Any], Dict[str, np.ndarray]]:
+    """Worker function for parallel solvated SCF + Step-0 conjugated pi separation + IBO evaluation."""
+    t, symbols, coords, atom_labels, charge, solvent = args
+    pyscf_lib.num_threads(1)
+    mol, mf, mull = compute_frame_scf(
+        symbols, coords, charge=charge, spin=0, basis="sto-3g", solvent=solvent
+    )
+    non_pi_occ, non_pi_virt, c_meta, c_vecs = extract_step0_planar_pi(
+        mol, mf, atom_labels=atom_labels
+    )
     ibos_dict, star_dict, vecs_dict, pops, ibo_coeff = compute_frame_ibos(
-        mol, mf, symbols, atom_labels=atom_labels
+        mol, mf, symbols, atom_labels=atom_labels,
+        non_pi_occ_coeff=non_pi_occ, non_pi_virt_coeff=non_pi_virt,
     )
     f_meta, c_meta, f_vecs = extract_frontier_orbitals(
-        mol, mf, None, None, ibos_dict, star_dict, vecs_dict, atom_labels=atom_labels
+        mol, mf, None, None, ibos_dict, star_dict, vecs_dict,
+        atom_labels=atom_labels, step0_pi=(c_meta, c_vecs),
     )
     tag_orbital_classes(f_meta, ibos_dict, star_dict, c_meta)
     return (t, mull, ibos_dict, star_dict, vecs_dict, pops, f_meta, c_meta, f_vecs)
@@ -126,6 +135,8 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
     if N == 0:
         return {"pathway_hash": p_hash, "total_frames": 0, "registry": {"tracks": {}}}
 
+    solvent = get_system_solvent(megajson)
+
     # Step 1: Prepare parallel evaluation tasks
     tasks = []
     for t in range(N):
@@ -136,7 +147,7 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
         if not atom_labels or len(atom_labels) != len(symbols):
             atom_labels = [f"{symbols[i]}{i}" for i in range(len(symbols))]
         charge = get_system_charge(megajson, t)
-        tasks.append((t, symbols, coords, atom_labels, charge))
+        tasks.append((t, symbols, coords, atom_labels, charge, solvent))
 
     workers = min(8, max(1, os.cpu_count() or 4))
     with ProcessPoolExecutor(max_workers=workers) as ex:
@@ -327,7 +338,7 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
         active_core = next_active_core
 
         # ----------------------------------------------------
-        # Subspace C: Localized Valence IBOs
+        # Subspace C: Occupied Valence Space (Localized IBOs + Step-0 Conjugated Pi)
         # ----------------------------------------------------
         val_keys = [k for k, v in ibos_dict.items() if v.get("type") != "core"]
         curr_val_list = []
@@ -336,6 +347,11 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
             meta = ibos_dict[k]
             p_arr = pops[meta["index"]] if meta["index"] < len(pops) else _calc_pop(v)
             curr_val_list.append({"vec": v, "pop": p_arr, "meta": meta})
+        for k, meta in c_meta.items():
+            if k in f_vecs and "pistar" not in meta.get("type", ""):
+                v = f_vecs[k].copy()
+                p_arr = _calc_pop(v, is_virt=False)
+                curr_val_list.append({"vec": v, "pop": p_arr, "meta": meta})
 
         next_active_valence: List[Dict[str, Any]] = []
         if t == 0 or s_cross is None or len(active_valence) == 0:
@@ -479,13 +495,12 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
                         next_active_antibond.append({"tid": tid, "vec": curr_star_list[c]["vec"], "atoms": meta.get("atoms", []), "type": meta["type"]})
         active_antibond = next_active_antibond
 
-        # Delocalized pi systems from c_meta (if any)
+        # Delocalized virtual pi* systems from c_meta (if any)
         curr_deloc_list = []
         for k, meta in c_meta.items():
-            if k in f_vecs:
+            if k in f_vecs and "pistar" in meta.get("type", ""):
                 v = f_vecs[k].copy()
-                is_virt = "pistar" in meta.get("type", "")
-                p_arr = _calc_pop(v, is_virt=is_virt)
+                p_arr = _calc_pop(v, is_virt=True)
                 curr_deloc_list.append({"vec": v, "pop": p_arr, "meta": meta})
 
         next_active_deloc: List[Dict[str, Any]] = []
@@ -550,7 +565,7 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
     def _role_prefix(lbl: Optional[str]) -> str:
         if not lbl:
             return ""
-        for pfx in ("π*", "σ*", "π", "σ", "LP", "Core"):
+        for pfx in ("π*_deloc", "π_deloc", "π*", "σ*", "π", "σ", "LP", "Core"):
             if lbl.startswith(pfx):
                 return pfx
         return lbl.split("(")[0]
@@ -635,7 +650,10 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
         if rec["subspace"] == "valence_ibo":
             from collections import Counter
             t_counts = Counter(ft for ft in smoothed_types[s_f:e_f + 1] if ft is not None)
-            if t_counts.get("pi", 0) >= 3:
+            total_t = sum(t_counts.values())
+            if t_counts.get("delocalized_pi", 0) == total_t and total_t > 0:
+                trk_type, trk_cat = "delocalized_pi", "conjugated_pi"
+            elif (t_counts.get("pi", 0) + t_counts.get("delocalized_pi", 0)) >= 3:
                 trk_type, trk_cat = "pi", "bonding"
             elif t_counts.get("sigma", 0) >= 3:
                 trk_type, trk_cat = "sigma", "bonding"
@@ -835,10 +853,10 @@ def get_frame_pool_payload(megajson: Dict[str, Any], frame_idx: int) -> Dict[str
         if f_type == "frontier":
             f_key = next((fk for fk, mapped_tid in FRONTIER_TRACK_MAP.items() if mapped_tid == tid_s), tid_s)
             frontier_orbitals[f_key] = item
-        elif f_type in ("sigma_star", "pi_star") or trk["orbital_class"] == "antibonding":
-            antibonds.append(item)
         elif f_type in ("delocalized_pi", "delocalized_pistar"):
             canonical_pi.append(item)
+        elif f_type in ("sigma_star", "pi_star") or trk["orbital_class"] == "antibonding":
+            antibonds.append(item)
         elif f_type != "core":
             all_ibos.append(item)
 

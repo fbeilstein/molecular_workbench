@@ -130,6 +130,8 @@ class Step5Cascade(PipelineStep):
         if (not megajson or not has_coords) and len(available) >= 1:
             try:
                 megajson = stitch_multistep_trajectories([a["data"] for a in available], n_bridge_frames=8, auto_sort=False, balance_energies=True)
+                if current_state.get("solvent"):
+                    megajson["solvent"] = current_state["solvent"]
                 if os.path.exists(PROLONGED_PATH):
                     try:
                         with open(PROLONGED_PATH, "r") as f:
@@ -196,6 +198,8 @@ class Step5Cascade(PipelineStep):
 
         try:
             megajson = stitch_multistep_trajectories(to_stitch, junction_choices=junction_choices, n_bridge_frames=n_bridge, auto_sort=False, balance_energies=True)
+            if global_state.get("solvent"):
+                megajson["solvent"] = global_state["solvent"]
             if os.path.exists(PROLONGED_PATH):
                 try:
                     with open(PROLONGED_PATH, "r") as f:
