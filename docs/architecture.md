@@ -58,7 +58,12 @@ A 3-stage workbench for finding reaction transition states and validating reacti
 - 3D molecular structure generation and xTB / PySCF geometry optimization.
 - Intrinsic Bond Orbital (IBO) localization separating $\sigma$ and $\pi$ systems while preserving textbook Lewis structures.
 - Exact virtual subspace antisymmetrization projection for textbook $\sigma^*$ and $\pi^*$ antibonding orbitals.
-- Volumetric cube to 3D surface mesh conversion and standalone bundle export.
+- Knizia IAO virtual $p_\perp$ projector for clean planar conjugated $\pi^*$ systems free of Rydberg contamination.
+- Diagonal Fock operator expectation energies ($E_k = \langle \phi_k | \hat{F} | \phi_k \rangle$, eV) evaluated on all localized bonds, lone pairs, and antibonds.
+- Symmetric Löwdin orthonormalization for degenerate canonical eigenspaces ($|\Delta \varepsilon| < 10^{-4}$ Ha) aligned with molecular axes.
+- Post-localization overlap-gated snap ($w \ge 0.90$) against canonical frontier MOs (`HOMO-k ... LUMO+k`).
+- Unified 0.045 mesh isovalue extraction with multi-isovalue composite bundling (e.g. [18]annulene).
+- 3-decimal precision coordinate/mesh trimming, compact JSON packaging, and level-9 compressed `.rxnbundle.zip` export.
 
 ---
 

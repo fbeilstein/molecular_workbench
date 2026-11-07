@@ -49,3 +49,19 @@
 - **Explicit URL Fetching:**
   - `viewer_loader.js` performs direct, transparent `fetch(url)` requests without proxy hacks or implicit path rewriting.
   - Links in `README.md` and documentation must explicitly point to committed paths (e.g. `bundles/reactions/...`, `bundles/molecules/...`).
+
+## 11. Degenerate Canonical Subspace Alignment (`pipeline.py`)
+- **Strict Degeneracy Criterion:** Subspaces are clustered when $|\Delta \varepsilon| < 10^{-4}$ Hartree.
+- **Column Stacking Invariant:**
+  - For occupied clusters (`idxs`), matched chemical projections must align with the top of the band (`HOMO` end): use `np.column_stack([Q_perp, Q_match])`.
+  - For virtual clusters (`idxs`), matched chemical projections must align with the bottom of the band (`LUMO` end): use `np.column_stack([Q_match, Q_perp])`.
+- **Gotcha:** If you use `[Q_match, Q_perp]` for occupied orbitals, a 3-fold degenerate atomic shell (like $3p$ on $\text{Cl}^-$) will snap to `HOMO-2` instead of `HOMO`, causing incorrect UI labeling.
+
+## 12. Overlap-Gated Snapping ($w \ge 0.90$) vs IRC Diabatic Tracking
+- **Single-Molecule Workbench (`server.py`):** Gated by AO-metric overlap $w = |\langle \psi_m | \hat{S} | \phi \rangle|^2 \ge 0.90$. If $w \ge 0.90$, snaps vector and energy to the canonical MO. Below $0.90$, preserves pure localized diabatic vector and diagonal Fock energy without appending `(HOMO)` / `(LUMO)` text.
+- **IRC Reaction Studio Boundary (`server_irc.py`):** Do NOT apply canonical snapping to IRC trajectory tracks (`orbital_tracks.npz`). IRC tracking relies on smooth diabatic continuity along the reaction path; canonical eigenvalues can switch characters or cross during bond breaking/formation.
+
+## 13. Mesh Trimming & Multi-Isovalue Packaging Standards
+- **Precision Trimming:** Vertices and normals are strictly rounded to 3 decimal places (`0.001` Å); coordinates to 4 decimal places; charges to 3 decimal places; energies and ESP values to 2 decimal places.
+- **Default Isovalue:** $0.045$ across all standard single-molecule archives.
+- **Composite Isovalues:** Macrocyclic $\pi$ systems like [18]annulene bundle diffuse $\pi/\pi^*$ at $0.015$ and compact $\sigma/\sigma^*$ at $0.045$. Future batch reprocessing scripts must preserve this explicit override.
