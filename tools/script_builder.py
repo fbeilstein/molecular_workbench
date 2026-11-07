@@ -1,5 +1,6 @@
 import os
 import json
+import shlex
 
 def detect_charge_from_smiles(smiles):
     """Detect total charge from SMILES string by calculating formal charges."""
@@ -52,7 +53,7 @@ def build_compute_script(body, output_dir, venv_python, tools_dir):
         mol_path = os.path.join(job_dir, "input_2d.mol")
         with open(mol_path, 'w') as f:
             f.write(mol_data)
-        molfile_arg = f' --molfile $OUT/input_2d.mol'
+        molfile_arg = ' --molfile "$OUT/input_2d.mol"'
 
     levelshift_arg = ''
     if body.get('levelshift'):
@@ -60,45 +61,46 @@ def build_compute_script(body, output_dir, venv_python, tools_dir):
 
     script_path = os.path.join(job_dir, f'compute_{name}.sh')
 
-    safe_smiles_json = json.dumps(rxn_smiles)
-    
-    ket_field = f'  "ket_file": "{name}.ket",' if ket_data else ''
+    manifest = {
+        "name": name,
+        "smiles": rxn_smiles,
+        "charge": charge,
+        "engine": engine,
+        "method": "b3lyp",
+    }
+    if ket_data:
+        manifest["ket_file"] = f"{name}.ket"
+    manifest["molecules"] = [
+        {
+            "key": name,
+            "role": "molecule",
+            "smiles": rxn_smiles,
+            "xyz": f"{name}.xyz"
+        }
+    ]
+    manifest_json = json.dumps(manifest, indent=2)
 
     lines = [
         '#!/bin/bash',
         'set -e',
         'export PYTHONUNBUFFERED=1',
-        f'PYTHON="{venv_python}"',
-        f'TOOLS="{tools_dir}"',
-        f'OUT="{job_dir}"',
-        f'echo "═══ Computing: {name} ═══"',
+        f'PYTHON={shlex.quote(venv_python)}',
+        f'TOOLS={shlex.quote(tools_dir)}',
+        f'OUT={shlex.quote(job_dir)}',
+        f'NAME={shlex.quote(name)}',
+        'echo "═══ Computing: $NAME ═══"',
         '',
         '# Step 1: Prepare molecule (3D structure, SVG, MOL)',
-        f'$PYTHON $TOOLS/mol_prep.py {safe_smiles_json} --name {name} -o $OUT --charge {charge} --engine {engine}{molfile_arg}{levelshift_arg}',
-        f'obabel $OUT/{name}.mol -O $OUT/{name}.cdxml 2>/dev/null || true',
+        f'"$PYTHON" "$TOOLS/mol_prep.py" {shlex.quote(rxn_smiles)} --name "$NAME" -o "$OUT" --charge {charge} --engine {engine}{molfile_arg}{levelshift_arg}',
+        'obabel "$OUT/$NAME.mol" -O "$OUT/$NAME.cdxml" 2>/dev/null || true',
         '',
         '# Step 2: Create bundle manifest',
-        f'cat <<\'EOF\' > $OUT/{name}_bundle.json',
-        '{',
-        f'  "name": "{name}",',
-        f'  "smiles": {safe_smiles_json},',
-        f'  "charge": {charge},',
-        f'  "engine": "{engine}",',
-        f'  "method": "b3lyp",',
-        ket_field,
-        '  "molecules": [',
-        '    {',
-        f'      "key": "{name}",',
-        '      "role": "molecule",',
-        f'      "smiles": {safe_smiles_json},',
-        f'      "xyz": "{name}.xyz"',
-        '    }',
-        '  ]',
-        '}',
-        'EOF',
+        'cat <<\'__BUNDLE_MANIFEST_EOF__\' > "$OUT/${NAME}_bundle.json"',
+        manifest_json,
+        '__BUNDLE_MANIFEST_EOF__',
         '',
         '# Export data-only archive + clean intermediates',
-        f'$PYTHON $TOOLS/bundle_exporter.py $OUT --clean',
+        '"$PYTHON" "$TOOLS/bundle_exporter.py" "$OUT" --clean',
         '',
         'echo "DONE"'
     ]

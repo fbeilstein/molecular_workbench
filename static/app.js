@@ -161,7 +161,7 @@ window.WB.generateComputeScript = async function() {
         // Poll for status
         if (pollInterval) clearInterval(pollInterval);
         pollInterval = setInterval(async () => {
-            const sres = await fetch(`/api/job/status?name=${name}`);
+            const sres = await fetch(`/api/job/status?name=${encodeURIComponent(name)}`);
             const sdata = await sres.json();
             
             window.WB.clearLog();
