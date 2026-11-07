@@ -327,6 +327,7 @@ window.WB.onChangeHandler = async function() {
     viewer.removeAllModels(); 
     viewer.removeAllShapes();
     viewer.removeAllSurfaces();
+    if (viewer.removeAllLabels) viewer.removeAllLabels();
     
     if (window._currentMolXyz) {
         window.WB.renderMoleculeModel(viewer, window._currentMolXyz);

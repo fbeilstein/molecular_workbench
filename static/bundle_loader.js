@@ -131,6 +131,7 @@ window.WB.loadBundleItem = async function(value) {
     window.WB.viewer.removeAllModels();
     window.WB.viewer.removeAllShapes();
     window.WB.viewer.removeAllSurfaces();
+    if (window.WB.viewer.removeAllLabels) window.WB.viewer.removeAllLabels();
 
     window._currentMolCharges = mol.charges || (window._currentBundleManifest && window._currentBundleManifest.charges) || null;
 

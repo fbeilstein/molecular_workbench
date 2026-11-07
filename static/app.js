@@ -205,6 +205,7 @@ window.WB.verifyBundle = async function() {
         window.WB.viewer.removeAllModels();
         window.WB.viewer.removeAllShapes();
         window.WB.viewer.removeAllSurfaces();
+        if (window.WB.viewer.removeAllLabels) window.WB.viewer.removeAllLabels();
 
         // Load KET layout back into Ketcher if available
         const frame = document.getElementById('ketcher-frame');
