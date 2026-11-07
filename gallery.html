@@ -24,402 +24,437 @@
       </div>
       <div class="controls-group">
         <input type="search" id="searchInput" class="search-input" placeholder="Search molecules, SMILES, notes..." autocomplete="off">
-        <span id="rowCount" class="row-count">54 molecules</span>
+        <span id="rowCount" class="row-count">59 molecules</span>
       </div>
     </header>
 
     <div class="table-wrapper" tabindex="0" role="region" aria-label="Molecular Directory">
-      <table id="molTable">
-        <thead>
-          <tr>
-            <th>Structure</th>
-            <th>Name</th>
-            <th>Open</th>
-            <th>Notes</th>
-            <th>SMILES</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><img src="bundles/molecules/%5B18%5Dannulene.svg" alt="[18]annulene" class="mol-thumb"></td>
-            <td><strong>cyclooctadecanonaene</strong> or <strong>[18]annulene</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/%5B18%5Dannulene.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Aromatic: $4n+2$ electrons + planar. (NOT WORKING IN Ketcher!)</td>
-            <td><code class="smiles-copy" title="Click to copy">C1([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C=1[H] |c:7,11,19,23,31,34,t:3,15,27|</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/all-cis-%5B10%5Dannulene.svg" alt="all-cis-[10]annulene" class="mol-thumb"></td>
-            <td><strong>cyclodecapentaene</strong> or <strong>[10]annulene</strong>, or <strong>all-cis-[10]annulene</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/all-cis-%5B10%5Dannulene.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">NOT Aromatic: $4n+2$ electrons BUT non-planar.</td>
-            <td><code class="smiles-copy" title="Click to copy">C1C=CC=CC=CC=CC=1 |c:1,3,5,7,9|</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/chloride.svg" alt="chloride" class="mol-thumb"></td>
-            <td><strong>chloride</strong> or <strong>chloride ion</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/chloride.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1.</td>
-            <td><code class="smiles-copy" title="Click to copy">[Cl-]</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/ethanoic_methanoic_anhydride.svg" alt="ethanoic methanoic anhydride" class="mol-thumb"></td>
-            <td><strong>ethanoic methanoic anhydride</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/ethanoic_methanoic_anhydride.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Mixed anhydride</td>
-            <td><code class="smiles-copy" title="Click to copy">CC(OC=O)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/methanoate.svg" alt="methanoate" class="mol-thumb"></td>
-            <td><strong>methanoate</strong> or <strong>formate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/methanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1.</td>
-            <td><code class="smiles-copy" title="Click to copy">C(=O)[O-]</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/acetyl_chloride.svg" alt="acetyl chloride" class="mol-thumb"></td>
-            <td><strong>acetyl chloride</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/acetyl_chloride.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Acyl chloride</td>
-            <td><code class="smiles-copy" title="Click to copy">CC(=O)Cl</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-ol.svg" alt="1,1,1,3,3,3-hexafluoropropan-2-ol" class="mol-thumb"></td>
-            <td><strong>1,1,1,3,3,3-hexafluoropropan-2-ol</strong>, or <strong>hexafluoroisopropanol</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-ol.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 9.3$</td>
-            <td><code class="smiles-copy" title="Click to copy">OC(C(F)(F)F)C(F)(F)F</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-olate.svg" alt="1,1,1,3,3,3-hexafluoropropan-2-olate" class="mol-thumb"></td>
-            <td><strong>1,1,1,3,3,3-hexafluoropropan-2-olate</strong> or <strong>hexafluoroisopropoxide</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-olate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">[O-]C(C(F)(F)F)C(F)(F)F</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/2,2,2-trifluoroethanol.svg" alt="2,2,2-trifluoroethanol" class="mol-thumb"></td>
-            <td><strong>2,2,2-trifluoroethanol</strong>, or <strong>trifluoroethyl alcohol</strong>, or <strong>TFE</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/2,2,2-trifluoroethanol.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 12.4$</td>
-            <td><code class="smiles-copy" title="Click to copy">FC(CO)(F)F</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/2,2,2-trifluoroethoxide.svg" alt="2,2,2-trifluoroethoxide" class="mol-thumb"></td>
-            <td><strong>2,2,2-trifluoroethoxide</strong> or <strong>trifluoroethoxide</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/2,2,2-trifluoroethoxide.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">FC(C[O-])(F)F</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-ol.svg" alt="perfluoro-tert-butanol" class="mol-thumb"></td>
-            <td><strong>1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-ol</strong>, or <strong>perfluoro-tert-butanol</strong>, or <strong>PFtB</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-ol.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 5.4$</td>
-            <td><code class="smiles-copy" title="Click to copy">OC(C(F)(F)F)(C(F)(F)F)C(F)(F)F</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate.svg" alt="perfluoro-tert-butoxide" class="mol-thumb"></td>
-            <td><strong>1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate</strong>, or <strong>perfluoro-tert-butoxide</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">[O-]C(C(F)(F)F)(C(F)(F)F)C(F)(F)F</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/methanol.svg" alt="methanol" class="mol-thumb"></td>
-            <td><strong>methanol</strong>, or <strong>methyl alcohol</strong>, or <strong>wood alcohol</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/methanol.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 15.5$</td>
-            <td><code class="smiles-copy" title="Click to copy">CO</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/methanolate.svg" alt="methanolate" class="mol-thumb"></td>
-            <td><strong>methanolate</strong>, or <strong>methoxide</strong>, or <strong>methylate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/methanolate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">C[O-]</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/butanoic_acid.svg" alt="butanoic acid" class="mol-thumb"></td>
-            <td><strong>butanoic acid</strong> or <strong>butyric acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/butanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 4.8$</td>
-            <td><code class="smiles-copy" title="Click to copy">CCCC(O)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/butanoate.svg" alt="butanoate" class="mol-thumb"></td>
-            <td><strong>butanoate</strong> or <strong>butyrate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/butanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">CCCC([O-])=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/4-chlorobutanoic_acid.svg" alt="4-chlorobutanoic acid" class="mol-thumb"></td>
-            <td><strong>4-chlorobutanoic acid</strong>, or <strong>$\gamma$-chlorobutyric acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/4-chlorobutanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 4.5$</td>
-            <td><code class="smiles-copy" title="Click to copy">ClCCCC(O)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/4-chlorobutanoate.svg" alt="4-chlorobutanoate" class="mol-thumb"></td>
-            <td><strong>4-chlorobutanoate</strong>, or <strong>$\gamma$-chlorobutyrate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/4-chlorobutanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">ClCCCC([O-])=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/3-chlorobutanoic_acid.svg" alt="3-chlorobutanoic acid" class="mol-thumb"></td>
-            <td><strong>3-chlorobutanoic acid</strong>, or <strong>$\beta$-chlorobutyric acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/3-chlorobutanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 4.1$</td>
-            <td><code class="smiles-copy" title="Click to copy">CC(CC(O)=O)Cl</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/3-chlorobutanoate.svg" alt="3-chlorobutanoate" class="mol-thumb"></td>
-            <td><strong>3-chlorobutanoate</strong>, or <strong>$\beta$-chlorobutyrate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/3-chlorobutanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">CC(CC([O-])=O)Cl</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/2-chlorobutanoic_acid.svg" alt="2-chlorobutanoic acid" class="mol-thumb"></td>
-            <td><strong>2-chlorobutanoic acid</strong>, or <strong>$\alpha$-chlorobutyric acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/2-chlorobutanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 2.8$</td>
-            <td><code class="smiles-copy" title="Click to copy">CCC(C(O)=O)Cl</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/2-chlorobutanoate.svg" alt="2-chlorobutanoate" class="mol-thumb"></td>
-            <td><strong>2-chlorobutanoate</strong>, or <strong>$\alpha$-chlorobutyrate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/2-chlorobutanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">CCC(C([O-])=O)Cl</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/ethane.svg" alt="ethane" class="mol-thumb"></td>
-            <td><strong>ethane</strong>, or <strong>dimethyl</strong>, or <strong>methylmethane</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/ethane.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Aliphatic alkane</td>
-            <td><code class="smiles-copy" title="Click to copy">CC</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/ethene.svg" alt="ethene" class="mol-thumb"></td>
-            <td><strong>ethene</strong> or <strong>ethylene</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/ethene.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Simplest alkene</td>
-            <td><code class="smiles-copy" title="Click to copy">C=C</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/ethyne.svg" alt="ethyne" class="mol-thumb"></td>
-            <td><strong>ethyne</strong> or <strong>acetylene</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/ethyne.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Simplest alkyne</td>
-            <td><code class="smiles-copy" title="Click to copy">C#C</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/benzene.svg" alt="benzene" class="mol-thumb"></td>
-            <td><strong>benzene</strong>, or <strong>[6]annulene</strong>, or <strong>cyclohexa-1,3,5-triene</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/benzene.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Simplest aromatic molecule ($6\pi$ electrons)</td>
-            <td><code class="smiles-copy" title="Click to copy">C1C=CC=CC=1</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/ethanoic_acid.svg" alt="ethanoic acid" class="mol-thumb"></td>
-            <td><strong>ethanoic acid</strong> or <strong>acetic acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/ethanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 4.76$</td>
-            <td><code class="smiles-copy" title="Click to copy">CC(=O)O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/ethanoate.svg" alt="ethanoate" class="mol-thumb"></td>
-            <td><strong>ethanoate</strong> or <strong>acetate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/ethanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">CC(=O)[O-]</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/nitroethanoic_acid.svg" alt="nitroethanoic acid" class="mol-thumb"></td>
-            <td><strong>nitroethanoic acid</strong> or <strong>nitroacetic acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/nitroethanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 1.7$</td>
-            <td><code class="smiles-copy" title="Click to copy">O=C(C[N+](=O)[O-])O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/nitroethanoate.svg" alt="nitroethanoate" class="mol-thumb"></td>
-            <td><strong>nitroethanoate</strong> or <strong>nitroacetate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/nitroethanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">O=C(C[N+](=O)[O-])[O-]</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/(carboxymethyl)trimethylazanium.svg" alt="(carboxymethyl)trimethylazanium" class="mol-thumb"></td>
-            <td><strong>(carboxymethyl)trimethylazanium</strong>, or <strong>betainium</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/(carboxymethyl)trimethylazanium.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 1.8$, Charge: +1</td>
-            <td><code class="smiles-copy" title="Click to copy">C[N+](CC(O)=O)(C)C</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/2-(trimethylazaniumyl)ethanoate.svg" alt="2-(trimethylazaniumyl)ethanoate" class="mol-thumb"></td>
-            <td><strong>2-(trimethylazaniumyl)ethanoate</strong>, or <strong>betaine</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/2-(trimethylazaniumyl)ethanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Zwitterion, Charge: 0</td>
-            <td><code class="smiles-copy" title="Click to copy">C[N+](CC([O-])=O)(C)C</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/2-cyanoethanoic_acid.svg" alt="2-cyanoethanoic acid" class="mol-thumb"></td>
-            <td><strong>2-cyanoethanoic acid</strong>, or <strong>cyanacetic acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/2-cyanoethanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 2.4$</td>
-            <td><code class="smiles-copy" title="Click to copy">N#CCC(O)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/2-cyanoethanoate.svg" alt="2-cyanoethanoate" class="mol-thumb"></td>
-            <td><strong>2-cyanoethanoate</strong>, or <strong>cyanacetate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/2-cyanoethanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">N#CCC([O-])=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/3-oxobutanoic_acid.svg" alt="3-oxobutanoic acid" class="mol-thumb"></td>
-            <td><strong>3-oxobutanoic acid</strong> or <strong>acetoacetic acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/3-oxobutanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 3.6$</td>
-            <td><code class="smiles-copy" title="Click to copy">CC(CC(O)=O)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/3-oxobutanoate.svg" alt="3-oxobutanoate" class="mol-thumb"></td>
-            <td><strong>3-oxobutanoate</strong>, or <strong>acetoacetate</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/3-oxobutanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">CC(CC([O-])=O)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/1H-isoindole-1,3(2H)-dione.svg" alt="phthalimide" class="mol-thumb"></td>
-            <td><strong>1H-isoindole-1,3(2H)-dione</strong>, or <strong>phthalimide</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/1H-isoindole-1,3(2H)-dione.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 8.3$</td>
-            <td><code class="smiles-copy" title="Click to copy">O=C1NC(=O)c2ccccc12</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/1,3-dioxo-1,3-dihydro-2H-isoindol-2-ide.svg" alt="phthalimide anion" class="mol-thumb"></td>
-            <td><strong>1,3-dioxo-1,3-dihydro-2H-isoindol-2-ide</strong>, or <strong>phthalimide anion</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/1,3-dioxo-1,3-dihydro-2H-isoindol-2-ide.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">O=C1[N-]C(=O)c2ccccc12</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/hypochlorous_acid.svg" alt="hypochlorous acid" class="mol-thumb"></td>
-            <td><strong>hypochlorous acid</strong>, or <strong>chloric(I) acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/hypochlorous_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 7.5$</td>
-            <td><code class="smiles-copy" title="Click to copy">ClO</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/hypochlorite.svg" alt="hypochlorite" class="mol-thumb"></td>
-            <td><strong>hypochlorite</strong>, or <strong>chlorate(I)</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/hypochlorite.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">Cl[O-]</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/chlorous_acid.svg" alt="chlorous acid" class="mol-thumb"></td>
-            <td><strong>chlorous acid</strong>, or <strong>chloric(III) acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/chlorous_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 2$</td>
-            <td><code class="smiles-copy" title="Click to copy">Cl(=O)O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/chlorite.svg" alt="chlorite" class="mol-thumb"></td>
-            <td><strong>chlorite</strong>, or <strong>chlorate(III)</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/chlorite.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">Cl(=O)[O-]</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/chloric_acid.svg" alt="chloric acid" class="mol-thumb"></td>
-            <td><strong>chloric acid</strong>, or <strong>chloric(V) acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/chloric_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = -1$</td>
-            <td><code class="smiles-copy" title="Click to copy">Cl(=O)(O)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/chlorate.svg" alt="chlorate" class="mol-thumb"></td>
-            <td><strong>chlorate</strong>, or <strong>chlorate(V)</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/chlorate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">Cl(=O)([O-])=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/perchloric_acid.svg" alt="perchloric acid" class="mol-thumb"></td>
-            <td><strong>perchloric acid</strong>, or <strong>chloric(VII) acid</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/perchloric_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a \approx -10$</td>
-            <td><code class="smiles-copy" title="Click to copy">Cl(=O)(O)(=O)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/perchlorate.svg" alt="perchlorate" class="mol-thumb"></td>
-            <td><strong>perchlorate</strong>, or <strong>chlorate(VII)</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/perchlorate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">Cl(=O)([O-])(=O)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/methane.svg" alt="methane" class="mol-thumb"></td>
-            <td><strong>methane</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/methane.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a \approx 48$</td>
-            <td><code class="smiles-copy" title="Click to copy">C</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/buta-1,3-diene.svg" alt="buta-1,3-diene" class="mol-thumb"></td>
-            <td><strong>buta-1,3-diene</strong>, or <strong>1,3-butadiene</strong>, or <strong>divinyl</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/buta-1,3-diene.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Simplest non-cyclic delocalized $\pi$ system</td>
-            <td><code class="smiles-copy" title="Click to copy">C=CC=C</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/propan-2-one.svg" alt="propan-2-one" class="mol-thumb"></td>
-            <td><strong>propan-2-one</strong>, or <strong>acetone</strong>, or <strong>dimethyl ketone</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/propan-2-one.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Simplest ketone</td>
-            <td><code class="smiles-copy" title="Click to copy">C(C)(C)=O</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/2-methylpropan-2-ide.svg" alt="2-methylpropan-2-ide" class="mol-thumb"></td>
-            <td><strong>2-methylpropan-2-ide</strong>, or <strong>tert-butyl carbanion</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/2-methylpropan-2-ide.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">[C-](C)(C)C</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/2-methylpropan-2-ylium.svg" alt="2-methylpropan-2-ylium" class="mol-thumb"></td>
-            <td><strong>2-methylpropan-2-ylium</strong>, or <strong>tert-butyl cation</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/2-methylpropan-2-ylium.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: +1</td>
-            <td><code class="smiles-copy" title="Click to copy">[C+](C)(C)C</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/ethanol.svg" alt="ethanol" class="mol-thumb"></td>
-            <td><strong>ethanol</strong>, or <strong>ethyl alcohol</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/ethanol.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">$pK_a = 15.9$</td>
-            <td><code class="smiles-copy" title="Click to copy">CCO</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/ethanolate.svg" alt="ethanolate" class="mol-thumb"></td>
-            <td><strong>ethanolate</strong>, or <strong>ethoxide</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/ethanolate.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Charge: -1</td>
-            <td><code class="smiles-copy" title="Click to copy">CC[O-]</code></td>
-          </tr>
-          <tr>
-            <td><img src="bundles/molecules/bromomethane.svg" alt="bromomethane" class="mol-thumb"></td>
-            <td><strong>bromomethane</strong>, or <strong>methyl bromide</strong></td>
-            <td><a href="viewer.html?bundle=bundles/molecules/bromomethane.zip&download" target="_blank" class="view-btn">Open</a></td>
-            <td class="notes-cell">Halogenated alkane</td>
-            <td><code class="smiles-copy" title="Click to copy">CBr</code></td>
-          </tr>
-        </tbody>
-      </table>
+<table id="molTable">
+<thead>
+<tr>
+  <th>Structure</th>
+  <th>Name</th>
+  <th>Open</th>
+  <th>Notes</th>
+  <th>SMILES</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><img src="bundles/molecules/%5B18%5Dannulene.svg" alt="[18]annulene" class="mol-thumb"></td>
+  <td><strong>cyclooctadecanonaene</strong> or <strong>[18]annulene</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/%5B18%5Dannulene.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Aromatic: $4n+2$ electrons + planar. (NOT WORKING IN Ketcher!)</td>
+  <td><code class="smiles-copy" title="Click to copy">C1([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C([H])=C([H])C=1[H] |c:7,11,19,23,31,34,t:3,15,27|</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/all-cis-%5B10%5Dannulene.svg" alt="all-cis-[10]annulene" class="mol-thumb"></td>
+  <td><strong>cyclodecapentaene</strong> or <strong>[10]annulene</strong>, or <strong>all-cis-[10]annulene</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/all-cis-%5B10%5Dannulene.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">NOT Aromatic: $4n+2$ electrons BUT non-planar.</td>
+  <td><code class="smiles-copy" title="Click to copy">C1C=CC=CC=CC=CC=1 |c:1,3,5,7,9|</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/chloride.svg" alt="chloride" class="mol-thumb"></td>
+  <td><strong>chloride</strong> or <strong>chloride ion</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/chloride.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1.</td>
+  <td><code class="smiles-copy" title="Click to copy">[Cl-]</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/ethanoic_methanoic_anhydride.svg" alt="ethanoic methanoic anhydride" class="mol-thumb"></td>
+  <td><strong>ethanoic methanoic anhydride</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/ethanoic_methanoic_anhydride.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Mixed anhydride</td>
+  <td><code class="smiles-copy" title="Click to copy">CC(OC=O)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/methanoate.svg" alt="methanoate" class="mol-thumb"></td>
+  <td><strong>methanoate</strong> or <strong>formate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/methanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1.</td>
+  <td><code class="smiles-copy" title="Click to copy">C(=O)[O-]</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/acetyl_chloride.svg" alt="acetyl chloride" class="mol-thumb"></td>
+  <td><strong>acetyl chloride</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/acetyl_chloride.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Acyl chloride</td>
+  <td><code class="smiles-copy" title="Click to copy">CC(=O)Cl</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-ol.svg" alt="1,1,1,3,3,3-hexafluoropropan-2-ol" class="mol-thumb"></td>
+  <td><strong>1,1,1,3,3,3-hexafluoropropan-2-ol</strong>, or <strong>hexafluoroisopropanol</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-ol.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 9.3$</td>
+  <td><code class="smiles-copy" title="Click to copy">OC(C(F)(F)F)C(F)(F)F</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-olate.svg" alt="1,1,1,3,3,3-hexafluoropropan-2-olate" class="mol-thumb"></td>
+  <td><strong>1,1,1,3,3,3-hexafluoropropan-2-olate</strong> or <strong>hexafluoroisopropoxide</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoropropan-2-olate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">[O-]C(C(F)(F)F)C(F)(F)F</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2,2,2-trifluoroethanol.svg" alt="2,2,2-trifluoroethanol" class="mol-thumb"></td>
+  <td><strong>2,2,2-trifluoroethanol</strong>, or <strong>trifluoroethyl alcohol</strong>, or <strong>TFE</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2,2,2-trifluoroethanol.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 12.4$</td>
+  <td><code class="smiles-copy" title="Click to copy">FC(CO)(F)F</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2,2,2-trifluoroethoxide.svg" alt="2,2,2-trifluoroethoxide" class="mol-thumb"></td>
+  <td><strong>2,2,2-trifluoroethoxide</strong> or <strong>trifluoroethoxide</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2,2,2-trifluoroethoxide.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">FC(C[O-])(F)F</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-ol.svg" alt="perfluoro-tert-butanol" class="mol-thumb"></td>
+  <td><strong>1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-ol</strong>, or <strong>perfluoro-tert-butanol</strong>, or <strong>PFtB</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-ol.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 5.4$</td>
+  <td><code class="smiles-copy" title="Click to copy">OC(C(F)(F)F)(C(F)(F)F)C(F)(F)F</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate.svg" alt="perfluoro-tert-butoxide" class="mol-thumb"></td>
+  <td><strong>1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate</strong>, or <strong>perfluoro-tert-butoxide</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/1,1,1,3,3,3-hexafluoro-2-(trifluoromethyl)propan-2-olate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">[O-]C(C(F)(F)F)(C(F)(F)F)C(F)(F)F</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/methanol.svg" alt="methanol" class="mol-thumb"></td>
+  <td><strong>methanol</strong>, or <strong>methyl alcohol</strong>, or <strong>wood alcohol</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/methanol.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 15.5$</td>
+  <td><code class="smiles-copy" title="Click to copy">CO</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/methanolate.svg" alt="methanolate" class="mol-thumb"></td>
+  <td><strong>methanolate</strong>, or <strong>methoxide</strong>, or <strong>methylate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/methanolate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">C[O-]</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/butanoic_acid.svg" alt="butanoic acid" class="mol-thumb"></td>
+  <td><strong>butanoic acid</strong> or <strong>butyric acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/butanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 4.8$</td>
+  <td><code class="smiles-copy" title="Click to copy">CCCC(O)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/butanoate.svg" alt="butanoate" class="mol-thumb"></td>
+  <td><strong>butanoate</strong> or <strong>butyrate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/butanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">CCCC([O-])=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/4-chlorobutanoic_acid.svg" alt="4-chlorobutanoic acid" class="mol-thumb"></td>
+  <td><strong>4-chlorobutanoic acid</strong>, or <strong>$\gamma$-chlorobutyric acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/4-chlorobutanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 4.5$</td>
+  <td><code class="smiles-copy" title="Click to copy">ClCCCC(O)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/4-chlorobutanoate.svg" alt="4-chlorobutanoate" class="mol-thumb"></td>
+  <td><strong>4-chlorobutanoate</strong>, or <strong>$\gamma$-chlorobutyrate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/4-chlorobutanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">ClCCCC([O-])=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/3-chlorobutanoic_acid.svg" alt="3-chlorobutanoic acid" class="mol-thumb"></td>
+  <td><strong>3-chlorobutanoic acid</strong>, or <strong>$\beta$-chlorobutyric acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/3-chlorobutanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 4.1$</td>
+  <td><code class="smiles-copy" title="Click to copy">CC(CC(O)=O)Cl</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/3-chlorobutanoate.svg" alt="3-chlorobutanoate" class="mol-thumb"></td>
+  <td><strong>3-chlorobutanoate</strong>, or <strong>$\beta$-chlorobutyrate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/3-chlorobutanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">CC(CC([O-])=O)Cl</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2-chlorobutanoic_acid.svg" alt="2-chlorobutanoic acid" class="mol-thumb"></td>
+  <td><strong>2-chlorobutanoic acid</strong>, or <strong>$\alpha$-chlorobutyric acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2-chlorobutanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 2.8$</td>
+  <td><code class="smiles-copy" title="Click to copy">CCC(C(O)=O)Cl</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2-chlorobutanoate.svg" alt="2-chlorobutanoate" class="mol-thumb"></td>
+  <td><strong>2-chlorobutanoate</strong>, or <strong>$\alpha$-chlorobutyrate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2-chlorobutanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">CCC(C([O-])=O)Cl</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/ethane.svg" alt="ethane" class="mol-thumb"></td>
+  <td><strong>ethane</strong>, or <strong>dimethyl</strong>, or <strong>methylmethane</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/ethane.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Aliphatic alkane</td>
+  <td><code class="smiles-copy" title="Click to copy">CC</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/ethene.svg" alt="ethene" class="mol-thumb"></td>
+  <td><strong>ethene</strong> or <strong>ethylene</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/ethene.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Simplest alkene</td>
+  <td><code class="smiles-copy" title="Click to copy">C=C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/ethyne.svg" alt="ethyne" class="mol-thumb"></td>
+  <td><strong>ethyne</strong> or <strong>acetylene</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/ethyne.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Simplest alkyne</td>
+  <td><code class="smiles-copy" title="Click to copy">C#C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/benzene.svg" alt="benzene" class="mol-thumb"></td>
+  <td><strong>benzene</strong>, or <strong>[6]annulene</strong>, or <strong>cyclohexa-1,3,5-triene</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/benzene.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Simplest aromatic molecule ($6\pi$ electrons)</td>
+  <td><code class="smiles-copy" title="Click to copy">C1C=CC=CC=1</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/ethanoic_acid.svg" alt="ethanoic acid" class="mol-thumb"></td>
+  <td><strong>ethanoic acid</strong> or <strong>acetic acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/ethanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 4.76$</td>
+  <td><code class="smiles-copy" title="Click to copy">CC(=O)O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/ethanoate.svg" alt="ethanoate" class="mol-thumb"></td>
+  <td><strong>ethanoate</strong> or <strong>acetate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/ethanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">CC(=O)[O-]</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/nitroethanoic_acid.svg" alt="nitroethanoic acid" class="mol-thumb"></td>
+  <td><strong>nitroethanoic acid</strong> or <strong>nitroacetic acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/nitroethanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 1.7$</td>
+  <td><code class="smiles-copy" title="Click to copy">O=C(C[N+](=O)[O-])O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/nitroethanoate.svg" alt="nitroethanoate" class="mol-thumb"></td>
+  <td><strong>nitroethanoate</strong> or <strong>nitroacetate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/nitroethanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">O=C(C[N+](=O)[O-])[O-]</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/(carboxymethyl)trimethylazanium.svg" alt="(carboxymethyl)trimethylazanium" class="mol-thumb"></td>
+  <td><strong>(carboxymethyl)trimethylazanium</strong>, or <strong>betainium</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/(carboxymethyl)trimethylazanium.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 1.8$, Charge: +1</td>
+  <td><code class="smiles-copy" title="Click to copy">C[N+](CC(O)=O)(C)C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2-(trimethylazaniumyl)ethanoate.svg" alt="2-(trimethylazaniumyl)ethanoate" class="mol-thumb"></td>
+  <td><strong>2-(trimethylazaniumyl)ethanoate</strong>, or <strong>betaine</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2-(trimethylazaniumyl)ethanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Zwitterion, Charge: 0</td>
+  <td><code class="smiles-copy" title="Click to copy">C[N+](CC([O-])=O)(C)C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2-cyanoethanoic_acid.svg" alt="2-cyanoethanoic acid" class="mol-thumb"></td>
+  <td><strong>2-cyanoethanoic acid</strong>, or <strong>cyanacetic acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2-cyanoethanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 2.4$</td>
+  <td><code class="smiles-copy" title="Click to copy">N#CCC(O)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2-cyanoethanoate.svg" alt="2-cyanoethanoate" class="mol-thumb"></td>
+  <td><strong>2-cyanoethanoate</strong>, or <strong>cyanacetate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2-cyanoethanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">N#CCC([O-])=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/3-oxobutanoic_acid.svg" alt="3-oxobutanoic acid" class="mol-thumb"></td>
+  <td><strong>3-oxobutanoic acid</strong> or <strong>acetoacetic acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/3-oxobutanoic_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 3.6$</td>
+  <td><code class="smiles-copy" title="Click to copy">CC(CC(O)=O)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/3-oxobutanoate.svg" alt="3-oxobutanoate" class="mol-thumb"></td>
+  <td><strong>3-oxobutanoate</strong>, or <strong>acetoacetate</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/3-oxobutanoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">CC(CC([O-])=O)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/1H-isoindole-1,3(2H)-dione.svg" alt="phthalimide" class="mol-thumb"></td>
+  <td><strong>1H-isoindole-1,3(2H)-dione</strong>, or <strong>phthalimide</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/1H-isoindole-1,3(2H)-dione.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 8.3$</td>
+  <td><code class="smiles-copy" title="Click to copy">O=C1NC(=O)c2ccccc12</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/1,3-dioxo-1,3-dihydro-2H-isoindol-2-ide.svg" alt="phthalimide anion" class="mol-thumb"></td>
+  <td><strong>1,3-dioxo-1,3-dihydro-2H-isoindol-2-ide</strong>, or <strong>phthalimide anion</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/1,3-dioxo-1,3-dihydro-2H-isoindol-2-ide.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">O=C1[N-]C(=O)c2ccccc12</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/hypochlorous_acid.svg" alt="hypochlorous acid" class="mol-thumb"></td>
+  <td><strong>hypochlorous acid</strong>, or <strong>chloric(I) acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/hypochlorous_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 7.5$</td>
+  <td><code class="smiles-copy" title="Click to copy">ClO</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/hypochlorite.svg" alt="hypochlorite" class="mol-thumb"></td>
+  <td><strong>hypochlorite</strong>, or <strong>chlorate(I)</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/hypochlorite.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">Cl[O-]</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/chlorous_acid.svg" alt="chlorous acid" class="mol-thumb"></td>
+  <td><strong>chlorous acid</strong>, or <strong>chloric(III) acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/chlorous_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 2$</td>
+  <td><code class="smiles-copy" title="Click to copy">Cl(=O)O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/chlorite.svg" alt="chlorite" class="mol-thumb"></td>
+  <td><strong>chlorite</strong>, or <strong>chlorate(III)</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/chlorite.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">Cl(=O)[O-]</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/chloric_acid.svg" alt="chloric acid" class="mol-thumb"></td>
+  <td><strong>chloric acid</strong>, or <strong>chloric(V) acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/chloric_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = -1$</td>
+  <td><code class="smiles-copy" title="Click to copy">Cl(=O)(O)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/chlorate.svg" alt="chlorate" class="mol-thumb"></td>
+  <td><strong>chlorate</strong>, or <strong>chlorate(V)</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/chlorate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">Cl(=O)([O-])=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/perchloric_acid.svg" alt="perchloric acid" class="mol-thumb"></td>
+  <td><strong>perchloric acid</strong>, or <strong>chloric(VII) acid</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/perchloric_acid.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a \approx -10$</td>
+  <td><code class="smiles-copy" title="Click to copy">Cl(=O)(O)(=O)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/perchlorate.svg" alt="perchlorate" class="mol-thumb"></td>
+  <td><strong>perchlorate</strong>, or <strong>chlorate(VII)</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/perchlorate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">Cl(=O)([O-])(=O)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/methane.svg" alt="methane" class="mol-thumb"></td>
+  <td><strong>methane</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/methane.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a \approx 48$</td>
+  <td><code class="smiles-copy" title="Click to copy">C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/buta-1,3-diene.svg" alt="buta-1,3-diene" class="mol-thumb"></td>
+  <td><strong>buta-1,3-diene</strong>, or <strong>1,3-butadiene</strong>, or <strong>divinyl</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/buta-1,3-diene.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Simplest non-cyclic delocalized $\pi$ system</td>
+  <td><code class="smiles-copy" title="Click to copy">C=CC=C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/propan-2-one.svg" alt="propan-2-one" class="mol-thumb"></td>
+  <td><strong>propan-2-one</strong>, or <strong>acetone</strong>, or <strong>dimethyl ketone</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/propan-2-one.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Simplest ketone</td>
+  <td><code class="smiles-copy" title="Click to copy">C(C)(C)=O</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2-methylpropan-2-ide.svg" alt="2-methylpropan-2-ide" class="mol-thumb"></td>
+  <td><strong>2-methylpropan-2-ide</strong>, or <strong>tert-butyl carbanion</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2-methylpropan-2-ide.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">[C-](C)(C)C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2-methylpropan-2-ylium.svg" alt="2-methylpropan-2-ylium" class="mol-thumb"></td>
+  <td><strong>2-methylpropan-2-ylium</strong>, or <strong>tert-butyl cation</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2-methylpropan-2-ylium.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: +1</td>
+  <td><code class="smiles-copy" title="Click to copy">[C+](C)(C)C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/ethanol.svg" alt="ethanol" class="mol-thumb"></td>
+  <td><strong>ethanol</strong>, or <strong>ethyl alcohol</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/ethanol.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 15.9$</td>
+  <td><code class="smiles-copy" title="Click to copy">CCO</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/ethanolate.svg" alt="ethanolate" class="mol-thumb"></td>
+  <td><strong>ethanolate</strong>, or <strong>ethoxide</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/ethanolate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: -1</td>
+  <td><code class="smiles-copy" title="Click to copy">CC[O-]</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/bromomethane.svg" alt="bromomethane" class="mol-thumb"></td>
+  <td><strong>bromomethane</strong>, or <strong>methyl bromide</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/bromomethane.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Halogenated alkane</td>
+  <td><code class="smiles-copy" title="Click to copy">CBr</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/(2,4,6-trimethylphenyl)oxomethylium.svg" alt="(2,4,6-trimethylphenyl)oxomethylium" class="mol-thumb"></td>
+  <td><strong>(2,4,6-trimethylphenyl)oxomethylium</strong>, or <strong>2,4,6-trimethylbenzoylium</strong>, or <strong>mesitoylium</strong>, or <strong>mesitoyl cation</strong>, or <strong>2,4,6-trimethylbenzoyl cation</strong>, or <strong>[(2,4,6-trimethylphenyl)methylidyne]oxonium</strong>, or <strong>mesityloxomethylium</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/(2,4,6-trimethylphenyl)oxomethylium.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Mesitoyl cation (acylium ion), Charge: +1</td>
+  <td><code class="smiles-copy" title="Click to copy">[O+]#Cc1c(C)cc(C)cc1C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/2,4,6-trimethylbenzoyl_chloride.svg" alt="2,4,6-trimethylbenzoyl chloride" class="mol-thumb"></td>
+  <td><strong>2,4,6-trimethylbenzoyl chloride</strong>, or <strong>mesitoyl chloride</strong>, or <strong>2,4,6-trimethylbenzenecarbonyl chloride</strong>, or <strong>mesitylcarbonyl chloride</strong>, or <strong>mesitoic acid chloride</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/2,4,6-trimethylbenzoyl_chloride.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Mesitoyl chloride (hindered acyl chloride)</td>
+  <td><code class="smiles-copy" title="Click to copy">O=C(c1c(C)cc(C)cc1C)Cl</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/methyl_2,4,6-trimethylbenzoate.svg" alt="methyl 2,4,6-trimethylbenzoate" class="mol-thumb"></td>
+  <td><strong>methyl 2,4,6-trimethylbenzoate</strong>, or <strong>methyl mesitoate</strong>, or <strong>methyl 2,4,6-trimethylbenzenecarboxylate</strong>, or <strong>2,4,6-trimethylbenzoic acid methyl ester</strong>, or <strong>mesitoic acid methyl ester</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/methyl_2,4,6-trimethylbenzoate.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Methyl mesitoate (hindered ester)</td>
+  <td><code class="smiles-copy" title="Click to copy">O=C(OC)c1c(C)cc(C)cc1C</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/oxonium.svg" alt="oxonium" class="mol-thumb"></td>
+  <td><strong>oxonium</strong>, or <strong>oxidanium</strong>, or <strong>hydronium</strong>, or <strong>hydroxonium</strong>, or <strong>trihydridooxygen(1+)</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/oxonium.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">Charge: +1, $pK_a = -1.74$</td>
+  <td><code class="smiles-copy" title="Click to copy">[OH3+]</code></td>
+</tr>
+<tr>
+  <td><img src="bundles/molecules/water.svg" alt="water" class="mol-thumb"></td>
+  <td><strong>water</strong>, or <strong>oxidane</strong>, or <strong>dihydrogen oxide</strong>, or <strong>dihydridooxygen</strong>, or <strong>hydrogen hydroxide</strong>, or <strong>dihydrogen monoxide</strong></td>
+  <td><a href="viewer.html?bundle=bundles/molecules/water.zip&download" target="_blank" class="view-btn">Open</a></td>
+  <td class="notes-cell">$pK_a = 15.74$</td>
+  <td><code class="smiles-copy" title="Click to copy">O</code></td>
+</tr>
+</tbody>
+</table>
     </div>
   </div>
 
