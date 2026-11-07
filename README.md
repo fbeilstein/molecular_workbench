@@ -57,9 +57,11 @@ Open [**http://localhost:8082**](http://localhost:8082) in your browser.
 
 
 ### 3. Standalone 3D Web Viewer (`viewer.html`)
-A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly in the browser's memory using `JSZip` and renders them with `3Dmol.js`:
-- Open `viewer.html` directly or serve via GitHub Pages.
-- Drag & drop any `.zip` bundle, or pass it via URL query parameter: `viewer.html?bundle=<path-or-url>`.
+A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly in the browser's memory using `JSZip` and renders them with `3Dmol.js`.
+
+- You can simply [OPEN MOLECULAR VIEWER](https://fbeilstein.github.io/molecular_workbench/viewer.html) in browser, choose zip bundle, and view.
+- You can embed it into your page, the bundle can be passed as `https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=<path-or-url>`. Be aware of COARS.
+- You can simply [DOWNLOAD IT](https://github.com/fbeilstein/molecular_workbench/releases/download/irc_v1/viewer.zip) in archive, unpack, and open viewer.html in any browser.
 
 ---
 
@@ -84,6 +86,5 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 
 </details>
 
-[MOLECULES](https://fbeilstein.github.io/molecular_workbench/gallery.html)
+[Molecules](https://fbeilstein.github.io/molecular_workbench/gallery.html)
 
-[MOLECULAR VIEWER](https://fbeilstein.github.io/molecular_workbench/viewer.html)
