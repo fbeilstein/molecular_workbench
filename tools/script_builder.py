@@ -69,7 +69,7 @@ def build_compute_script(body, output_dir, venv_python, tools_dir):
         "engine": engine,
         "method": "b3lyp",
         "frontier_depth": frontier_depth,
-        "orbital_isovalue": 0.035,
+        "orbital_isovalue": 0.045,
     }
     if ket_data:
         manifest["ket_file"] = f"{name}.ket"

@@ -316,8 +316,8 @@ export class BundleMoleculeModal {
                 this.viewer.addModel(cubeText, 'cube');
                 this.viewer.setStyle({}, { stick: { radius: 0.13, colorscheme: 'Jmol' }, sphere: { scale: 0.28, colorscheme: 'Jmol' } });
             }
-            this.viewer.addIsosurface(vdo, { isoval: 0.035, color: posHex, opacity: 0.75 });
-            this.viewer.addIsosurface(vdo, { isoval: -0.035, color: negHex, opacity: 0.75 });
+            this.viewer.addIsosurface(vdo, { isoval: 0.045, color: posHex, opacity: 0.75 });
+            this.viewer.addIsosurface(vdo, { isoval: -0.045, color: negHex, opacity: 0.75 });
         }
 
         this.viewer.zoomTo();

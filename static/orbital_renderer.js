@@ -313,7 +313,7 @@ window.WB.onChangeHandler = async function() {
                 } catch(e) { continue; }
             }
             const vol = new $3Dmol.VolumeData(txt, 'cube');
-            const iso = window._customIsovalue || 0.035;
+            const iso = window._customIsovalue || 0.045;
             shapesToAdd.push({vol: vol, isoval: iso, color: pc.pos, opacity: 0.75, smoothness: 1});
             shapesToAdd.push({vol: vol, isoval: -iso, color: pc.neg, opacity: 0.75, smoothness: 1});
         }

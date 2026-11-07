@@ -60,8 +60,8 @@ export function openMoleculePopout(moleculeName, bundleData) {
                 viewer.addCustom({ vertexArr: neg.vertices, faceArr: neg.faces, normalArr: neg.normals || undefined, color: $3Dmol.CC.color(negHex), opacity: 0.75 });
             } else if (files[name]) {
                 const vol = new $3Dmol.VolumeData(files[name], 'cube');
-                viewer.addIsosurface(vol, { isoval: 0.035, color: posHex, opacity: 0.75 });
-                viewer.addIsosurface(vol, { isoval: -0.035, color: negHex, opacity: 0.75 });
+                viewer.addIsosurface(vol, { isoval: 0.045, color: posHex, opacity: 0.75 });
+                viewer.addIsosurface(vol, { isoval: -0.045, color: negHex, opacity: 0.75 });
             }
             viewer.zoomTo(); viewer.render();
         }

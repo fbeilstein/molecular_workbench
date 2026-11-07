@@ -83,7 +83,7 @@ def _get_charge_from_smiles(smiles):
         pass
     return mol_charge
 
-def _process_molecule_orbitals(mol_info, job_dir, cube_dir, zf, frontier_depth=0, default_charge=0, isoval=0.035):
+def _process_molecule_orbitals(mol_info, job_dir, cube_dir, zf, frontier_depth=0, default_charge=0, isoval=0.045):
     key, role = mol_info['key'], mol_info['role']
     smiles = mol_info.get('smiles', '')
     mol_data = {'key': key, 'role': role, 'smiles': smiles, 'orbitals': []}
@@ -160,7 +160,7 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
     print(f'  Exporting: {name}\n  Source: {job_dir}\n  Output: {output_path}')
 
     frontier_depth = int(bundle.get('frontier_depth', 0) or 0)
-    default_isoval = float(bundle.get('orbital_isovalue', 0.035) or 0.035)
+    default_isoval = float(bundle.get('orbital_isovalue', 0.045) or 0.045)
 
     manifest = {
         'name': name,

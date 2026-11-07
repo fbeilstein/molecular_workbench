@@ -74,7 +74,7 @@ class CubeConverter:
             return None
 
     @classmethod
-    def process_cube(cls, cube_path, isoval=0.035, adaptive=False):
+    def process_cube(cls, cube_path, isoval=0.045, adaptive=False):
         """Converts a .cube file into _pos.json and _neg.json surface files.
         
         If adaptive=True, ignores isoval and instead computes the threshold
@@ -118,7 +118,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Interactively select and convert .cube files to .json meshes.")
     parser.add_argument("path", help="Directory containing .cube files, or a specific .cube file")
     parser.add_argument("--adaptive", action="store_true", help="Use adaptive isovalue")
-    parser.add_argument("--isoval", type=float, default=0.035, help="Isovalue for mesh extraction")
+    parser.add_argument("--isoval", type=float, default=0.045, help="Isovalue for mesh extraction")
     args = parser.parse_args()
 
     if os.path.isdir(args.path):

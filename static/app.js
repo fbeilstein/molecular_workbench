@@ -243,7 +243,7 @@ window.WB.verifyBundle = async function() {
 
         // Enable slider / reset button states and sync bundle defaults
         window._customIsovalue = undefined;
-        const defaultIso = manifest.orbital_isovalue || 0.035;
+        const defaultIso = manifest.orbital_isovalue || 0.045;
         const btnPurge = document.getElementById('btn-purge-cubes');
         if (btnPurge) {
             btnPurge.textContent = '🗑 Purge Cube Files';
