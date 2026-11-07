@@ -476,6 +476,64 @@ def extract_step0_planar_pi(
     else:
         C_non_pi_virt = C_virt.copy()
 
+    # 5. Search delocalized pi and pi* in the true Canonical MO space (no artificial truncated projection)
+    occ_pi_keys = [k for k, m in canonical_pi_meta.items() if m.get("type") == "delocalized_pi"]
+    if occ_pi_keys and nocc > 0:
+        V_occ = np.column_stack([canonical_pi_vecs[k] for k in occ_pi_keys])
+        P_occ = (mo_coeff[:, :nocc].T @ ovlp @ V_occ) ** 2
+        try:
+            from scipy.optimize import linear_sum_assignment
+            row_ind, col_ind_raw = linear_sum_assignment(-P_occ.T)
+            col_ind = np.zeros(len(occ_pi_keys), dtype=int)
+            col_ind[row_ind] = col_ind_raw
+        except Exception:
+            col_ind = np.argmax(P_occ, axis=0)
+
+        for j, key in enumerate(occ_pi_keys):
+            can_idx = int(col_ind[j])
+            depth = (nocc - 1) - can_idx
+            hl = "HOMO" if depth == 0 else f"HOMO-{depth}"
+            canonical_pi_meta[key]["label"] = f"π ({hl})"
+            canonical_pi_meta[key]["canonical_label"] = f"π ({hl})"
+            canonical_pi_meta[key]["homo_label"] = hl
+            canonical_pi_meta[key]["mo_index"] = can_idx
+            canonical_pi_meta[key]["energy_ev"] = round(float(mo_energy[can_idx] * 27.2114), 2)
+            canonical_pi_meta[key]["description"] = f"Delocalized conjugated π ({hl})"
+            # Use the actual Canonical MO from the molecular orbital space
+            can_vec = mo_coeff[:, can_idx].copy()
+            if float(can_vec.T @ ovlp @ canonical_pi_vecs[key]) < 0.0:
+                can_vec = -can_vec
+            canonical_pi_vecs[key] = can_vec
+
+    virt_pi_keys = [k for k, m in canonical_pi_meta.items() if m.get("type") == "delocalized_pistar"]
+    if virt_pi_keys and mo_coeff.shape[1] > nocc:
+        V_virt = np.column_stack([canonical_pi_vecs[k] for k in virt_pi_keys])
+        P_virt = (mo_coeff[:, nocc:].T @ ovlp @ V_virt) ** 2
+        try:
+            from scipy.optimize import linear_sum_assignment
+            row_ind, col_ind_raw = linear_sum_assignment(-P_virt.T)
+            col_ind = np.zeros(len(virt_pi_keys), dtype=int)
+            col_ind[row_ind] = col_ind_raw
+        except Exception:
+            col_ind = np.argmax(P_virt, axis=0)
+
+        for j, key in enumerate(virt_pi_keys):
+            can_offset = int(col_ind[j])
+            can_idx = nocc + can_offset
+            offset = can_offset
+            ll = "LUMO" if offset == 0 else f"LUMO+{offset}"
+            canonical_pi_meta[key]["label"] = f"π* ({ll})"
+            canonical_pi_meta[key]["canonical_label"] = f"π* ({ll})"
+            canonical_pi_meta[key]["lumo_label"] = ll
+            canonical_pi_meta[key]["mo_index"] = can_idx
+            canonical_pi_meta[key]["energy_ev"] = round(float(mo_energy[can_idx] * 27.2114), 2)
+            canonical_pi_meta[key]["description"] = f"Delocalized antibonding π* ({ll})"
+            # Use the actual Canonical MO from the molecular orbital space
+            can_vec = mo_coeff[:, can_idx].copy()
+            if float(can_vec.T @ ovlp @ canonical_pi_vecs[key]) < 0.0:
+                can_vec = -can_vec
+            canonical_pi_vecs[key] = can_vec
+
     return C_non_pi_occ, C_non_pi_virt, canonical_pi_meta, canonical_pi_vecs
 
 

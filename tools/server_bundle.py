@@ -135,7 +135,7 @@ def read_bundle_entry(zip_path, inner_path):
     try:
         with zipfile.ZipFile(zip_path, 'r') as z:
             return z.read(inner_path), None
-    except KeyError:
+    except (KeyError, zipfile.BadZipFile):
         if inner_path.endswith('_pos.json') or inner_path.endswith('_neg.json'):
             return b'{"vertices": [], "faces": []}', None
-        return None, f'File not found in bundle: {inner_path}'
+        return None, f'File not found or bundle currently updating: {inner_path}'

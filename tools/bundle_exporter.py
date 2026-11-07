@@ -134,7 +134,8 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
         'has_orbitals': False,
     }
 
-    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+    tmp_output_path = f"{output_path}.tmp"
+    with zipfile.ZipFile(tmp_output_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         # --- Reaction SVG (single file for the whole reaction) ---
         rxn_svg_path = os.path.join(job_dir, f'{name}_reaction.svg')
         if os.path.exists(rxn_svg_path):
@@ -160,6 +161,7 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
 
         zf.writestr('manifest.json', json.dumps(manifest, indent=2))
 
+    os.replace(tmp_output_path, output_path)
     sz = os.path.getsize(output_path) / (1024*1024)
     print(f'\n  ✓ {output_path} ({sz:.1f} MB)')
     print(f'  ✓ {len(manifest["molecules"])} molecules')

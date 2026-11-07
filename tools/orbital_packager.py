@@ -8,11 +8,14 @@ def _pack_orbital_group(zf, cube_dir, orbitals, group_name, color, label_fn):
             sign_file = info['file'].replace('.cube', f'_{sign}.json')
             if os.path.exists(os.path.join(cube_dir, sign_file)):
                 zf.write(os.path.join(cube_dir, sign_file), f'molecules/{sign_file}')
-        group['items'].append({
+        item = {
             'label': label_fn(info),
             'file': f'molecules/{base_file}',
             'color': color,
-        })
+        }
+        if info.get('energy_ev') is not None:
+            item['energy_ev'] = info['energy_ev']
+        group['items'].append(item)
     return group
 
 def package_orbitals(orb_manifest, cube_dir, zf):
@@ -61,38 +64,72 @@ def package_orbitals(orb_manifest, cube_dir, zf):
     
     def _sort_bonds(bonds):
         return sorted(bonds, key=lambda x: (min(x['atoms']), max(x['atoms'])))
+
+    def _sort_pi_bonds(bonds):
+        def _key(x):
+            atoms = x.get('atoms', [])
+            is_deloc = 1 if len(atoms) > 2 else 0
+            atoms_key = (min(atoms), max(atoms)) if atoms else ()
+            lbl = x.get('canonical_label') or ''
+            if 'HOMO' in lbl:
+                if 'HOMO-' in lbl:
+                    try: depth = int(lbl.split('HOMO-')[1].split(')')[0])
+                    except: depth = 0
+                else:
+                    depth = 0
+                return (is_deloc, atoms_key, -depth)
+            return (is_deloc, atoms_key, x.get('energy_ev') if x.get('energy_ev') is not None else 0.0)
+        return sorted(bonds, key=_key)
+
+    def _sort_pistar_bonds(bonds):
+        def _key(x):
+            atoms = x.get('atoms', [])
+            is_deloc = 1 if len(atoms) > 2 else 0
+            atoms_key = (min(atoms), max(atoms)) if atoms else ()
+            lbl = x.get('canonical_label') or ''
+            if 'LUMO' in lbl:
+                if 'LUMO+' in lbl:
+                    try: offset = int(lbl.split('LUMO+')[1].split(')')[0])
+                    except: offset = 0
+                else:
+                    offset = 0
+                return (is_deloc, atoms_key, offset)
+            return (is_deloc, atoms_key, x.get('energy_ev') if x.get('energy_ev') is not None else 0.0)
+        return sorted(bonds, key=_key)
         
     if 'sigma' in loc: loc['sigma'] = _sort_bonds(loc['sigma'])
     if 'sigma_star' in loc: loc['sigma_star'] = _sort_bonds(loc['sigma_star'])
-    if 'pi' in loc: loc['pi'] = _sort_bonds(loc['pi'])
-    if 'pi_star' in loc: loc['pi_star'] = _sort_bonds(loc['pi_star'])
+    if 'pi' in loc: loc['pi'] = _sort_pi_bonds(loc['pi'])
+    if 'pi_star' in loc: loc['pi_star'] = _sort_pistar_bonds(loc['pi_star'])
     
     if loc.get('sigma'):
         def sigma_label(info):
-            if len(info['atoms']) > 2: return "deloc-σ(" + ",".join(info['atoms']) + ")"
+            if info.get('canonical_label'): return info['canonical_label']
+            if len(info['atoms']) > 2: return "σ(deloc)"
             return f"σ({info['atoms'][0]}–{info['atoms'][1]})"
         grp = _pack_orbital_group(zf, cube_dir, loc['sigma'], 'σ Bonds', '#44cc77', sigma_label)
         orbital_groups.append(grp)
         
     if loc.get('pi'):
         def pi_label(info):
-            if 'canonical_label' in info: return info['canonical_label']
-            if len(info['atoms']) > 2: return "deloc-π(" + ",".join(info['atoms']) + ")"
+            if info.get('canonical_label'): return info['canonical_label']
+            if len(info['atoms']) > 2: return "π(deloc)"
             return f"π({info['atoms'][0]}={info['atoms'][1]})"
         grp = _pack_orbital_group(zf, cube_dir, loc['pi'], 'π Bonds', '#cc44bb', pi_label)
         orbital_groups.append(grp)
         
     if loc.get('sigma_star'):
         def sigmastar_label(info):
-            if len(info['atoms']) > 2: return "σ*(" + ",".join(info['atoms']) + ")"
+            if info.get('canonical_label'): return info['canonical_label']
+            if len(info['atoms']) > 2: return "σ*(deloc)"
             return f"σ*({info['atoms'][0]}–{info['atoms'][1]})"
         grp = _pack_orbital_group(zf, cube_dir, loc['sigma_star'], 'σ* Anti-Bonds', '#ffaa00', sigmastar_label)
         orbital_groups.append(grp)
         
     if loc.get('pi_star'):
         def pistar_label(info):
-            if 'canonical_label' in info: return info['canonical_label']
-            if len(info['atoms']) > 2: return "π*(" + ",".join(info['atoms']) + ")"
+            if info.get('canonical_label'): return info['canonical_label']
+            if len(info['atoms']) > 2: return "π*(deloc)"
             return f"π*({info['atoms'][0]}={info['atoms'][1]})"
         grp = _pack_orbital_group(zf, cube_dir, loc['pi_star'], 'π* Anti-Bonds', '#ff00aa', pistar_label)
         orbital_groups.append(grp)
