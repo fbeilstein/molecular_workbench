@@ -43,7 +43,7 @@ def extract_isosurface_mesh(
     vol: np.ndarray,
     origin_ang: np.ndarray,
     step_ang: np.ndarray,
-    isovalue: float = 0.03
+    isovalue: float = 0.035
 ) -> Dict[str, Any]:
     """Generate 3Dmol-compatible surface meshes for positive and negative lobes."""
     mesh_data = {"pos": None, "neg": None, "isovalue": isovalue}
@@ -53,12 +53,12 @@ def extract_isosurface_mesh(
         vp, fp, np_arr, _ = measure.marching_cubes(vol, level, spacing=step_ang)
         vp += origin_ang
         tp = trimesh.Trimesh(vertices=vp, faces=fp, vertex_normals=np_arr, process=True)
-        v_list = [{"x": float(v[0]), "y": float(v[1]), "z": float(v[2])} for v in tp.vertices.round(4)]
+        v_list = [{"x": float(v[0]), "y": float(v[1]), "z": float(v[2])} for v in tp.vertices.round(3)]
         f_list = [int(idx) for face in tp.faces for idx in face]
         mesh_data["pos"] = {
             "vertexArr": v_list,
             "faceArr": f_list,
-            "normalArr": [{"x": float(n[0]), "y": float(n[1]), "z": float(n[2])} for n in tp.vertex_normals.round(4)]
+            "normalArr": [{"x": float(n[0]), "y": float(n[1]), "z": float(n[2])} for n in tp.vertex_normals.round(3)]
         }
     except Exception:
         mesh_data["pos"] = None
@@ -68,12 +68,12 @@ def extract_isosurface_mesh(
         vn += origin_ang
         fn = fn[:, ::-1]
         tn = trimesh.Trimesh(vertices=vn, faces=fn, vertex_normals=-nn_arr, process=True)
-        v_list = [{"x": float(v[0]), "y": float(v[1]), "z": float(v[2])} for v in tn.vertices.round(4)]
+        v_list = [{"x": float(v[0]), "y": float(v[1]), "z": float(v[2])} for v in tn.vertices.round(3)]
         f_list = [int(idx) for face in tn.faces for idx in face]
         mesh_data["neg"] = {
             "vertexArr": v_list,
             "faceArr": f_list,
-            "normalArr": [{"x": float(n[0]), "y": float(n[1]), "z": float(n[2])} for n in tn.vertex_normals.round(4)]
+            "normalArr": [{"x": float(n[0]), "y": float(n[1]), "z": float(n[2])} for n in tn.vertex_normals.round(3)]
         }
     except Exception:
         mesh_data["neg"] = None

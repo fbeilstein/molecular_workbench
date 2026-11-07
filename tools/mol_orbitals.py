@@ -9,7 +9,7 @@ from qm.esp import compute_esp_surface
 
 def compute_all_orbitals(xyz_file, name=None, out_dir=None, charge=0, spin=0,
                          basis='6-31g*', method='b3lyp', grid_points=50,
-                         chkfile=None, read_chk=False, smiles=""):
+                         chkfile=None, read_chk=False, smiles="", frontier_depth=0):
     """Full pipeline: SCF → QuantumPipeline → ESP → JSON manifest."""
     if name is None:
         name = os.path.splitext(os.path.basename(xyz_file))[0]
@@ -21,8 +21,16 @@ def compute_all_orbitals(xyz_file, name=None, out_dir=None, charge=0, spin=0,
     mol, mf, labels = run_scf(xyz_file, charge, spin, basis, method,
                                chkfile, read_chk)
 
-    # Run new pipeline for all orbitals
-    pipeline = QuantumPipeline(mol, mf, smiles, name, out_dir, grid_points)
+    # Mulliken atomic charges (3 decimals, unified with server_irc.py)
+    try:
+        mull_charges = [round(float(q), 3) for q in mf.mulliken_pop(verbose=0)[1]]
+    except Exception:
+        mull_charges = [0.0] * mol.natm
+
+    # Run unified pipeline for all orbitals
+    pipeline = QuantumPipeline(
+        mol, mf, smiles, name, out_dir, grid_points=grid_points, frontier_depth=frontier_depth
+    )
     orbitals_manifest = pipeline.run()
 
     # ESP surface
@@ -35,8 +43,10 @@ def compute_all_orbitals(xyz_file, name=None, out_dir=None, charge=0, spin=0,
         'basis': basis,
         'charge': charge,
         'spin': spin,
+        'frontier_depth': int(frontier_depth),
         'n_electrons': mol.nelectron,
-        'energy_hartree': float(mf.e_tot),
+        'energy_hartree': round(float(mf.e_tot), 6),
+        'charges': mull_charges,
         'canonical': orbitals_manifest['canonical'],
         'localized': orbitals_manifest['localized'],
     }
@@ -45,7 +55,7 @@ def compute_all_orbitals(xyz_file, name=None, out_dir=None, charge=0, spin=0,
 
     manifest_path = os.path.join(out_dir, f"{name}_orbitals.json")
     with open(manifest_path, 'w') as f:
-        json.dump(manifest, f, indent=2)
+        json.dump(manifest, f, separators=(',', ':'))
     print(f"  Manifest: {manifest_path}")
 
     return manifest
@@ -70,6 +80,7 @@ Examples:
     parser.add_argument('--basis', default='6-31g*', help='Basis set')
     parser.add_argument('--method', default='b3lyp', help='DFT functional or hf')
     parser.add_argument('--grid', type=int, default=50, help='Cube grid points per dimension')
+    parser.add_argument('--frontier-depth', type=int, default=0, help='Extra frontier orbitals around HOMO/LUMO (e.g. 2 -> HOMO-2..LUMO+2)')
     parser.add_argument('--chkfile', default=None, help='PySCF checkpoint file')
     parser.add_argument('--read-chk', action='store_true', help='Read guess from chkfile')
 
@@ -80,7 +91,8 @@ Examples:
 
     compute_all_orbitals(args.xyz_file, args.name, args.output_dir,
                          args.charge, args.spin, args.basis, args.method,
-                         args.grid, args.chkfile, args.read_chk)
+                         args.grid, args.chkfile, args.read_chk,
+                         frontier_depth=args.frontier_depth)
 
 
 

@@ -14,7 +14,7 @@ import { fetchFrameData, fetchOrbitalCube, postTimeline } from './orbitals/orbit
 export const OrbitalsUI = {
     state: {
         stepId: 'step_6_orbitals', uiSchema: null, totalFrames: 0, currentFrame: 0, isPlaying: false,
-        playTimer: null, loadTimer: null, hideAllOrbitals: false, showCharges: false, showLabels: false, isovalue: 0.03,
+        playTimer: null, loadTimer: null, hideAllOrbitals: false, showCharges: false, showLabels: false, isovalue: 0.035,
         viewer3D: null, pool: null, timeline: null, precompute: null, frameDataCache: {}, trajectory: [],
         trajectorySymbols: [], trajectoryAtomLabels: [], trajectoryBonds: [], trajectoryCharges: [], cubePromises: new Map(),
         visibleTrackIds: new Set()
@@ -37,7 +37,7 @@ export const OrbitalsUI = {
     async render(container, uiSchema, globalState, stepId) {
         Object.assign(this.state, {
             stepId: stepId || 'step_6_orbitals', uiSchema, totalFrames: uiSchema.total_frames || 0,
-            isovalue: uiSchema.default_isovalue || 0.03, trajectory: uiSchema.trajectory || [],
+            isovalue: uiSchema.default_isovalue || 0.035, trajectory: uiSchema.trajectory || [],
             trajectorySymbols: uiSchema.trajectory_symbols || [], trajectoryAtomLabels: uiSchema.trajectory_atom_labels || [], trajectoryBonds: uiSchema.trajectory_bonds || [],
             trajectoryCharges: uiSchema.trajectory_charges || [], currentFrame: 0,
             showLabels: localStorage.getItem('orbitals_show_labels') === '1'

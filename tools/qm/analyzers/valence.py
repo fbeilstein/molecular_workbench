@@ -1,16 +1,29 @@
+from typing import Optional
 import numpy as np
 from pyscf import gto, lo
 from qm.classification import _atom_populations, _classify_orbital
 from qm.models import Orbital
 
+HARTREE_TO_EV = 27.2114
+
+
 class ValenceLocalizer:
-    def __init__(self, mol: gto.M, mo_coeff: np.ndarray):
+    def __init__(self, mol: gto.M, mo_coeff: np.ndarray, fock: Optional[np.ndarray] = None):
         self.mol = mol
         self.mo_coeff = mo_coeff
+        self.fock = fock
         self.ovlp = mol.intor_symmetric('int1e_ovlp')
         self.atom_labels = [mol.atom_symbol(i) for i in range(mol.natm)]
         # For simplicity, we assume atom_ids are just the symbol + index (e.g. C0, H1)
         self.atom_ids = [f"{mol.atom_symbol(i)}{i}" for i in range(mol.natm)]
+
+    def _eval_energy_ev(self, vec: np.ndarray) -> Optional[float]:
+        if self.fock is None:
+            return None
+        denom = float(vec.T @ self.ovlp @ vec)
+        if denom < 1e-8:
+            return None
+        return round(float((vec.T @ self.fock @ vec) / denom) * HARTREE_TO_EV, 2)
 
     def localize(self, cols_to_localize: list, virt_cols: list):
         """
@@ -72,7 +85,12 @@ class ValenceLocalizer:
                         else:
                             seen_pi.add(pair)
                 
-                orbitals.append(Orbital(type=orb_type, atoms=atoms, mo_coeff=mo))
+                orbitals.append(Orbital(
+                    type=orb_type,
+                    atoms=atoms,
+                    mo_coeff=mo,
+                    energy_ev=self._eval_energy_ev(mo),
+                ))
                 
                 # If this is a 2-center bond and we have virtual space, construct the antibond
                 if virt_coeff is not None and orb_type in ('sigma', 'delocalized_sigma', 'pi', 'delocalized_pi') and len(atoms) >= 2:
@@ -105,6 +123,7 @@ class ValenceLocalizer:
                             type=star_type, 
                             atoms=[a1, a2], 
                             mo_coeff=c_star, 
+                            energy_ev=self._eval_energy_ev(c_star),
                             sym_score=1.0  # Perfect by definition
                         ))
                 

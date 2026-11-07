@@ -226,7 +226,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
     def _api_orbital_remesh(self, body):
         name = urllib.parse.unquote(str(body.get('name', '')))
         cube_file_path = urllib.parse.unquote(str(body.get('cube_file', '')))
-        isovalue = float(body.get('isovalue', 0.02))
+        isovalue = float(body.get('isovalue', 0.035))
 
         if not name or not cube_file_path:
             return self.send_error(400)

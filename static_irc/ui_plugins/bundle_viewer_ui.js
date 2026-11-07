@@ -28,7 +28,7 @@ export const BundleViewerUI = {
         viewer3D: null, pesChart: null, svgManager: null, highresManager: null,
         moleculeModal: null, transport: null, wiringMgr: null, activeOrbitals: new Set(),
         showCharges: false, showEspSurface: false, showLabels: localStorage.getItem('bundle_show_labels') === '1',
-        hideAllOrbitals: false, isovalue: 0.03, orbitalResolution: 32,
+        hideAllOrbitals: false, isovalue: 0.035, orbitalResolution: 32,
         tracks: [], frameDataCache: {}, activeTab: 'interactive'
     },
 
@@ -46,7 +46,7 @@ export const BundleViewerUI = {
         const totalFrames = megajson.frames.length;
         const timeline = uiSchema.orbital_timeline || megajson.orbital_timeline || { tracks: [] };
         this.state.tracks = timeline.tracks || [];
-        this.state.isovalue = timeline.default_isovalue || 0.03;
+        this.state.isovalue = timeline.default_isovalue || 0.035;
         this.state.showCharges = false;
         this.state.showEspSurface = this.state.tracks.some(t => t.orbital_key === 'track_esp_charge');
         this.state.orbitalResolution = uiSchema.orbital_resolution || megajson.orbital_resolution || 32;
@@ -206,7 +206,7 @@ export const BundleViewerUI = {
             const ok = (orb.orbital_key === 'track_esp_charge' || orb.track_id === 'trk_esp') ? 'track_esp_charge' : (orb.track_id || orb.orbital_key || orb.key || orb);
             const ck = orb.chem_key || ok;
             const isoKey = `${f}_${ok}_${Math.round(this.state.isovalue * 1000)}`;
-            const hasData = this.state.viewer3D.cubeCache[`${f}_${ok}`] || this.state.viewer3D.meshCache[isoKey] || (Math.abs(this.state.isovalue - 0.03) < 0.003 && this.state.viewer3D.meshCache[`${f}_${ok}`]);
+            const hasData = this.state.viewer3D.cubeCache[`${f}_${ok}`] || this.state.viewer3D.meshCache[isoKey] || (Math.abs(this.state.isovalue - 0.035) < 0.003 && this.state.viewer3D.meshCache[`${f}_${ok}`]);
 
             if (!hasData) {
                 fetchCube(this.state, f, ok, ck, this.state.isovalue).then(res => {
@@ -252,7 +252,7 @@ export const BundleViewerUI = {
     async getData(ui) {
         const wiring = this.state.svgManager?.wiring || this.state.megajson?.svg_wiring || {};
         const svg = this.state.svgManager?.currentSvg || this.state.megajson?.mechanism_svg || '';
-        const iso = this.state.isovalue || 0.03;
+        const iso = this.state.isovalue || 0.035;
 
         // Preserve all existing chosen tracks exactly as chosen by the user in Step 6
         let timeline = undefined;

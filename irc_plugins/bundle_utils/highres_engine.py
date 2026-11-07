@@ -48,7 +48,7 @@ def recompute_highres_batch(
     start_frame: int,
     end_frame: int,
     resolution: int = 50,
-    isovalue: float = 0.03
+    isovalue: float = 0.035
 ) -> Dict[str, Any]:
     """Compute high-resolution grid and volumetric orbital cubes for a range of frames."""
     lo, step, npts = get_highres_grid(megajson, resolution)

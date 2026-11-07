@@ -90,11 +90,11 @@ class Step6Orbitals(PipelineStep):
         ep = megajson.get("energy_profile", {}).get("frame_energies_kcal", []) or [f.get("rel_energy_kcal", 0.0) for f in megajson["frames"]]
         timeline = megajson.get("orbital_timeline")
         if not isinstance(timeline, dict):
-            timeline = {"default_isovalue": 0.03, "tracks": []}
+            timeline = {"default_isovalue": 0.035, "tracks": []}
         else:
             tracks = timeline.get("tracks", [])
             timeline["tracks"] = enrich_timeline_tracks(megajson, tracks if isinstance(tracks, list) else [])
-            timeline.setdefault("default_isovalue", 0.03)
+            timeline.setdefault("default_isovalue", 0.035)
 
         return {
             "type": "orbitals_ui", "has_megajson": True, "total_frames": len(megajson["frames"]),
@@ -104,7 +104,7 @@ class Step6Orbitals(PipelineStep):
             "trajectory_atom_labels": [f.get("atom_labels") for f in megajson["frames"]],
             "trajectory_bonds": [f.get("bonds", []) for f in megajson["frames"]],
             "trajectory_charges": megajson.get("trajectory_charges", []), "energy_profile": ep,
-            "timeline": timeline, "default_isovalue": 0.03,
+            "timeline": timeline, "default_isovalue": 0.035,
             "color_palettes": {
                 "bonding": {"pos": "#38bdf8", "neg": "#1d4ed8", "label": "Bonding (Cyan/Blue)"},
                 "antibonding": {"pos": "#fb923c", "neg": "#db2777", "label": "Anti-Bonding (Orange/Magenta)"},
@@ -162,9 +162,9 @@ class Step6Orbitals(PipelineStep):
             ck_raw = user_input.get("chem_key")
             ck = str(ck_raw) if (ck_raw is not None and not isinstance(ck_raw, (int, float))) else None
             try:
-                iso = float(user_input.get("isovalue", 0.03) or 0.03)
+                iso = float(user_input.get("isovalue", 0.035) or 0.035)
             except (ValueError, TypeError):
-                iso = 0.03
+                iso = 0.035
             return get_or_compute_cube(frame_idx, ok, ck, iso, None, megajson, track_id=tid)
 
         return {"error": f"Unknown action: {action}"}

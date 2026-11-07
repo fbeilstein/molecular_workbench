@@ -51,6 +51,17 @@ def run_scf(xyz_file, charge=0, spin=0, basis='6-31g*', method='b3lyp',
     energy = mf.kernel()
 
     if not mf.converged:
+        print(f"  ↻ Standard SCF did not converge; retrying with level_shift=0.2...")
+        mf.level_shift = 0.2
+        mf.max_cycle = 100
+        energy = mf.kernel(dm0=mf.make_rdm1())
+        mf.level_shift = 0.0
+    if not mf.converged:
+        print(f"  ↻ Retrying with second-order SOSCF (Newton)...")
+        mf = mf.newton()
+        mf.verbose = 0
+        energy = mf.kernel()
+    if not mf.converged:
         print(f"  WARNING: SCF did not converge!", file=sys.stderr)
 
     print(f"  Total energy: {energy:.6f} Hartree")

@@ -40,24 +40,28 @@ export function openMoleculePopout(moleculeName, bundleData) {
         function renderMol() {
             if (bundle.xyz) {
                 viewer.addModel(bundle.xyz, 'xyz');
-                viewer.setStyle({}, { stick: { radius: 0.12, colorscheme: 'Jmol' }, sphere: { scale: 0.25, colorscheme: 'Jmol' } });
+                viewer.setStyle({}, { stick: { radius: 0.13, colorscheme: 'Jmol' }, sphere: { scale: 0.28, colorscheme: 'Jmol' } });
             }
         }
 
         function renderOrb(name) {
             viewer.removeAllModels(); viewer.removeAllShapes(); viewer.removeAllSurfaces();
             renderMol();
+            const sKey = String(name || '').toLowerCase();
+            const isAnti = sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
+            const posHex = isAnti ? '#fb923c' : '#38bdf8';
+            const negHex = isAnti ? '#db2777' : '#1d4ed8';
             const posKey = Object.keys(files).find(k => k === name + '_pos.json' || k.endsWith('/' + name + '_pos.json'));
             const negKey = Object.keys(files).find(k => k === name + '_neg.json' || k.endsWith('/' + name + '_neg.json'));
             if (posKey && negKey) {
                 const pos = typeof files[posKey] === 'string' ? JSON.parse(files[posKey]) : files[posKey];
                 const neg = typeof files[negKey] === 'string' ? JSON.parse(files[negKey]) : files[negKey];
-                viewer.addCustom({ vertexArr: pos.vertices, faceArr: pos.faces, color: $3Dmol.CC.color('#38bdf8'), opacity: 0.80 });
-                viewer.addCustom({ vertexArr: neg.vertices, faceArr: neg.faces, color: $3Dmol.CC.color('#f59e0b'), opacity: 0.80 });
+                viewer.addCustom({ vertexArr: pos.vertices, faceArr: pos.faces, normalArr: pos.normals || undefined, color: $3Dmol.CC.color(posHex), opacity: 0.75 });
+                viewer.addCustom({ vertexArr: neg.vertices, faceArr: neg.faces, normalArr: neg.normals || undefined, color: $3Dmol.CC.color(negHex), opacity: 0.75 });
             } else if (files[name]) {
                 const vol = new $3Dmol.VolumeData(files[name], 'cube');
-                viewer.addIsosurface(vol, { isoval: 0.03, color: '#38bdf8', opacity: 0.75 });
-                viewer.addIsosurface(vol, { isoval: -0.03, color: '#f59e0b', opacity: 0.75 });
+                viewer.addIsosurface(vol, { isoval: 0.035, color: posHex, opacity: 0.75 });
+                viewer.addIsosurface(vol, { isoval: -0.035, color: negHex, opacity: 0.75 });
             }
             viewer.zoomTo(); viewer.render();
         }

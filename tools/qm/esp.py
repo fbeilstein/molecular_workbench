@@ -100,12 +100,14 @@ def compute_esp_surface(mol, mf, name, out_dir, grid_points=50, iso_density=0.01
     HARTREE2KCAL = 627.509
     esp_kcal = esp_values * HARTREE2KCAL
 
-    # Build compact JSON mesh
-    v_list = [{'x': round(float(v[0]), 4), 'y': round(float(v[1]), 4), 'z': round(float(v[2]), 4)}
-              for v in verts_ang]
+    # Build compact JSON mesh (unified 0.001 A vertices, 0.001 normals, 0.01 kcal/mol ESP)
+    v_arr = np.round(verts_ang, 3)
+    n_arr = np.round(-normals, 3)
+    v_list = [{'x': float(v[0]), 'y': float(v[1]), 'z': float(v[2])}
+              for v in v_arr]
     f_list = [int(idx) for face in faces for idx in face]
-    n_list = [{'x': -round(float(n[0]), 4), 'y': -round(float(n[1]), 4), 'z': -round(float(n[2]), 4)}
-              for n in normals]
+    n_list = [{'x': float(n[0]), 'y': float(n[1]), 'z': float(n[2])}
+              for n in n_arr]
     esp_list = [round(float(v), 2) for v in esp_kcal]
 
     esp_data = {

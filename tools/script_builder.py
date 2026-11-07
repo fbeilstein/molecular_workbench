@@ -27,6 +27,7 @@ def build_compute_script(body, output_dir, venv_python, tools_dir):
     name = body.get('name', 'molecule')
     charge = body.get('charge', 0)
     engine = body.get('engine', 'xtb')
+    frontier_depth = max(0, int(body.get('frontier_depth', 0) or 0))
 
     smiles_charge = detect_charge_from_smiles(rxn_smiles)
     if charge == 0 and smiles_charge != 0:
@@ -67,6 +68,8 @@ def build_compute_script(body, output_dir, venv_python, tools_dir):
         "charge": charge,
         "engine": engine,
         "method": "b3lyp",
+        "frontier_depth": frontier_depth,
+        "orbital_isovalue": 0.035,
     }
     if ket_data:
         manifest["ket_file"] = f"{name}.ket"

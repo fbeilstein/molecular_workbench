@@ -125,14 +125,14 @@ class Step7Bundle(PipelineStep):
         if action == "recompute_highres_cubes":
             res = recompute_highres_batch(
                 megajson, user_input.get("selected_tracks", []), int(user_input.get("start_frame", 0)),
-                int(user_input.get("end_frame", 15)), int(user_input.get("resolution", 50)), float(user_input.get("isovalue", 0.03))
+                int(user_input.get("end_frame", 15)), int(user_input.get("resolution", 50)), float(user_input.get("isovalue", 0.035))
             )
             save_state_to_file(global_state)
             return res
 
         if action in ["get_cube", "get_orbital_mesh"]:
             frame_idx, ok = int(user_input.get("frame_index", 0)), str(user_input.get("orbital", "HOMO"))
-            iso = float(user_input.get("isovalue", 0.03))
+            iso = float(user_input.get("isovalue", 0.035))
             pos, neg = get_or_extract_surface_mesh(frame_idx, ok, iso, megajson, global_state)
             hrc = get_cached_highres_cube(frame_idx, ok, megajson)
             if pos or neg:
@@ -144,7 +144,7 @@ class Step7Bundle(PipelineStep):
             return Step6Orbitals().custom_action(user_input, global_state)
 
         if action == "set_isovalue":
-            iso = float(user_input.get("isovalue", 0.03))
+            iso = float(user_input.get("isovalue", 0.035))
             megajson["orbital_isovalue"] = megajson["isovalue"] = iso
             for sk in ("step_7_bundle", "step_6_orbitals", "step_5_cascade"):
                 if sk in global_state and isinstance(global_state[sk], dict) and isinstance(global_state[sk].get("megajson"), dict):
@@ -153,7 +153,7 @@ class Step7Bundle(PipelineStep):
             return {"success": True, "isovalue": iso}
 
         if action in ["get_cached_cubes", "get_cached_meshes"]:
-            frames, tracks, iso = [int(x) for x in user_input.get("frames", [])], user_input.get("tracks", []), float(user_input.get("isovalue", 0.03))
+            frames, tracks, iso = [int(x) for x in user_input.get("frames", [])], user_input.get("tracks", []), float(user_input.get("isovalue", 0.035))
             megajson["orbital_isovalue"] = megajson["isovalue"] = iso
             meshes = {}
             for fi in frames:

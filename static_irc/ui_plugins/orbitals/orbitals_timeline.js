@@ -134,7 +134,7 @@ export class OrbitalsTimeline {
         return muted;
     }
 
-    getTimelineObject() { return { default_isovalue: this.options.isovalue || 0.03, tracks: this.tracks }; }
+    getTimelineObject() { return { default_isovalue: this.options.isovalue || 0.035, tracks: this.tracks }; }
 
     updatePopulations(frameIdx, frameData, symbols) {
         this.currentFrame = frameIdx;

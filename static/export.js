@@ -81,7 +81,7 @@ window.WB.downloadCustomBundle = async function() {
     const isoInp = document.getElementById('export-isovalue');
     if (isoInp) {
         const slider = document.getElementById('isovalue-slider');
-        const currIso = window._customIsovalue !== undefined ? window._customIsovalue : (slider ? parseFloat(slider.value) : 0.045);
+        const currIso = window._customIsovalue !== undefined ? window._customIsovalue : (slider ? parseFloat(slider.value) : 0.035);
         isoInp.value = currIso;
     }
     
@@ -117,7 +117,7 @@ window.WB.confirmDownloadBundle = async function() {
     const slider = document.getElementById('isovalue-slider');
     let chosenIso = isoInp && !isNaN(parseFloat(isoInp.value)) ? parseFloat(isoInp.value) : undefined;
     if (chosenIso === undefined) {
-        chosenIso = window._customIsovalue !== undefined ? window._customIsovalue : (slider ? parseFloat(slider.value) : 0.045);
+        chosenIso = window._customIsovalue !== undefined ? window._customIsovalue : (slider ? parseFloat(slider.value) : 0.035);
     }
     payload.isovalue = chosenIso;
 

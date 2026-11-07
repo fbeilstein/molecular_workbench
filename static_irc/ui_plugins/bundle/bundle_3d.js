@@ -9,7 +9,7 @@ import { prewarmEspCache as runEspPrewarm } from './bundle_esp_prewarmer.js';
 
 export class Bundle3DViewer extends MoleculeViewer3D {
     constructor(containerEl, options = {}) {
-        super(containerEl, { backgroundColor: '#090d16', ...options });
+        super(containerEl, { backgroundColor: '#0f141c', ...options });
         this.meshCache = options.meshCache || {};
         this.espMeshCache = options.espMeshCache || {};
         this._espInFlight = new Set();
@@ -95,7 +95,7 @@ export class Bundle3DViewer extends MoleculeViewer3D {
         if (orbKey === 'track_esp_charge') return;
         const pc = getPhaseColors(orb);
         const mKey = `${frameIdx}_${orbKey}`;
-        const isDefaultIso = Math.abs(isovalue - 0.03) < 0.003;
+        const isDefaultIso = Math.abs(isovalue - 0.035) < 0.003;
         const isoKey = `${mKey}_${Math.round(isovalue * 1000)}`;
 
         const cubeData = this.cubeCache[mKey];
@@ -106,8 +106,8 @@ export class Bundle3DViewer extends MoleculeViewer3D {
             }
             if (vdo) {
                 try {
-                    this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.72 });
-                    this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.72 });
+                    this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.75 });
+                    this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.75 });
                     return;
                 } catch (e) {}
             }
@@ -115,8 +115,14 @@ export class Bundle3DViewer extends MoleculeViewer3D {
 
         const mesh = this.meshCache[isoKey] || this.meshCache[mKey];
         if (mesh) {
-            if (mesh.pos?.vertices && mesh.pos?.faces) this.viewer.addCustom({ vertexArr: mesh.pos.vertices, faceArr: mesh.pos.faces, color: $3Dmol.CC.color(pc.pos), opacity: 0.72 });
-            if (mesh.neg?.vertices && mesh.neg?.faces) this.viewer.addCustom({ vertexArr: mesh.neg.vertices, faceArr: mesh.neg.faces, color: $3Dmol.CC.color(pc.neg), opacity: 0.72 });
+            const pV = mesh.pos?.vertices || mesh.pos?.vertexArr;
+            const pF = mesh.pos?.faces || mesh.pos?.faceArr;
+            const pN = mesh.pos?.normals || mesh.pos?.normalArr;
+            if (pV && pF) this.viewer.addCustom({ vertexArr: pV, faceArr: pF, normalArr: pN || undefined, color: $3Dmol.CC.color(pc.pos), opacity: 0.75 });
+            const nV = mesh.neg?.vertices || mesh.neg?.vertexArr;
+            const nF = mesh.neg?.faces || mesh.neg?.faceArr;
+            const nN = mesh.neg?.normals || mesh.neg?.normalArr;
+            if (nV && nF) this.viewer.addCustom({ vertexArr: nV, faceArr: nF, normalArr: nN || undefined, color: $3Dmol.CC.color(pc.neg), opacity: 0.75 });
             return;
         }
 
@@ -124,8 +130,8 @@ export class Bundle3DViewer extends MoleculeViewer3D {
             let vdo = this.vdoCache[mKey] || new $3Dmol.VolumeData(cubeData, 'cube');
             this.vdoCache[mKey] = vdo;
             try {
-                this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.72 });
-                this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.72 });
+                this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: pc.pos, opacity: 0.75 });
+                this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: pc.neg, opacity: 0.75 });
             } catch (e) {}
         }
     }

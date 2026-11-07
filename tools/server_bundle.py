@@ -108,7 +108,9 @@ def package_custom_bundle(zip_path, custom_zip_path, keep_files, isovalue, name)
     remeshed_meshes = {}
     seen_files = set()
 
-    with zipfile.ZipFile(zip_path, 'r') as zin, zipfile.ZipFile(custom_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+    with zipfile.ZipFile(zip_path, 'r') as zin, zipfile.ZipFile(
+        custom_zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9
+    ) as zout:
         for item in zin.infolist():
             if item.filename in seen_files:
                 continue
@@ -126,9 +128,17 @@ def package_custom_bundle(zip_path, custom_zip_path, keep_files, isovalue, name)
 
             mesh = try_remesh(item, name, isovalue, converter, remeshed_meshes)
             if mesh is not None:
-                zout.writestr(item, json.dumps(mesh))
+                zout.writestr(item.filename, json.dumps(mesh, separators=(',', ':')))
             else:
-                zout.writestr(item, zin.read(item.filename))
+                raw_bytes = zin.read(item.filename)
+                if item.filename.endswith('.json'):
+                    try:
+                        parsed = json.loads(raw_bytes)
+                        zout.writestr(item.filename, json.dumps(parsed, separators=(',', ':')))
+                        continue
+                    except Exception:
+                        pass
+                zout.writestr(item.filename, raw_bytes)
 
 
 def read_bundle_entry(zip_path, inner_path):

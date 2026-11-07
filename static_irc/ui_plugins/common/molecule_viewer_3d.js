@@ -30,7 +30,7 @@ export class MoleculeViewer3D {
         }
 
         this.viewer = $3Dmol.createViewer(this.containerEl, {
-            backgroundColor: this.options.backgroundColor || '#0f172a',
+            backgroundColor: this.options.backgroundColor || '#0f141c',
             id: 'unified-3dmol-canvas'
         });
 
@@ -59,7 +59,7 @@ export class MoleculeViewer3D {
         this.moleculeScale = Math.max(0.4, Math.min(3.0, scale));
         if (this.viewer) {
             this.viewer.setStyle({}, {
-                stick: { radius: 0.14 * this.moleculeScale, colorscheme: 'Jmol' },
+                stick: { radius: 0.13 * this.moleculeScale, colorscheme: 'Jmol' },
                 sphere: { scale: 0.28 * this.moleculeScale, colorscheme: 'Jmol' }
             });
             this.viewer.render();
@@ -87,7 +87,7 @@ export class MoleculeViewer3D {
         this.viewer.clear();
         this.viewer.addModel(this.buildMolBlock(symbols, coords, bonds), 'mol');
         this.viewer.setStyle({}, {
-            stick: { radius: 0.14 * this.moleculeScale, colorscheme: 'Jmol' },
+            stick: { radius: 0.13 * this.moleculeScale, colorscheme: 'Jmol' },
             sphere: { scale: 0.28 * this.moleculeScale, colorscheme: 'Jmol' }
         });
 
@@ -178,8 +178,8 @@ export class MoleculeViewer3D {
                 if (vdo) {
                     try {
                         const isAnti = (orb.orbital_class === 'antibonding') || (orb.type && orb.type.includes('star'));
-                        this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: isAnti ? '#fb923c' : '#38bdf8', opacity: 0.72 });
-                        this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: isAnti ? '#db2777' : '#1d4ed8', opacity: 0.72 });
+                        this.viewer.addIsosurface(vdo, { isoval: Math.abs(isovalue), color: isAnti ? '#fb923c' : '#38bdf8', opacity: 0.75 });
+                        this.viewer.addIsosurface(vdo, { isoval: -Math.abs(isovalue), color: isAnti ? '#db2777' : '#1d4ed8', opacity: 0.75 });
                     } catch (e) { console.error('addIsosurface error:', e); }
                 }
             }

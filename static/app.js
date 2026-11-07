@@ -9,9 +9,9 @@ window.WB = window.WB || {};
 window.WB.init = function() {
     window.WB.initResizer();
     window.WB.viewer = $3Dmol.createViewer('viewer-3d', {
-        backgroundColor: '#0f0f1a',
+        backgroundColor: '#0f141c',
     });
-    window.WB.status('Ready — draw a reaction, then click 📦 Compute Script');
+    window.WB.status('Ready — draw a molecule, then click 🚀 Compute');
 
     window.WB.refreshDirs();
 };
@@ -117,6 +117,8 @@ window.WB.generateComputeScript = async function() {
     const charge = parseInt(document.getElementById('mol-charge').value) || 0;
     const engineSelect = document.getElementById('qm-engine');
     const engine = engineSelect ? engineSelect.value : 'xtb';
+    const frontierSelect = document.getElementById('frontier-depth');
+    const frontier_depth = frontierSelect ? (parseInt(frontierSelect.value, 10) || 0) : 0;
     const levelShiftCb = document.getElementById('pyscf-levelshift');
     const levelshift = levelShiftCb ? levelShiftCb.checked : false;
     const smiles = await window.WB.getSmiles();
@@ -146,7 +148,7 @@ window.WB.generateComputeScript = async function() {
         const res = await fetch('/api/rxn/compute-script', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ smiles, name, charge, engine, levelshift, rxn, svg, ket, mol }),
+            body: JSON.stringify({ smiles, name, charge, engine, frontier_depth, levelshift, rxn, svg, ket, mol }),
         });
         const data = await res.json();
         if (data.error) { 
@@ -239,7 +241,9 @@ window.WB.verifyBundle = async function() {
         window.WB.appendLog('Select items from the Chemical dropdown to verify 3D/orbitals.');
         window.WB.openLog();
 
-        // Enable slider / reset button states
+        // Enable slider / reset button states and sync bundle defaults
+        window._customIsovalue = undefined;
+        const defaultIso = manifest.orbital_isovalue || 0.035;
         const btnPurge = document.getElementById('btn-purge-cubes');
         if (btnPurge) {
             btnPurge.textContent = '🗑 Purge Cube Files';
@@ -249,6 +253,15 @@ window.WB.verifyBundle = async function() {
         if (slider) {
             slider.disabled = false;
             slider.title = '';
+            slider.value = String(defaultIso);
+        }
+        const isoDisp = document.getElementById('isovalue-display');
+        if (isoDisp) {
+            isoDisp.textContent = String(defaultIso);
+        }
+        const frontierSelect = document.getElementById('frontier-depth');
+        if (frontierSelect && manifest.frontier_depth !== undefined) {
+            frontierSelect.value = String(manifest.frontier_depth);
         }
 
         // Auto-load first molecule

@@ -250,7 +250,12 @@ def extract_step0_planar_pi(
     )
 
     ovlp = mol.intor_symmetric("int1e_ovlp")
-    fock = mf.get_fock()
+    raw_fock = mf.get_fock()
+    fock = (
+        raw_fock[0]
+        if (mol.spin > 0 and isinstance(raw_fock, (tuple, list, np.ndarray)) and np.ndim(raw_fock) == 3)
+        else raw_fock
+    )
     ao_labels = mol.ao_labels(fmt=False)
     ao_atom = [int(l.split()[0]) for l in mol.ao_labels()]
     coords_b = mol.atom_coords()
@@ -401,29 +406,64 @@ def extract_step0_planar_pi(
         C_virt_deloc = C_virt.copy()
 
     # 3. Delocalized pi* subspace extraction for each planar fragment
+    # Use Knizia's Intrinsic Atomic Orbitals (IAOs) so split-valence/polarized basis sets (e.g. 6-31G*, def2-SVP)
+    # span the full minimal valence p_perp space without inner/outer shell splitting or Rydberg contamination.
+    iao_vecs = None
+    iao_ao_labels = None
+    if nocc > 0:
+        try:
+            occ_for_iao = mo_coeff[:, :nocc]
+            iao_raw = lo.iao.iao(mol, occ_for_iao)
+            iao_vecs = lo.vec_lowdin(iao_raw, ovlp)
+            ref_mol = lo.iao.reference_mol(mol)
+            iao_ao_labels = ref_mol.ao_labels(fmt=False)
+        except Exception:
+            iao_vecs = None
+            iao_ao_labels = None
+
     all_deloc_pi_virt = []
     for fg, normal, cyc_nodes, active_fg, atom_ids, frag_lbl, frag_short, n_pi in frag_occ_data:
         n_pistar = len(fg) - n_pi
         if n_pistar <= 0 or C_virt_deloc.shape[1] == 0:
             continue
 
-        # Build compact valence p-shell projector for the fragment
+        # Build compact minimal-valence p-shell projector for the fragment
         p_vecs = []
         for ai in fg:
             z = mol.atom_charge(ai)
             val_n = "2p" if z <= 10 else ("3p" if z <= 18 else "4p")
-            v = np.zeros(mol.nao)
-            found = {}
-            for mu, (a, el, nl, m) in enumerate(ao_labels):
-                if a == ai and val_n in nl and m in ("x", "y", "z"):
-                    found[m] = mu
-            if len(found) == 3:
-                v[found["x"]] = normal[0]
-                v[found["y"]] = normal[1]
-                v[found["z"]] = normal[2]
-                nrm = np.sqrt(float(v.T @ ovlp @ v))
-                if nrm > 1e-8:
-                    p_vecs.append(v / nrm)
+            v = None
+            if iao_vecs is not None and iao_ao_labels is not None:
+                found_iao = {}
+                for mu_iao, (a, _el, nl, m) in enumerate(iao_ao_labels):
+                    if a == ai and val_n in nl and m in ("x", "y", "z"):
+                        found_iao[m] = mu_iao
+                if len(found_iao) == 3:
+                    v_cand = (
+                        iao_vecs[:, found_iao["x"]] * normal[0]
+                        + iao_vecs[:, found_iao["y"]] * normal[1]
+                        + iao_vecs[:, found_iao["z"]] * normal[2]
+                    )
+                    nrm = np.sqrt(float(v_cand.T @ ovlp @ v_cand))
+                    if nrm > 1e-8:
+                        v = v_cand / nrm
+
+            if v is None:
+                v_ao = np.zeros(mol.nao)
+                found = {}
+                for mu, (a, _el, nl, m) in enumerate(ao_labels):
+                    if a == ai and val_n in nl and m in ("x", "y", "z"):
+                        found[m] = mu
+                if len(found) == 3:
+                    v_ao[found["x"]] = normal[0]
+                    v_ao[found["y"]] = normal[1]
+                    v_ao[found["z"]] = normal[2]
+                    nrm = np.sqrt(float(v_ao.T @ ovlp @ v_ao))
+                    if nrm > 1e-8:
+                        v = v_ao / nrm
+
+            if v is not None:
+                p_vecs.append(v)
 
         if p_vecs:
             B_p = np.column_stack(p_vecs)

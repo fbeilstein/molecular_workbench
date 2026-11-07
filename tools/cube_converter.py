@@ -58,10 +58,12 @@ class CubeConverter:
             # Convert to Angstrom coordinates
             verts_angstrom = verts * (step / ANG2BOHR) + (origin / ANG2BOHR)
             
-            # Format for 3Dmol.js CustomShape with clean precision (0.0001 A vertices, 0.001 normals)
-            v_list = [{'x': round(float(v[0]), 4), 'y': round(float(v[1]), 4), 'z': round(float(v[2]), 4)} for v in verts_angstrom]
+            # Format for 3Dmol.js CustomShape with unified precision (0.001 A vertices, 0.001 normals)
+            v_arr = np.round(verts_angstrom, 3)
+            n_arr = np.round(-normals, 3)
+            v_list = [{'x': float(v[0]), 'y': float(v[1]), 'z': float(v[2])} for v in v_arr]
             f_list = [int(idx) for face in faces for idx in face]
-            n_list = [{'x': -round(float(n[0]), 3), 'y': -round(float(n[1]), 3), 'z': -round(float(n[2]), 3)} for n in normals]
+            n_list = [{'x': float(n[0]), 'y': float(n[1]), 'z': float(n[2])} for n in n_arr]
             
             return {
                 'vertices': v_list,
@@ -72,7 +74,7 @@ class CubeConverter:
             return None
 
     @classmethod
-    def process_cube(cls, cube_path, isoval=0.025, adaptive=False):
+    def process_cube(cls, cube_path, isoval=0.035, adaptive=False):
         """Converts a .cube file into _pos.json and _neg.json surface files.
         
         If adaptive=True, ignores isoval and instead computes the threshold
@@ -116,7 +118,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Interactively select and convert .cube files to .json meshes.")
     parser.add_argument("path", help="Directory containing .cube files, or a specific .cube file")
     parser.add_argument("--adaptive", action="store_true", help="Use adaptive isovalue")
-    parser.add_argument("--isoval", type=float, default=0.025, help="Isovalue for mesh extraction")
+    parser.add_argument("--isoval", type=float, default=0.035, help="Isovalue for mesh extraction")
     args = parser.parse_args()
 
     if os.path.isdir(args.path):

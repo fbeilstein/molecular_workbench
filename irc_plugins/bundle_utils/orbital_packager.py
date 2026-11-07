@@ -156,10 +156,10 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
     if os.path.exists(bundle_zip):
         try:
             with zipfile.ZipFile(bundle_zip, "r") as zf:
-                zip_iso = 0.03
+                zip_iso = 0.035
                 if "bundle.json" in zf.namelist():
                     try:
-                        zip_iso = float(json.loads(zf.read("bundle.json").decode("utf-8")).get("orbital_isovalue") or 0.03)
+                        zip_iso = float(json.loads(zf.read("bundle.json").decode("utf-8")).get("orbital_isovalue") or 0.035)
                     except Exception:
                         pass
                 if abs(iso_val - zip_iso) <= 0.003:

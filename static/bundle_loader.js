@@ -37,16 +37,21 @@ function renderOrbitalSidebar(mol, base) {
                 const row = document.createElement('label');
                 row.className = 'orbital-toggle';
                 row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;cursor:pointer;';
+                const pc = window.WB.getOrbitalPhaseColors ? window.WB.getOrbitalPhaseColors(orb.file) : { pos: orb.color || '#38bdf8' };
+                const dotColor = pc.pos;
                 const cb = document.createElement('input');
                 cb.type = 'checkbox';
                 cb.onchange = window.WB.onChangeHandler;
                 cb.setAttribute('data-orb-file', orb.file);
-                cb.setAttribute('data-orb-color', orb.color);
+                cb.setAttribute('data-orb-color', dotColor);
                 const dot = document.createElement('span');
-                dot.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${orb.color};`;
+                dot.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${dotColor};`;
                 const lbl = document.createElement('span');
                 lbl.style.cssText = 'font-size:12px;color:#ccc;';
-                lbl.textContent = orb.energy_ev !== undefined ? `${orb.label} (${orb.energy_ev} eV)` : orb.label;
+                const eVal = Number(orb.energy_ev);
+                lbl.textContent = (orb.energy_ev !== undefined && orb.energy_ev !== null && !Number.isNaN(eVal))
+                    ? `${orb.label} (${eVal > 0 ? '+' : ''}${eVal.toFixed(2)} eV)`
+                    : orb.label;
                 row.appendChild(cb);
                 row.appendChild(dot);
                 row.appendChild(lbl);
@@ -131,22 +136,27 @@ window.WB.loadBundleItem = async function(value) {
 
     if (mol.xyz) {
         window._currentMolXyz = mol.xyz;
-        window.WB.viewer.addModel(mol.xyz, 'xyz');
-        window.WB.viewer.setStyle({}, { stick: { radius: 0.12 }, sphere: { scale: 0.25 } });
+        window.WB.renderMoleculeModel(window.WB.viewer, mol.xyz);
         window.WB.viewer.zoomTo();
         window.WB.viewer.render();
     }
 
     renderOrbitalSidebar(mol, base);
 
-    let engineInfo = '';
-    if (window._currentBundleManifest) {
-        const eng = window._currentBundleManifest.engine || 'unknown';
-        const meth = window._currentBundleManifest.method || 'unknown';
-        engineInfo = `<br><span style="font-size:11px;color:#aaa;">Engine: ${eng} (${meth})</span>`;
-    }
     const infoEl = document.getElementById('viewer-info');
     if (infoEl) {
-        infoEl.innerHTML = `${mol.smiles} &mdash; ${mol.role}${engineInfo}`;
+        infoEl.textContent = '';
+        const primarySpan = document.createElement('span');
+        primarySpan.textContent = `${mol.smiles || ''} — ${mol.role || 'molecule'}`;
+        infoEl.appendChild(primarySpan);
+        if (window._currentBundleManifest) {
+            const eng = window._currentBundleManifest.engine || 'unknown';
+            const meth = window._currentBundleManifest.method || 'unknown';
+            infoEl.appendChild(document.createElement('br'));
+            const subSpan = document.createElement('span');
+            subSpan.style.cssText = 'font-size:11px;color:#aaa;';
+            subSpan.textContent = `Engine: ${eng} (${meth})`;
+            infoEl.appendChild(subSpan);
+        }
     }
 };

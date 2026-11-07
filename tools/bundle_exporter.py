@@ -47,6 +47,29 @@ def parse_xyz_frames(text):
 
 
 
+def _trim_xyz_text(text: str) -> str:
+    """Normalize XYZ text coordinates to 4 decimal places (0.0001 A)."""
+    lines = text.strip().splitlines()
+    if len(lines) < 3:
+        return text
+    try:
+        n = int(lines[0].strip())
+    except ValueError:
+        return text
+    out = [str(n), lines[1].strip()]
+    for line in lines[2 : 2 + n]:
+        parts = line.split()
+        if len(parts) >= 4:
+            try:
+                x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+                out.append(f"{parts[0]:<2s} {x:10.4f} {y:10.4f} {z:10.4f}")
+                continue
+            except ValueError:
+                pass
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
 def _get_charge_from_smiles(smiles):
     mol_charge = 0
     if '-]' in smiles: mol_charge = -smiles.count('-]')
@@ -60,35 +83,53 @@ def _get_charge_from_smiles(smiles):
         pass
     return mol_charge
 
-def _process_molecule_orbitals(mol_info, job_dir, cube_dir, zf):
+def _process_molecule_orbitals(mol_info, job_dir, cube_dir, zf, frontier_depth=0, default_charge=0, isoval=0.035):
     key, role = mol_info['key'], mol_info['role']
     smiles = mol_info.get('smiles', '')
     mol_data = {'key': key, 'role': role, 'smiles': smiles, 'orbitals': []}
 
-    xyz_path = __import__('os').path.join(job_dir, mol_info.get('xyz', ''))
-    if __import__('os').path.exists(xyz_path):
-        mol_data['xyz'] = load_text(xyz_path)
+    xyz_path = os.path.join(job_dir, mol_info.get('xyz', ''))
+    if os.path.exists(xyz_path):
+        mol_data['xyz'] = _trim_xyz_text(load_text(xyz_path))
     
     if not mol_data.get('xyz'):
         return mol_data
         
-    mol_charge = _get_charge_from_smiles(smiles)
+    mol_charge = mol_info.get('charge')
+    if mol_charge is None:
+        smiles_charge = _get_charge_from_smiles(smiles)
+        mol_charge = smiles_charge if smiles_charge != 0 else default_charge
     
     try:
+        # Remove any stale cube/mesh files for this molecule key before recomputing
+        for old_f in os.listdir(cube_dir):
+            if old_f.startswith(f"{key}_") and (old_f.endswith('.cube') or old_f.endswith('.json')):
+                try:
+                    os.remove(os.path.join(cube_dir, old_f))
+                except OSError:
+                    pass
+
         from mol_orbitals import compute_all_orbitals
         orb_manifest = compute_all_orbitals(
-            xyz_file=xyz_path, name=key, out_dir=cube_dir, 
-            charge=mol_charge, method='b3lyp', smiles=smiles
+            xyz_file=xyz_path,
+            name=key,
+            out_dir=cube_dir,
+            charge=int(mol_charge),
+            method='b3lyp',
+            smiles=smiles,
+            frontier_depth=int(frontier_depth),
         )
         
-        for cf in __import__('os').listdir(cube_dir):
-            if cf.endswith('.cube'):
-                CubeConverter.process_cube(__import__('os').path.join(cube_dir, cf), adaptive=True)
+        for cf in sorted(os.listdir(cube_dir)):
+            if cf.startswith(f"{key}_") and cf.endswith('.cube'):
+                CubeConverter.process_cube(os.path.join(cube_dir, cf), isoval=isoval, adaptive=False)
                 
         from orbital_packager import package_orbitals
         orbital_groups, esp_surface = package_orbitals(orb_manifest, cube_dir, zf)
         
         mol_data['orbitals'] = orbital_groups
+        if orb_manifest.get('charges'):
+            mol_data['charges'] = orb_manifest['charges']
         if esp_surface:
             mol_data['esp_surface'] = esp_surface
             
@@ -118,6 +159,9 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
 
     print(f'  Exporting: {name}\n  Source: {job_dir}\n  Output: {output_path}')
 
+    frontier_depth = int(bundle.get('frontier_depth', 0) or 0)
+    default_isoval = float(bundle.get('orbital_isovalue', 0.035) or 0.035)
+
     manifest = {
         'name': name,
         'title': bundle.get('title', name),
@@ -126,6 +170,8 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
         'charge': bundle.get('charge', 0),
         'engine': bundle.get('engine', 'xtb'),
         'method': bundle.get('method', 'unknown'),
+        'frontier_depth': frontier_depth,
+        'orbital_isovalue': default_isoval,
         'barrier_forward_kcal': bundle.get('barrier_forward_kcal'),
         'barrier_reverse_kcal': bundle.get('barrier_reverse_kcal'),
         'reaction_energy_kcal': bundle.get('reaction_energy_kcal'),
@@ -148,18 +194,29 @@ def export_bundle(job_dir, output_path=None, significant_only=False, clean=False
             zf.write(ket_path, 'layout.ket')
             manifest['ket_file'] = 'layout.ket'
 
-        # --- Molecules + Orbitals (HOMO/LUMO + Localized) ---
+        # --- Molecules + Orbitals (Frontier + Localized + Delocalized) ---
         print('  Computing molecule orbitals...')
-        from mol_orbitals import compute_all_orbitals
         
         cube_dir = os.path.join(job_dir, 'orbitals_raw')
         os.makedirs(cube_dir, exist_ok=True)
         for mol_info in bundle.get('molecules', []):
-            mol_data = _process_molecule_orbitals(mol_info, job_dir, cube_dir, zf)
+            mol_fd = int(mol_info.get('frontier_depth', frontier_depth) or 0)
+            mol_data = _process_molecule_orbitals(
+                mol_info,
+                job_dir,
+                cube_dir,
+                zf,
+                frontier_depth=mol_fd,
+                default_charge=int(bundle.get('charge', 0) or 0),
+                isoval=default_isoval,
+            )
             manifest['molecules'].append(mol_data)
-            zf.writestr(f'molecules/{mol_data["key"]}.json', json.dumps(mol_data, indent=2))
+            zf.writestr(f'molecules/{mol_data["key"]}.json', json.dumps(mol_data, separators=(',', ':')))
 
-        zf.writestr('manifest.json', json.dumps(manifest, indent=2))
+        if len(manifest['molecules']) == 1 and manifest['molecules'][0].get('charges'):
+            manifest['charges'] = manifest['molecules'][0]['charges']
+
+        zf.writestr('manifest.json', json.dumps(manifest, separators=(',', ':')))
 
     os.replace(tmp_output_path, output_path)
     sz = os.path.getsize(output_path) / (1024*1024)

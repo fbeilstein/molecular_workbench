@@ -454,7 +454,7 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
       const isAnti = sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
       const posColorHex = isAnti ? "#fb923c" : "#38bdf8";
       const negColorHex = isAnti ? "#db2777" : "#1d4ed8";
-      const posColorInt = isAnti ? 16487228 : 3718648;
+      const posColorInt = isAnti ? 16486972 : 3718648;
       const negColorInt = isAnti ? 14362487 : 1920728;
       const meshPair = findOrbitalMesh(bundle, frameIdx, orbKey);
       if (meshPair) {
@@ -836,7 +836,9 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
           });
           const dot = document.createElement("span");
           dot.className = "orb-dot";
-          dot.style.backgroundColor = item.color || "#38bdf8";
+          const fKeyLower = String(item.key || item.file || "").toLowerCase();
+          const isAntiItem = item.isAntiBonding || fKeyLower.includes("star") || fKeyLower.includes("*") || fKeyLower.includes("lumo") || fKeyLower.includes("antibond") || fKeyLower.includes("virtual");
+          dot.style.backgroundColor = isAntiItem ? "#fb923c" : "#38bdf8";
           const labelSpan = document.createElement("span");
           labelSpan.className = "orb-label-text";
           let txt = item.label || item.title || item.key;
@@ -929,9 +931,9 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
         const key = trk.track_id || trk.orbital_key;
         let title = trk.label || trk.title || key;
         title = title.replace(/Non-Bonding\s*/gi, "").replace(/\[Antibond\]/gi, "").trim();
-        const sKey = `${trk.track_id || ''} ${trk.orbital_key || ''} ${title} ${trk.type || ''}`.toLowerCase();
-        const isAnti = sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
-        const color = trk.color || (isAnti ? '#fb923c' : '#38bdf8');
+        const sKey = `${trk.track_id || ""} ${trk.orbital_key || ""} ${title} ${trk.type || ""}`.toLowerCase();
+        const isAnti = sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
+        const color = trk.color || (isAnti ? "#fb923c" : "#38bdf8");
         items.push({
           key,
           label: title,
@@ -973,35 +975,35 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
         let color = "#38bdf8";
         if (upper.includes("HOMO")) {
           cat = "Frontier";
-          color = "#ff5c5c";
+          color = "#38bdf8";
           label = key;
         } else if (upper.includes("LUMO")) {
           cat = "Frontier";
-          color = "#55aaff";
+          color = "#fb923c";
           label = key;
         } else if (upper.includes("SIGMASTAR") || upper.includes("SIGMA*") || key.includes("\u03C3*")) {
           cat = "\u03C3* Anti-Bonds";
-          color = "#d946ef";
+          color = "#fb923c";
           label = key.replace(/sigmastar[_\s]*/i, "\u03C3*(").replace(/$/, ")");
         } else if (upper.includes("PISTAR") || upper.includes("PI*") || key.includes("\u03C0*")) {
           cat = "\u03C0* Anti-Bonds";
-          color = "#ec4899";
+          color = "#fb923c";
           label = key.replace(/pistar[_\s]*/i, "\u03C0*(").replace(/$/, ")");
         } else if (upper.includes("PI") || key.includes("\u03C0")) {
           cat = "\u03C0 Bonds";
-          color = "#cc44bb";
+          color = "#38bdf8";
           label = key.replace(/pi[_\s]*/i, "\u03C0(").replace(/$/, ")");
         } else if (upper.includes("SIGMA") || key.includes("\u03C3")) {
           cat = "\u03C3 Bonds";
-          color = "#44cc77";
+          color = "#38bdf8";
           label = key.replace(/sigma[_\s]*/i, "\u03C3(").replace(/$/, ")");
         } else if (upper.includes("LP") || upper.includes("LONE")) {
           cat = "Lone Pairs";
-          color = "#eeee22";
+          color = "#38bdf8";
           label = key.replace(/lp[_\s]*/i, "LP(").replace(/$/, ")");
         } else if (upper.startsWith("IBO")) {
           label = `IBO ${key.replace("IBO_", "")}`;
-          color = "#44cc77";
+          color = "#38bdf8";
         }
         categoriesMap[cat].push({ key, label, color });
       });

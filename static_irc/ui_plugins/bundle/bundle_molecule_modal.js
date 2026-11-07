@@ -281,6 +281,11 @@ export class BundleMoleculeModal {
             negKey = negKey || Object.keys(files).find(k => k.endsWith('_neg.json') && k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetLower));
         }
 
+        const sKey = String(posKey || orbName || '').toLowerCase();
+        const isAnti = sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
+        const posHex = isAnti ? '#fb923c' : '#38bdf8';
+        const negHex = isAnti ? '#db2777' : '#1d4ed8';
+
         if (posKey || negKey) {
             try {
                 if (posKey && files[posKey]) {
@@ -288,7 +293,7 @@ export class BundleMoleculeModal {
                     if (posMesh.vertices && posMesh.faces) {
                         this.viewer.addCustom({
                             vertexArr: posMesh.vertices, faceArr: posMesh.faces,
-                            normalArr: posMesh.normals || undefined, color: $3Dmol.CC.color('#38bdf8'), opacity: 0.80
+                            normalArr: posMesh.normals || undefined, color: $3Dmol.CC.color(posHex), opacity: 0.75
                         });
                     }
                 }
@@ -297,7 +302,7 @@ export class BundleMoleculeModal {
                     if (negMesh.vertices && negMesh.faces) {
                         this.viewer.addCustom({
                             vertexArr: negMesh.vertices, faceArr: negMesh.faces,
-                            normalArr: negMesh.normals || undefined, color: $3Dmol.CC.color('#f59e0b'), opacity: 0.80
+                            normalArr: negMesh.normals || undefined, color: $3Dmol.CC.color(negHex), opacity: 0.75
                         });
                     }
                 }
@@ -309,10 +314,10 @@ export class BundleMoleculeModal {
             const vdo = new $3Dmol.VolumeData(cubeText, 'cube');
             if (!hasAtoms) {
                 this.viewer.addModel(cubeText, 'cube');
-                this.viewer.setStyle({}, { stick: { radius: 0.12, colorscheme: 'Jmol' }, sphere: { scale: 0.25, colorscheme: 'Jmol' } });
+                this.viewer.setStyle({}, { stick: { radius: 0.13, colorscheme: 'Jmol' }, sphere: { scale: 0.28, colorscheme: 'Jmol' } });
             }
-            this.viewer.addIsosurface(vdo, { isoval: 0.03, color: '#38bdf8', opacity: 0.75 });
-            this.viewer.addIsosurface(vdo, { isoval: -0.03, color: '#f59e0b', opacity: 0.75 });
+            this.viewer.addIsosurface(vdo, { isoval: 0.035, color: posHex, opacity: 0.75 });
+            this.viewer.addIsosurface(vdo, { isoval: -0.035, color: negHex, opacity: 0.75 });
         }
 
         this.viewer.zoomTo();
