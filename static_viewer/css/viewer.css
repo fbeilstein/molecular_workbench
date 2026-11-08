@@ -88,18 +88,75 @@ html, body {
   max-height: 260px;
   max-width: 96vw;
   width: auto;
-  filter: invert(1) hue-rotate(180deg) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.85));
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.85));
   pointer-events: auto;
 }
 
 /* Interactive SVG mechanism elements */
 .svg-clickable-arrow, .svg-clickable-state, .svg-clickable-molecule {
-  cursor: pointer !important; transition: opacity 0.15s ease, filter 0.15s ease;
+  cursor: pointer !important;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+  pointer-events: auto !important;
 }
-.svg-clickable-arrow:hover { filter: drop-shadow(0 0 6px #38bdf8) brightness(1.2) !important; }
-.svg-clickable-state:hover { filter: drop-shadow(0 0 6px #10b981) !important; }
-.svg-clickable-molecule:hover { filter: drop-shadow(0 0 6px #a855f7) !important; }
-.svg-active-element { filter: drop-shadow(0 0 8px #0ea5e9) !important; }
+.svg-hit-cushion {
+  pointer-events: all !important;
+  cursor: pointer !important;
+}
+
+/* Arrow Hover: Electric Cyan Pill & Glow */
+.svg-clickable-arrow:hover {
+  filter: drop-shadow(0 0 10px #38bdf8) !important;
+}
+.svg-clickable-arrow:hover rect.svg-hit-cushion {
+  fill: rgba(56, 189, 248, 0.22) !important;
+  stroke: #38bdf8 !important;
+  stroke-width: 0.8 !important;
+  transition: fill 0.15s ease, stroke 0.15s ease;
+}
+.svg-clickable-arrow:hover path:not(.svg-hit-cushion) {
+  stroke: #38bdf8 !important;
+  stroke-width: 1.4 !important;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+}
+
+/* Molecule Hover: Purple Pill & Glow */
+.svg-clickable-molecule:hover {
+  filter: drop-shadow(0 0 10px #c084fc) !important;
+}
+.svg-clickable-molecule:hover rect.svg-hit-cushion {
+  fill: rgba(168, 85, 247, 0.22) !important;
+  stroke: rgba(192, 132, 252, 0.85) !important;
+  stroke-width: 0.8 !important;
+  transition: fill 0.15s ease, stroke 0.15s ease;
+}
+
+/* State Intermediate Hover: Emerald Pill & Glow */
+.svg-clickable-state:hover {
+  filter: drop-shadow(0 0 10px #34d399) !important;
+}
+.svg-clickable-state:hover rect.svg-hit-cushion {
+  fill: rgba(16, 185, 129, 0.22) !important;
+  stroke: rgba(52, 211, 153, 0.85) !important;
+  stroke-width: 0.8 !important;
+  transition: fill 0.15s ease, stroke 0.15s ease;
+}
+
+/* Persistent active element highlight removed per user request: only hover states show visual highlight */
+.svg-active-element {
+  filter: none !important;
+}
+.svg-active-element rect.svg-hit-cushion {
+  fill: transparent !important;
+  stroke: none !important;
+}
+
+/* Crisp solid text typography (fixes Inkscape hollow/dark letter paths) */
+#mechanism-strip svg g[aria-label] path,
+#mechanism-strip svg g[id^="text"] path,
+#mechanism-strip svg text {
+  fill: #f1f5f9 !important;
+  stroke: none !important;
+}
 
 /* Directional Push Arrow State & Visibility (SVG colors strictly preserved) */
 .svg-push-active {

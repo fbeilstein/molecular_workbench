@@ -1229,6 +1229,17 @@ Frame Model
       if (!/<svg[^>]+xmlns\s*=\s*['"]http:\/\/www\.w3\.org\/2000\/svg['"]/i.test(text)) {
         text = text.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
       }
+      text = text.replace(/stroke:\s*#000000/gi, "stroke:#f1f5f9").replace(/fill:\s*#000000/gi, "fill:#f1f5f9").replace(/stroke=["']#000000["']/gi, 'stroke="#f1f5f9"').replace(/fill=["']#000000["']/gi, 'fill="#f1f5f9"');
+      text = text.replace(/<g([^>]*aria-label=[^>]*)>/gi, (match) => {
+        if (/style=["']/i.test(match)) {
+          return match.replace(/style=["']([^"']*)["']/i, (m, style) => {
+            let s = style.replace(/stroke:[^;]+;?/gi, "").replace(/stroke-width:[^;]+;?/gi, "").replace(/fill:[^;]+;?/gi, "");
+            return `style="${s};fill:#f1f5f9;stroke:none;"`;
+          });
+        } else {
+          return match.replace(/<g\b/i, '<g style="fill:#f1f5f9;stroke:none;" ');
+        }
+      });
       this.container.innerHTML = text;
       this.applyClasses();
       this.bindEvents();
@@ -1238,27 +1249,136 @@ Frame Model
       const svg = this.container.querySelector("svg");
       if (!svg) return;
       for (const [key, cfg] of Object.entries(this.wiring)) {
-        const el = this.findElement(svg, key);
+        let el = this.findElement(svg, key);
         if (!el) continue;
+        if (el.tagName && el.tagName.toLowerCase() === "path") {
+          const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          const id = el.getAttribute("id");
+          if (id) g.setAttribute("id", id);
+          const lbl = el.getAttribute("inkscape:label");
+          if (lbl) g.setAttribute("inkscape:label", lbl);
+          el.removeAttribute("id");
+          el.removeAttribute("inkscape:label");
+          el.parentNode.insertBefore(g, el);
+          g.appendChild(el);
+          el = g;
+        }
         if (cfg.role === "arrow") {
           el.classList.add("svg-clickable-arrow");
           const dir = cfg.direction === "reverse" ? "\u27F5" : "\u27F6";
           el.setAttribute("title", `Reaction Arrow: Play frames ${cfg.startFrame || 0} ${dir} ${cfg.endFrame || 0}`);
+          this.addArrowHitCushion(el);
         } else if (cfg.role === "state" || cfg.role === "state_molecule") {
-          el.classList.add("svg-clickable-state");
-          if (cfg.role === "state_molecule" || cfg.moleculeName) {
-            el.classList.add("svg-clickable-molecule");
-            el.setAttribute("title", `${cfg.moleculeName || "Intermediate"} (Frame ${cfg.targetFrame || 0}): Click to jump, Double-click for molecule`);
-          } else {
-            el.setAttribute("title", `State: Jump to frame ${cfg.targetFrame || 0}`);
+          let isContainer = false;
+          if (cfg.role === "state") {
+            isContainer = Object.keys(this.wiring).some((childKey) => {
+              if (childKey === key) return false;
+              const childCfg = this.wiring[childKey];
+              if (!childCfg || childCfg.role !== "molecule" && childCfg.role !== "state_molecule") return false;
+              const childEl = this.findElement(el, childKey);
+              return childEl && childEl !== el;
+            });
+          }
+          if (!isContainer) {
+            el.classList.add("svg-clickable-state");
+            if (cfg.role === "state_molecule" || cfg.moleculeName) {
+              el.classList.add("svg-clickable-molecule");
+              el.setAttribute("title", `${cfg.moleculeName || "Intermediate"} (Frame ${cfg.targetFrame || 0}): Click to jump, Double-click for molecule`);
+            } else {
+              el.setAttribute("title", `State: Jump to frame ${cfg.targetFrame || 0}`);
+            }
+            this.addBoundingHitCushion(el);
           }
         } else if (cfg.role === "molecule") {
           el.classList.add("svg-clickable-molecule");
           const stateTarget = this.findStateTarget(el.parentElement, svg);
           const stateInfo = stateTarget && stateTarget.cfg && stateTarget.cfg.targetFrame !== void 0 ? ` (Frame ${stateTarget.cfg.targetFrame}): Click to jump, ` : ": ";
           el.setAttribute("title", `${cfg.moleculeName || "Molecule"}${stateInfo}Double-click to inspect`);
+          this.addBoundingHitCushion(el);
         }
       }
+    }
+    addArrowHitCushion(el) {
+      if (el.querySelector(".svg-hit-cushion")) return;
+      const paths = Array.from(el.querySelectorAll("path"));
+      let shaftPath = paths.find((p) => {
+        try {
+          const b = p.getBBox();
+          return b.width > 20;
+        } catch (_) {
+          return false;
+        }
+      });
+      if (!shaftPath && paths.length > 0) {
+        shaftPath = paths[0];
+      }
+      if (shaftPath) {
+        try {
+          const b = shaftPath.getBBox();
+          if (b && b.width > 0) {
+            const padX = Math.max(2.5, b.width * 0.03);
+            const padY = Math.max(4, (b.height || 0) * 0.6);
+            const rectH = Math.max(8, (b.height || 0) + padY * 2);
+            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            rect.setAttribute("x", (b.x - padX).toFixed(2));
+            rect.setAttribute("y", (b.y - padY).toFixed(2));
+            rect.setAttribute("width", (b.width + padX * 2).toFixed(2));
+            rect.setAttribute("height", rectH.toFixed(2));
+            rect.setAttribute("rx", "3.5");
+            rect.setAttribute("ry", "3.5");
+            rect.setAttribute("fill", "rgba(0,0,0,0.001)");
+            rect.setAttribute("stroke", "none");
+            rect.setAttribute("pointer-events", "all");
+            rect.classList.add("svg-hit-cushion");
+            el.insertBefore(rect, el.firstChild);
+          }
+        } catch (_) {
+        }
+      }
+      paths.forEach((path) => {
+        const ghost = path.cloneNode(false);
+        ghost.removeAttribute("id");
+        ghost.removeAttribute("inkscape:label");
+        ghost.removeAttribute("marker-end");
+        ghost.removeAttribute("marker-start");
+        ghost.removeAttribute("style");
+        ghost.setAttribute("style", "fill:none !important; stroke:rgba(0,0,0,0.001) !important; stroke-width:7.0 !important; stroke-linecap:round !important; stroke-linejoin:round !important; pointer-events:stroke !important;");
+        ghost.classList.add("svg-hit-cushion");
+        el.insertBefore(ghost, el.firstChild);
+      });
+    }
+    addBoundingHitCushion(el) {
+      if (el.querySelector(".svg-hit-cushion")) return;
+      try {
+        const bbox = el.getBBox();
+        if (bbox && bbox.width > 0 && bbox.height > 0) {
+          const padX = 3.5;
+          const padY = 3.5;
+          const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          rect.setAttribute("x", (bbox.x - padX).toFixed(2));
+          rect.setAttribute("y", (bbox.y - padY).toFixed(2));
+          rect.setAttribute("width", (bbox.width + padX * 2).toFixed(2));
+          rect.setAttribute("height", (bbox.height + padY * 2).toFixed(2));
+          rect.setAttribute("rx", "4.0");
+          rect.setAttribute("ry", "4.0");
+          rect.setAttribute("fill", "rgba(0,0,0,0.001)");
+          rect.setAttribute("stroke", "none");
+          rect.setAttribute("pointer-events", "all");
+          rect.classList.add("svg-hit-cushion");
+          el.insertBefore(rect, el.firstChild);
+          return;
+        }
+      } catch (_) {
+      }
+      el.querySelectorAll("path").forEach((path) => {
+        const ghost = path.cloneNode(false);
+        ghost.removeAttribute("id");
+        ghost.removeAttribute("marker-end");
+        ghost.removeAttribute("style");
+        ghost.setAttribute("style", "fill:none !important; stroke:rgba(0,0,0,0.001) !important; stroke-width:6.0 !important; pointer-events:stroke !important;");
+        ghost.classList.add("svg-hit-cushion");
+        el.insertBefore(ghost, el.firstChild);
+      });
     }
     findStateTarget(el, rootSvg) {
       let cur = el;
@@ -1347,36 +1467,25 @@ Frame Model
       });
     }
     highlightCurrentState(frameIdx) {
-      const svg = this.container.querySelector("svg");
+      const svg = this.container ? this.container.querySelector("svg") : null;
       if (!svg) return;
       svg.querySelectorAll(".svg-active-element").forEach((el) => el.classList.remove("svg-active-element"));
-      let closestState = null;
-      let minDiff = 8;
-      for (const [key, cfg] of Object.entries(this.wiring)) {
-        if ((cfg.role === "state" || cfg.role === "state_molecule") && cfg.targetFrame !== void 0) {
-          const diff = Math.abs(cfg.targetFrame - frameIdx);
-          if (diff < minDiff) {
-            minDiff = diff;
-            closestState = key;
-          }
-        }
-      }
-      if (closestState) {
-        const el = this.findElement(svg, closestState);
-        if (el) el.classList.add("svg-active-element");
-      }
     }
     findElement(svg, key) {
-      let el = svg.getElementById(key);
+      if (!svg) return null;
+      let el = null;
+      if (typeof svg.getElementById === "function") {
+        el = svg.getElementById(key);
+      }
       if (!el) {
         try {
-          el = svg.querySelector(`[inkscape\\:label="${key}"], [label="${key}"], [data-id="${key}"]`);
+          el = svg.querySelector(`[id="${key}"], [inkscape\\:label="${key}"], [label="${key}"], [data-id="${key}"]`);
         } catch (e) {
         }
       }
       if (!el) {
         for (const elem of svg.querySelectorAll("*")) {
-          if (elem.getAttribute("inkscape:label") === key || elem.getAttribute("label") === key) {
+          if (elem.getAttribute("id") === key || elem.getAttribute("inkscape:label") === key || elem.getAttribute("label") === key) {
             return elem;
           }
         }
