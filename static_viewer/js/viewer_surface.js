@@ -3,11 +3,51 @@
  * Manages volumetric orbitals, dual-phase coloring, and ESP electrostatic surfaces.
  */
 
+export function findTrack(bundle, orbKey) {
+  if (!bundle || !orbKey) return null;
+  const tracks = (bundle.manifest && bundle.manifest.orbital_timeline && bundle.manifest.orbital_timeline.tracks) ||
+                 (bundle.trajectory && bundle.trajectory.orbital_timeline && bundle.trajectory.orbital_timeline.tracks) ||
+                 (bundle.orbital_timeline && bundle.orbital_timeline.tracks) || [];
+  const sTarget = String(orbKey).toLowerCase();
+  for (const trk of tracks) {
+    if (!trk) continue;
+    if (String(trk.track_id || '').toLowerCase() === sTarget ||
+        String(trk.id || '').toLowerCase() === sTarget ||
+        String(trk.orbital_key || '').toLowerCase() === sTarget ||
+        String(trk.local_key || '').toLowerCase() === sTarget ||
+        String(trk.chem_key || '').toLowerCase() === sTarget) {
+      return trk;
+    }
+  }
+  return null;
+}
+
 export function findOrbitalMesh(bundle, frameIdx, orbKey) {
   if (!bundle || !bundle.orbitalMeshes) return null;
   const meshes = bundle.orbitalMeshes;
   const exactKey = `${frameIdx}_${orbKey}`;
   if (meshes[exactKey]) return meshes[exactKey];
+
+  const track = findTrack(bundle, orbKey);
+  if (track) {
+    if (track.frame_map && track.frame_map[frameIdx]) {
+      const mapKey = `${frameIdx}_${track.frame_map[frameIdx]}`;
+      if (meshes[mapKey]) return meshes[mapKey];
+    }
+    if (track.orbital_key) {
+      const altKey = `${frameIdx}_${track.orbital_key}`;
+      if (meshes[altKey]) return meshes[altKey];
+    }
+    if (track.chem_key) {
+      const altKey = `${frameIdx}_${track.chem_key}`;
+      if (meshes[altKey]) return meshes[altKey];
+    }
+    if (track.local_key) {
+      const altKey = `${frameIdx}_${track.local_key}`;
+      if (meshes[altKey]) return meshes[altKey];
+    }
+  }
+
   if (bundle.isSingleMolecule) {
     if (meshes[orbKey]) return meshes[orbKey];
     if (meshes[`0_${orbKey}`]) return meshes[`0_${orbKey}`];
@@ -21,11 +61,48 @@ export function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx,
 
   for (const orbKey of activeOrbitals) {
     const sKey = String(orbKey).toLowerCase();
-    const isAnti = sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
-    const posColorHex = isAnti ? '#fb923c' : '#38bdf8';
-    const negColorHex = isAnti ? '#db2777' : '#1d4ed8';
-    const posColorInt = isAnti ? 0xfb923c : 0x38bdf8;
-    const negColorInt = isAnti ? 0xdb2777 : 0x1d4ed8;
+    const track = findTrack(bundle, orbKey);
+
+    const trackClass = String(track?.orbital_class || track?.category || track?.type || '').toLowerCase();
+    const trackLabel = String(track?.label || track?.title || track?.short_label || track?.role_transition || '').toLowerCase();
+    const isAnti = trackClass.includes('antibond') ||
+                   trackClass.includes('star') ||
+                   trackClass.includes('*') ||
+                   trackClass.includes('lumo') ||
+                   trackClass.includes('virtual') ||
+                   trackLabel.includes('star') ||
+                   trackLabel.includes('*') ||
+                   trackLabel.includes('lumo') ||
+                   trackLabel.includes('antibond') ||
+                   trackLabel.includes('virtual') ||
+                   sKey.includes('star') ||
+                   sKey.includes('*') ||
+                   sKey.includes('lumo') ||
+                   sKey.includes('antibond') ||
+                   sKey.includes('virtual');
+
+    // Dual-phase coloring strictly matches separate molecule inspection:
+    // Antibonding: Orange (#fb923c) pos, Magenta (#db2777) neg
+    // Bonding:     Cyan   (#38bdf8) pos, Deep Blue (#1d4ed8) neg
+    let posColorHex = isAnti ? '#fb923c' : '#38bdf8';
+    let negColorHex = isAnti ? '#db2777' : '#1d4ed8';
+
+    if (track && track.palette && track.palette.pos && track.palette.neg) {
+      if (isAnti) {
+        const pPos = track.palette.pos.toLowerCase();
+        const pNeg = track.palette.neg.toLowerCase();
+        if (pPos !== '#38bdf8' && pPos !== '#1d4ed8') posColorHex = track.palette.pos;
+        if (pNeg !== '#1d4ed8' && pNeg !== '#38bdf8') negColorHex = track.palette.neg;
+      } else {
+        const pPos = track.palette.pos.toLowerCase();
+        const pNeg = track.palette.neg.toLowerCase();
+        if (pPos !== '#fb923c' && pPos !== '#db2777') posColorHex = track.palette.pos;
+        if (pNeg !== '#db2777' && pNeg !== '#fb923c') negColorHex = track.palette.neg;
+      }
+    }
+
+    const posColorInt = parseInt(posColorHex.replace('#', ''), 16);
+    const negColorInt = parseInt(negColorHex.replace('#', ''), 16);
 
     const meshPair = findOrbitalMesh(bundle, frameIdx, orbKey);
     if (meshPair) {

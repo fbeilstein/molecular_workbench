@@ -272,12 +272,13 @@ export class ViewerOrbitalsPanel {
         });
         return;
       }
-      const key = trk.track_id || trk.orbital_key;
+      const key = trk.track_id || trk.orbital_key || trk.id;
       let title = trk.label || trk.title || key;
       title = title.replace(/Non-Bonding\s*/gi, '').replace(/\[Antibond\]/gi, '').trim();
-      const sKey = `${trk.track_id || ''} ${trk.orbital_key || ''} ${title} ${trk.type || ''}`.toLowerCase();
-      const isAnti = sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
-      const color = trk.color || (isAnti ? '#fb923c' : '#38bdf8');
+      const sKey = `${trk.track_id || ''} ${trk.orbital_key || ''} ${trk.id || ''} ${title} ${trk.type || ''} ${trk.orbital_class || ''} ${trk.category || ''}`.toLowerCase();
+      const isAnti = (trk.orbital_class === 'antibonding' || trk.category === 'antibonding' || (trk.category && trk.category.includes('*'))) ||
+                     sKey.includes('star') || sKey.includes('*') || sKey.includes('lumo') || sKey.includes('antibond') || sKey.includes('virtual');
+      const color = isAnti ? '#fb923c' : '#38bdf8';
       items.push({
         key,
         label: title,

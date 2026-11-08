@@ -38,10 +38,10 @@ export class ViewerSvgMechanism {
     // Convert black strokes/fills to crisp white #f1f5f9 directly in SVG markup.
     // This preserves colored arrows/heteroatoms while allowing vibrant, unclashed CSS hover effects.
     text = text
-      .replace(/stroke:\s*#000000/gi, 'stroke:#f1f5f9')
-      .replace(/fill:\s*#000000/gi, 'fill:#f1f5f9')
-      .replace(/stroke=["']#000000["']/gi, 'stroke="#f1f5f9"')
-      .replace(/fill=["']#000000["']/gi, 'fill="#f1f5f9"');
+      .replace(/stroke:\s*(#000000|#000|black|rgb\(0,\s*0,\s*0\))/gi, 'stroke:#f1f5f9')
+      .replace(/fill:\s*(#000000|#000|black|rgb\(0,\s*0,\s*0\))/gi, 'fill:#f1f5f9')
+      .replace(/stroke=["'](#000000|#000|black|rgb\(0,\s*0,\s*0\))["']/gi, 'stroke="#f1f5f9"')
+      .replace(/fill=["'](#000000|#000|black|rgb\(0,\s*0,\s*0\))["']/gi, 'fill="#f1f5f9"');
 
     // Fix Inkscape text glyph groups: ensure g[aria-label] and g[id^="text"] have solid white fill and no stroke outline
     text = text.replace(/<g([^>]*aria-label=[^>]*)>/gi, (match) => {
@@ -52,6 +52,19 @@ export class ViewerSvgMechanism {
         });
       } else {
         return match.replace(/<g\b/i, '<g style="fill:#f1f5f9;stroke:none;" ');
+      }
+    });
+
+    // Strip stroke and ensure fill on any <text> and <tspan> elements
+    text = text.replace(/<(text|tspan)([^>]*)>/gi, (match, tag, attrs) => {
+      if (/style=["']/i.test(attrs)) {
+        const newAttrs = attrs.replace(/style=["']([^"']*)["']/i, (m, style) => {
+          let s = style.replace(/stroke:[^;]+;?/gi, '').replace(/stroke-width:[^;]+;?/gi, '').replace(/fill:[^;]+;?/gi, '');
+          return `style="${s};fill:#f1f5f9;stroke:none;"`;
+        });
+        return `<${tag}${newAttrs}>`;
+      } else {
+        return `<${tag} style="fill:#f1f5f9;stroke:none;"${attrs}>`;
       }
     });
 

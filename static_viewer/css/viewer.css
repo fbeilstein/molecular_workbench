@@ -154,7 +154,10 @@ html, body {
 /* Crisp solid text typography (fixes Inkscape hollow/dark letter paths) */
 #mechanism-strip svg g[aria-label] path,
 #mechanism-strip svg g[id^="text"] path,
-#mechanism-strip svg text {
+#mechanism-strip svg text,
+#mechanism-strip svg tspan,
+#mechanism-strip svg text tspan,
+#mechanism-strip svg text * {
   fill: #f1f5f9 !important;
   stroke: none !important;
 }

@@ -161,7 +161,8 @@ export class ViewerUI {
 
   populateOrbitals(bundle) {
     const timeline = (bundle.manifest && bundle.manifest.orbital_timeline) ||
-                     (bundle.trajectory && bundle.trajectory.orbital_timeline);
+                     (bundle.trajectory && bundle.trajectory.orbital_timeline) ||
+                     bundle.orbital_timeline;
     const tracks = (timeline && timeline.tracks) || [];
 
     let categories = [];

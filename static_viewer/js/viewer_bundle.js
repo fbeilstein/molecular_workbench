@@ -435,11 +435,42 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
   }
 
   // static_viewer/js/viewer_surface.js
+  function findTrack(bundle, orbKey) {
+    if (!bundle || !orbKey) return null;
+    const tracks = bundle.manifest && bundle.manifest.orbital_timeline && bundle.manifest.orbital_timeline.tracks || bundle.trajectory && bundle.trajectory.orbital_timeline && bundle.trajectory.orbital_timeline.tracks || bundle.orbital_timeline && bundle.orbital_timeline.tracks || [];
+    const sTarget = String(orbKey).toLowerCase();
+    for (const trk of tracks) {
+      if (!trk) continue;
+      if (String(trk.track_id || "").toLowerCase() === sTarget || String(trk.id || "").toLowerCase() === sTarget || String(trk.orbital_key || "").toLowerCase() === sTarget || String(trk.local_key || "").toLowerCase() === sTarget || String(trk.chem_key || "").toLowerCase() === sTarget) {
+        return trk;
+      }
+    }
+    return null;
+  }
   function findOrbitalMesh(bundle, frameIdx, orbKey) {
     if (!bundle || !bundle.orbitalMeshes) return null;
     const meshes = bundle.orbitalMeshes;
     const exactKey = `${frameIdx}_${orbKey}`;
     if (meshes[exactKey]) return meshes[exactKey];
+    const track = findTrack(bundle, orbKey);
+    if (track) {
+      if (track.frame_map && track.frame_map[frameIdx]) {
+        const mapKey = `${frameIdx}_${track.frame_map[frameIdx]}`;
+        if (meshes[mapKey]) return meshes[mapKey];
+      }
+      if (track.orbital_key) {
+        const altKey = `${frameIdx}_${track.orbital_key}`;
+        if (meshes[altKey]) return meshes[altKey];
+      }
+      if (track.chem_key) {
+        const altKey = `${frameIdx}_${track.chem_key}`;
+        if (meshes[altKey]) return meshes[altKey];
+      }
+      if (track.local_key) {
+        const altKey = `${frameIdx}_${track.local_key}`;
+        if (meshes[altKey]) return meshes[altKey];
+      }
+    }
     if (bundle.isSingleMolecule) {
       if (meshes[orbKey]) return meshes[orbKey];
       if (meshes[`0_${orbKey}`]) return meshes[`0_${orbKey}`];
@@ -451,11 +482,27 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
     const CC = window.$3Dmol ? window.$3Dmol.CC : null;
     for (const orbKey of activeOrbitals) {
       const sKey = String(orbKey).toLowerCase();
-      const isAnti = sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
-      const posColorHex = isAnti ? "#fb923c" : "#38bdf8";
-      const negColorHex = isAnti ? "#db2777" : "#1d4ed8";
-      const posColorInt = isAnti ? 16486972 : 3718648;
-      const negColorInt = isAnti ? 14362487 : 1920728;
+      const track = findTrack(bundle, orbKey);
+      const trackClass = String(track?.orbital_class || track?.category || track?.type || "").toLowerCase();
+      const trackLabel = String(track?.label || track?.title || track?.short_label || track?.role_transition || "").toLowerCase();
+      const isAnti = trackClass.includes("antibond") || trackClass.includes("star") || trackClass.includes("*") || trackClass.includes("lumo") || trackClass.includes("virtual") || trackLabel.includes("star") || trackLabel.includes("*") || trackLabel.includes("lumo") || trackLabel.includes("antibond") || trackLabel.includes("virtual") || sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
+      let posColorHex = isAnti ? "#fb923c" : "#38bdf8";
+      let negColorHex = isAnti ? "#db2777" : "#1d4ed8";
+      if (track && track.palette && track.palette.pos && track.palette.neg) {
+        if (isAnti) {
+          const pPos = track.palette.pos.toLowerCase();
+          const pNeg = track.palette.neg.toLowerCase();
+          if (pPos !== "#38bdf8" && pPos !== "#1d4ed8") posColorHex = track.palette.pos;
+          if (pNeg !== "#1d4ed8" && pNeg !== "#38bdf8") negColorHex = track.palette.neg;
+        } else {
+          const pPos = track.palette.pos.toLowerCase();
+          const pNeg = track.palette.neg.toLowerCase();
+          if (pPos !== "#fb923c" && pPos !== "#db2777") posColorHex = track.palette.pos;
+          if (pNeg !== "#db2777" && pNeg !== "#fb923c") negColorHex = track.palette.neg;
+        }
+      }
+      const posColorInt = parseInt(posColorHex.replace("#", ""), 16);
+      const negColorInt = parseInt(negColorHex.replace("#", ""), 16);
       const meshPair = findOrbitalMesh(bundle, frameIdx, orbKey);
       if (meshPair) {
         const pV = meshPair.pos?.vertices || meshPair.pos?.vertexArr;
@@ -1125,12 +1172,12 @@ Frame Model
           });
           return;
         }
-        const key = trk.track_id || trk.orbital_key;
+        const key = trk.track_id || trk.orbital_key || trk.id;
         let title = trk.label || trk.title || key;
         title = title.replace(/Non-Bonding\s*/gi, "").replace(/\[Antibond\]/gi, "").trim();
-        const sKey = `${trk.track_id || ""} ${trk.orbital_key || ""} ${title} ${trk.type || ""}`.toLowerCase();
-        const isAnti = sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
-        const color = trk.color || (isAnti ? "#fb923c" : "#38bdf8");
+        const sKey = `${trk.track_id || ""} ${trk.orbital_key || ""} ${trk.id || ""} ${title} ${trk.type || ""} ${trk.orbital_class || ""} ${trk.category || ""}`.toLowerCase();
+        const isAnti = trk.orbital_class === "antibonding" || trk.category === "antibonding" || trk.category && trk.category.includes("*") || sKey.includes("star") || sKey.includes("*") || sKey.includes("lumo") || sKey.includes("antibond") || sKey.includes("virtual");
+        const color = isAnti ? "#fb923c" : "#38bdf8";
         items.push({
           key,
           label: title,
@@ -1234,7 +1281,7 @@ Frame Model
       } else {
         text = text.replace(/preserveAspectRatio=["'][^"']*["']/i, 'preserveAspectRatio="xMidYMax meet"');
       }
-      text = text.replace(/stroke:\s*#000000/gi, "stroke:#f1f5f9").replace(/fill:\s*#000000/gi, "fill:#f1f5f9").replace(/stroke=["']#000000["']/gi, 'stroke="#f1f5f9"').replace(/fill=["']#000000["']/gi, 'fill="#f1f5f9"');
+      text = text.replace(/stroke:\s*(#000000|#000|black|rgb\(0,\s*0,\s*0\))/gi, "stroke:#f1f5f9").replace(/fill:\s*(#000000|#000|black|rgb\(0,\s*0,\s*0\))/gi, "fill:#f1f5f9").replace(/stroke=["'](#000000|#000|black|rgb\(0,\s*0,\s*0\))["']/gi, 'stroke="#f1f5f9"').replace(/fill=["'](#000000|#000|black|rgb\(0,\s*0,\s*0\))["']/gi, 'fill="#f1f5f9"');
       text = text.replace(/<g([^>]*aria-label=[^>]*)>/gi, (match) => {
         if (/style=["']/i.test(match)) {
           return match.replace(/style=["']([^"']*)["']/i, (m, style) => {
@@ -1243,6 +1290,17 @@ Frame Model
           });
         } else {
           return match.replace(/<g\b/i, '<g style="fill:#f1f5f9;stroke:none;" ');
+        }
+      });
+      text = text.replace(/<(text|tspan)([^>]*)>/gi, (match, tag, attrs) => {
+        if (/style=["']/i.test(attrs)) {
+          const newAttrs = attrs.replace(/style=["']([^"']*)["']/i, (m, style) => {
+            let s = style.replace(/stroke:[^;]+;?/gi, "").replace(/stroke-width:[^;]+;?/gi, "").replace(/fill:[^;]+;?/gi, "");
+            return `style="${s};fill:#f1f5f9;stroke:none;"`;
+          });
+          return `<${tag}${newAttrs}>`;
+        } else {
+          return `<${tag} style="fill:#f1f5f9;stroke:none;"${attrs}>`;
         }
       });
       this.container.innerHTML = text;
@@ -1636,7 +1694,7 @@ Frame Model
       }
     }
     populateOrbitals(bundle) {
-      const timeline = bundle.manifest && bundle.manifest.orbital_timeline || bundle.trajectory && bundle.trajectory.orbital_timeline;
+      const timeline = bundle.manifest && bundle.manifest.orbital_timeline || bundle.trajectory && bundle.trajectory.orbital_timeline || bundle.orbital_timeline;
       const tracks = timeline && timeline.tracks || [];
       let categories = [];
       if (tracks.length > 0) {
