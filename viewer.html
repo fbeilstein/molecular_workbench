@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Reaction Pathway Player</title>
-  <link rel="stylesheet" href="static_viewer/css/viewer.css?v=20261108_layering">
+  <link rel="stylesheet" href="static_viewer/css/viewer.css?v=20261108_mech_2x">
   <script src="static_viewer/libs/jszip.min.js"></script>
   <script src="static_viewer/libs/3Dmol-min.js"></script>
 </head>
@@ -23,7 +23,6 @@
           <span>Solvent: <strong id="stat-solvent">—</strong></span>
         </div>
       </div>
-      <div id="mechanism-strip"></div>
     </header>
 
     <!-- Main Viewport: 3D Mol WebGL Canvas & Background PES Energy Plot -->
@@ -32,6 +31,9 @@
       <div id="pes-canvas-container">
         <canvas id="pes-canvas"></canvas>
       </div>
+
+      <!-- Chemical Mechanism Overlay (Floating at bottom over 3D) -->
+      <div id="mechanism-strip"></div>
 
       <!-- ESP Colorbar Overlay (Hidden by default) -->
       <div id="esp-colorbar" class="esp-colorbar" style="display: none;">
