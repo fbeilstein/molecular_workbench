@@ -113,12 +113,9 @@ export function getBundleViewerTemplate(megajson, totalFrames, state) {
                         <label style="font-size: 0.72rem; color: var(--text-main, #0f172a); display: flex; align-items: center; gap: 5px; cursor: pointer; font-weight: 500;" title="Toggle numerical atomic partial charges">
                             <input type="checkbox" id="chk-bundle-charges" ${state.showCharges ? 'checked' : ''} style="accent-color: #a855f7;"> ± Charges
                         </label>
-                        <label style="font-size: 0.72rem; color: var(--text-main, #0f172a); display: flex; align-items: center; gap: 5px; cursor: pointer; font-weight: 500;" title="Toggle 3D continuous Electrostatic Potential surface">
-                            <input type="checkbox" id="chk-bundle-esp-surface" ${state.showEspSurface ? 'checked' : ''} style="accent-color: #38bdf8;"> ⚡ ESP Surface
-                        </label>
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
-                        <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted, #475569); text-transform: uppercase; letter-spacing: 0.05em;">Tracked Orbitals</span>
+                        <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted, #475569); text-transform: uppercase; letter-spacing: 0.05em;">Tracked Surfaces & Orbitals</span>
                         <span style="font-size: 0.65rem; color: var(--text-muted, #64748b);">Drag or ▲/▼ to reorder</span>
                     </div>
                     <div id="bundle-tracks-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem;"></div>

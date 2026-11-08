@@ -67,8 +67,10 @@ def build_bundle_manifest(megajson: Dict[str, Any], global_state: Dict[str, Any]
         "has_orbitals": len(surfaces) > 0,
         "orbitals_type": "surface_mesh_json",
         "orbital_surfaces_count": len(surfaces),
-        "has_esp_surfaces": len(esps) > 0,
+        "has_esp": len(esps) > 0 or bool(megajson.get("trajectory_charges")),
+        "has_esp_surfaces": len(esps) > 0 or bool(megajson.get("trajectory_charges")),
         "esp_surfaces_count": len(esps),
+        "has_charges": bool(megajson.get("trajectory_charges")),
         "molecules": mol_list,
         "files": {
             "trajectory_json": "multistep_pathway.json",

@@ -108,7 +108,11 @@ export function bindBundleEvents(container, ui) {
         if (e.key === 'l' || e.key === 'L') toggleBundleLabels();
     });
 
-    container.querySelector('#chk-bundle-charges')?.addEventListener('change', (e) => { s.showCharges = e.target.checked; ui.refreshViewer(); });
+    container.querySelector('#chk-bundle-charges')?.addEventListener('change', (e) => {
+        s.showCharges = e.target.checked;
+        ui.renderTracksList();
+        ui.refreshViewer();
+    });
     container.querySelector('#chk-bundle-esp-surface')?.addEventListener('change', (e) => {
         s.showEspSurface = e.target.checked;
         if (e.target.checked) {

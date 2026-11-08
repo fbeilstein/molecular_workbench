@@ -60,6 +60,76 @@ export class ViewerOrbitalsPanel {
       if (isCollapsed) body.style.display = 'none';
 
       (cat.items || []).forEach(item => {
+        if (item.isEsp) {
+          const row = document.createElement('div');
+          row.className = 'orbital-item-row';
+          row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; padding: 0.25rem 0.4rem;';
+
+          const left = document.createElement('div');
+          left.style.cssText = 'display: flex; align-items: center; gap: 0.35rem; overflow: hidden; min-width: 0;';
+
+          // Surface checkbox & label
+          const surfBox = document.createElement('label');
+          surfBox.style.cssText = 'display: flex; align-items: center; gap: 3px; cursor: pointer; margin: 0; user-select: none;';
+          surfBox.title = 'Toggle 3D ESP continuous surface';
+          const surfChk = document.createElement('input');
+          surfChk.type = 'checkbox';
+          surfChk.className = 'orb-chk';
+          surfChk.checked = this.isEspActive;
+          surfChk.style.accentColor = '#06b6d4';
+          surfChk.addEventListener('change', (e) => {
+            this.isEspActive = e.target.checked;
+            this.onEspToggle(this.isEspActive);
+          });
+          const surfLbl = document.createElement('span');
+          surfLbl.style.cssText = 'font-size: 0.68rem; font-weight: 600; color: #0284c7;';
+          surfLbl.textContent = 'Surface';
+          surfBox.appendChild(surfChk);
+          surfBox.appendChild(surfLbl);
+
+          // Divider
+          const div = document.createElement('span');
+          div.style.cssText = 'width: 1px; height: 12px; background: #cbd5e1; margin: 0 1px;';
+
+          // Charges checkbox & label
+          const chgBox = document.createElement('label');
+          chgBox.style.cssText = 'display: flex; align-items: center; gap: 3px; cursor: pointer; margin: 0; user-select: none;';
+          chgBox.title = 'Toggle atom partial charges (±q)';
+          const chgChk = document.createElement('input');
+          chgChk.type = 'checkbox';
+          chgChk.className = 'orb-chk';
+          chgChk.checked = this.isChargesActive;
+          chgChk.style.accentColor = '#a855f7';
+          chgChk.addEventListener('change', (e) => {
+            this.isChargesActive = e.target.checked;
+            this.onChargesToggle(this.isChargesActive);
+          });
+          const chgLbl = document.createElement('span');
+          chgLbl.style.cssText = 'font-size: 0.68rem; font-weight: 600; color: #9333ea;';
+          chgLbl.textContent = '±q';
+          chgBox.appendChild(chgChk);
+          chgBox.appendChild(chgLbl);
+
+          const title = document.createElement('span');
+          title.style.cssText = 'font-size: 0.74rem; font-weight: 600; color: var(--text-main, #0f172a); white-space: nowrap; margin-left: 2px;';
+          title.textContent = 'ESP & Charges';
+
+          left.appendChild(surfBox);
+          left.appendChild(div);
+          left.appendChild(chgBox);
+          left.appendChild(title);
+
+          const badge = document.createElement('span');
+          badge.className = 'chip-mini badge-esp';
+          badge.style.cssText = 'font-size: 0.62rem; padding: 1px 6px; border-radius: 3px; font-weight: 700; background: rgba(168,85,247,0.2); color: #c084fc; border: 1px solid rgba(168,85,247,0.4);';
+          badge.textContent = 'ESP';
+
+          row.appendChild(left);
+          row.appendChild(badge);
+          body.appendChild(row);
+          return;
+        }
+
         const row = document.createElement('label');
         row.className = 'orbital-item-row';
 
@@ -98,7 +168,10 @@ export class ViewerOrbitalsPanel {
       this.container.appendChild(groupEl);
     });
 
-    // 2. Render ESP & Charges section
+    // 2. Render ESP & Charges section (for single-molecule bundles, or if not embedded in tracks)
+    const hasEspInTracks = categories.some(cat => (cat.items || []).some(it => it.isEsp));
+    if (hasEspInTracks) return;
+
     const groupTitle = hasEsp ? 'Surfaces & Charges' : 'Atom Charges';
     const espGroup = document.createElement('div');
     espGroup.className = 'orbital-group esp-group';
@@ -187,7 +260,18 @@ export class ViewerOrbitalsPanel {
   static parsePathwayTracks(tracks = []) {
     const items = [];
     tracks.forEach(trk => {
-      if (trk.role === 'esp' || trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') return;
+      const isEsp = (trk.role === 'esp' || trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp');
+      if (isEsp) {
+        items.push({
+          key: 'track_esp_charge',
+          track_id: trk.track_id || 'trk_esp',
+          label: 'ESP & Charges',
+          color: '#c084fc',
+          isEsp: true,
+          badge: 'ESP'
+        });
+        return;
+      }
       const key = trk.track_id || trk.orbital_key;
       let title = trk.label || trk.title || key;
       title = title.replace(/Non-Bonding\s*/gi, '').replace(/\[Antibond\]/gi, '').trim();
@@ -204,7 +288,7 @@ export class ViewerOrbitalsPanel {
     });
 
     if (items.length === 0) return [];
-    return [{ name: 'Reaction Orbitals', items }];
+    return [{ name: 'Reaction Orbitals & Surfaces', items }];
   }
 
   /**

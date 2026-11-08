@@ -152,7 +152,11 @@ export async function loadReactionBundle(source, onProgress) {
     }
   }
 
-  bundle.hasEsp = bundle.hasEsp ?? (bundle.espMeshes && Object.keys(bundle.espMeshes).length > 0);
+  bundle.hasEsp = bundle.hasEsp ?? (
+    (bundle.espMeshes && Object.keys(bundle.espMeshes).length > 0) ||
+    Boolean(bundle.trajectory?.trajectory_charges?.length) ||
+    Boolean(bundle.charges?.length)
+  );
 
   if (!bundle.trajectory) {
     throw new Error('Archive does not contain a valid multistep_pathway.json or molecule structure.');

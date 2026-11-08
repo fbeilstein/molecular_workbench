@@ -12,33 +12,17 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
         return;
     }
 
-    // Filter out ESP from the orbital tracks list to avoid duplicate ESP checkboxes (ESP is cleanly controlled in the toolbar)
-    const moTracks = tracks.filter(trk => {
-        const tid = (trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') ? 'track_esp_charge' : (trk.track_id || trk.orbital_key || trk.id);
-        return tid !== 'track_esp_charge' && tid !== 'trk_esp';
-    });
-
-    if (moTracks.length === 0) {
-        container.innerHTML = `<div style="font-size: 0.72rem; color: #64748b; padding: 0.5rem;">No tracked orbital continuous series available.</div>`;
-        return;
-    }
+    const allTracks = [...tracks];
 
     const moveTrack = (fromIdx, toIdx) => {
-        if (fromIdx < 0 || fromIdx >= moTracks.length || toIdx < 0 || toIdx >= moTracks.length) return;
-        const item = moTracks[fromIdx];
-        moTracks.splice(fromIdx, 1);
-        moTracks.splice(toIdx, 0, item);
-
-        // Keep non-MO tracks (like trk_esp) preserved at their original position
-        const nonMoTracks = tracks.filter(t => {
-            const tid = (t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp') ? 'track_esp_charge' : (t.track_id || t.orbital_key || t.id);
-            return tid === 'track_esp_charge' || tid === 'trk_esp';
-        });
-        const newTracks = [...nonMoTracks, ...moTracks];
-        if (callbacks && callbacks.onReorder) callbacks.onReorder(newTracks);
+        if (fromIdx < 0 || fromIdx >= allTracks.length || toIdx < 0 || toIdx >= allTracks.length) return;
+        const item = allTracks[fromIdx];
+        allTracks.splice(fromIdx, 1);
+        allTracks.splice(toIdx, 0, item);
+        if (callbacks && callbacks.onReorder) callbacks.onReorder(allTracks);
     };
 
-    moTracks.forEach((trk, idx) => {
+    allTracks.forEach((trk, idx) => {
         const display = formatOrbitalDisplay(trk);
         const row = document.createElement('div');
         row.className = 'orbital-track-row';
@@ -98,7 +82,7 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
         const btnUp = document.createElement('button');
         btnUp.type = 'button';
         btnUp.innerHTML = '▲';
-        btnUp.title = 'Move orbital up';
+        btnUp.title = 'Move track up';
         btnUp.disabled = (idx === 0);
         btnUp.style.cssText = `background: none; border: none; padding: 0; font-size: 0.55rem; line-height: 1; color: ${idx === 0 ? '#cbd5e1' : '#64748b'}; cursor: ${idx === 0 ? 'default' : 'pointer'};`;
         if (idx > 0) {
@@ -110,10 +94,10 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
         const btnDown = document.createElement('button');
         btnDown.type = 'button';
         btnDown.innerHTML = '▼';
-        btnDown.title = 'Move orbital down';
-        btnDown.disabled = (idx === moTracks.length - 1);
-        btnDown.style.cssText = `background: none; border: none; padding: 0; font-size: 0.55rem; line-height: 1; color: ${idx === moTracks.length - 1 ? '#cbd5e1' : '#64748b'}; cursor: ${idx === moTracks.length - 1 ? 'default' : 'pointer'};`;
-        if (idx < moTracks.length - 1) {
+        btnDown.title = 'Move track down';
+        btnDown.disabled = (idx === allTracks.length - 1);
+        btnDown.style.cssText = `background: none; border: none; padding: 0; font-size: 0.55rem; line-height: 1; color: ${idx === allTracks.length - 1 ? '#cbd5e1' : '#64748b'}; cursor: ${idx === allTracks.length - 1 ? 'default' : 'pointer'};`;
+        if (idx < allTracks.length - 1) {
             btnDown.onmouseenter = () => { btnDown.style.color = '#0284c7'; };
             btnDown.onmouseleave = () => { btnDown.style.color = '#64748b'; };
             btnDown.onclick = (e) => { e.stopPropagation(); moveTrack(idx, idx + 1); };
@@ -124,37 +108,109 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
         left.appendChild(btnBox);
 
         const tid = (trk.orbital_key === 'track_esp_charge' || trk.track_id === 'trk_esp') ? 'track_esp_charge' : (trk.track_id || trk.orbital_key || trk.id);
-        const isAnti = isAntiBondingOrbital(trk);
-        const baseColor = isAnti ? '#fb923c' : '#38bdf8';
-        const accentCol = isAnti ? '#ea580c' : '#0284c7';
+        const isEsp = (tid === 'track_esp_charge' || trk.track_id === 'trk_esp' || trk.role === 'esp');
 
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = activeOrbitals.has(tid);
-        cb.style.cssText = `accent-color: ${trk.color || accentCol}; cursor: pointer; flex-shrink: 0; margin: 0; width: 14px; height: 14px;`;
+        if (isEsp) {
+            // Dual checkboxes for ESP: Surface + Charges
+            const espControls = document.createElement('div');
+            espControls.style.cssText = 'display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0;';
 
-        cb.onchange = (e) => {
-            if (e.target.checked) {
-                if (tid) activeOrbitals.add(tid);
-            } else {
-                if (tid) activeOrbitals.delete(tid);
-            }
-            if (callbacks && callbacks.onChanged) callbacks.onChanged();
-        };
+            // 1. Surface checkbox & label
+            const surfaceBox = document.createElement('label');
+            surfaceBox.style.cssText = 'display: flex; align-items: center; gap: 3px; cursor: pointer; margin: 0; user-select: none;';
+            surfaceBox.title = 'Toggle 3D ESP continuous surface';
 
-        const dot = document.createElement('span');
-        dot.style.cssText = `display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${trk.color || baseColor}; flex-shrink: 0; cursor: pointer;`;
-        dot.onclick = () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); };
+            const cbSurface = document.createElement('input');
+            cbSurface.type = 'checkbox';
+            cbSurface.checked = activeOrbitals.has('track_esp_charge') || activeOrbitals.has('trk_esp');
+            cbSurface.style.cssText = 'accent-color: #06b6d4; cursor: pointer; width: 14px; height: 14px; margin: 0;';
+            cbSurface.onchange = (e) => {
+                if (e.target.checked) {
+                    activeOrbitals.add('track_esp_charge');
+                    activeOrbitals.add('trk_esp');
+                } else {
+                    activeOrbitals.delete('track_esp_charge');
+                    activeOrbitals.delete('trk_esp');
+                }
+                if (callbacks && callbacks.onToggleSurface) callbacks.onToggleSurface(e.target.checked);
+                else if (callbacks && callbacks.onChanged) callbacks.onChanged();
+            };
 
-        const title = document.createElement('span');
-        title.style.cssText = 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; font-size: 0.74rem; cursor: pointer; color: var(--text-main, #0f172a);';
-        title.textContent = display.name;
-        title.title = `${display.name} (drag or use ▲/▼ to reorder)`;
-        title.onclick = () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); };
+            const lblSurface = document.createElement('span');
+            lblSurface.style.cssText = 'font-size: 0.68rem; font-weight: 600; color: #0284c7; white-space: nowrap;';
+            lblSurface.textContent = 'Surface';
 
-        left.appendChild(cb);
-        left.appendChild(dot);
-        left.appendChild(title);
+            surfaceBox.appendChild(cbSurface);
+            surfaceBox.appendChild(lblSurface);
+
+            // Divider
+            const divider = document.createElement('span');
+            divider.style.cssText = 'width: 1px; height: 12px; background: #cbd5e1; margin: 0 1px;';
+
+            // 2. Charges text checkbox & label
+            const chargesBox = document.createElement('label');
+            chargesBox.style.cssText = 'display: flex; align-items: center; gap: 3px; cursor: pointer; margin: 0; user-select: none;';
+            chargesBox.title = 'Toggle floating atom partial charges (±q)';
+
+            const cbCharges = document.createElement('input');
+            cbCharges.type = 'checkbox';
+            cbCharges.checked = !!(callbacks && callbacks.showCharges);
+            cbCharges.style.cssText = 'accent-color: #a855f7; cursor: pointer; width: 14px; height: 14px; margin: 0;';
+            cbCharges.onchange = (e) => {
+                if (callbacks && callbacks.onToggleCharges) callbacks.onToggleCharges(e.target.checked);
+                else if (callbacks && callbacks.onChanged) callbacks.onChanged();
+            };
+
+            const lblCharges = document.createElement('span');
+            lblCharges.style.cssText = 'font-size: 0.68rem; font-weight: 600; color: #9333ea; white-space: nowrap;';
+            lblCharges.textContent = '±q';
+
+            chargesBox.appendChild(cbCharges);
+            chargesBox.appendChild(lblCharges);
+
+            espControls.appendChild(surfaceBox);
+            espControls.appendChild(divider);
+            espControls.appendChild(chargesBox);
+            left.appendChild(espControls);
+
+            const title = document.createElement('span');
+            title.style.cssText = 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 0.74rem; color: var(--text-main, #0f172a); margin-left: 2px;';
+            title.textContent = 'ESP & Charges';
+            title.title = 'Electrostatic Potential & Charges (drag or use ▲/▼ to reorder)';
+            left.appendChild(title);
+        } else {
+            const isAnti = isAntiBondingOrbital(trk);
+            const baseColor = isAnti ? '#fb923c' : '#38bdf8';
+            const accentCol = isAnti ? '#ea580c' : '#0284c7';
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = activeOrbitals.has(tid);
+            cb.style.cssText = `accent-color: ${trk.color || accentCol}; cursor: pointer; flex-shrink: 0; margin: 0; width: 14px; height: 14px;`;
+
+            cb.onchange = (e) => {
+                if (e.target.checked) {
+                    if (tid) activeOrbitals.add(tid);
+                } else {
+                    if (tid) activeOrbitals.delete(tid);
+                }
+                if (callbacks && callbacks.onChanged) callbacks.onChanged();
+            };
+
+            const dot = document.createElement('span');
+            dot.style.cssText = `display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${trk.color || baseColor}; flex-shrink: 0; cursor: pointer;`;
+            dot.onclick = () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); };
+
+            const title = document.createElement('span');
+            title.style.cssText = 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; font-size: 0.74rem; cursor: pointer; color: var(--text-main, #0f172a);';
+            title.textContent = display.name;
+            title.title = `${display.name} (drag or use ▲/▼ to reorder)`;
+            title.onclick = () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); };
+
+            left.appendChild(cb);
+            left.appendChild(dot);
+            left.appendChild(title);
+        }
 
         const badgeInfo = getOrbitalTypeBadge(trk);
         const badge = document.createElement('span');
@@ -172,9 +228,9 @@ export function renderOrbitalTracksSidebar(container, tracks, activeOrbitals, ca
 export function formatOrbitalDisplay(trk) {
     if (!trk) return { name: '', badge: 'val', tooltip: '' };
 
-    if (trk.orbital_key === 'track_esp_charge' || trk.id === 'trk_esp_charge') {
+    if (trk.orbital_key === 'track_esp_charge' || trk.id === 'trk_esp_charge' || trk.track_id === 'trk_esp' || trk.role === 'esp') {
         return {
-            name: 'ESP Surface',
+            name: '⚡ Electrostatic Potential (ESP)',
             badge: 'ESP',
             tooltip: 'Electrostatic Potential Surface & Partial Charges'
         };

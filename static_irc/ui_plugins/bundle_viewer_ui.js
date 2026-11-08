@@ -48,7 +48,8 @@ export const BundleViewerUI = {
         this.state.tracks = timeline.tracks || [];
         this.state.isovalue = timeline.default_isovalue || 0.035;
         this.state.showCharges = false;
-        this.state.showEspSurface = this.state.tracks.some(t => t.orbital_key === 'track_esp_charge');
+        const espTrk = this.state.tracks.find(t => t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp');
+        this.state.showEspSurface = espTrk ? (espTrk.default_on !== false) : false;
         this.state.orbitalResolution = uiSchema.orbital_resolution || megajson.orbital_resolution || 32;
         this.state.trajectorySymbols = uiSchema.trajectory_symbols || megajson.trajectory_symbols || megajson.frames.map(f => f.symbols || megajson.symbols);
         this.state.trajectoryAtomLabels = uiSchema.trajectory_atom_labels || megajson.trajectory_atom_labels || megajson.frames.map(f => f.atom_labels || null);
@@ -113,10 +114,34 @@ export const BundleViewerUI = {
     renderTracksList() {
         const list = document.querySelector('#bundle-tracks-list');
         renderOrbitalTracksSidebar(list, this.state.tracks, this.state.activeOrbitals, {
+            showCharges: this.state.showCharges,
             onChanged: () => {
+                this.state.showEspSurface = this.state.activeOrbitals.has('track_esp_charge') || this.state.activeOrbitals.has('trk_esp');
+                if (this.state.showEspSurface) {
+                    this.state.viewer3D?.prewarmEspCache(this.state.trajectorySymbols || this.state.megajson.symbols, this.state.megajson.frames, this.state.megajson.trajectory_charges);
+                }
                 const espCb = document.querySelector('#chk-bundle-esp-surface');
-                if (espCb) espCb.checked = this.state.activeOrbitals.has('track_esp_charge');
-                this.state.showEspSurface = this.state.activeOrbitals.has('track_esp_charge');
+                if (espCb) espCb.checked = this.state.showEspSurface;
+                this.refreshViewer();
+            },
+            onToggleSurface: (active) => {
+                this.state.showEspSurface = active;
+                if (active) {
+                    this.state.activeOrbitals.add('track_esp_charge');
+                    this.state.activeOrbitals.add('trk_esp');
+                    this.state.viewer3D?.prewarmEspCache(this.state.trajectorySymbols || this.state.megajson.symbols, this.state.megajson.frames, this.state.megajson.trajectory_charges);
+                } else {
+                    this.state.activeOrbitals.delete('track_esp_charge');
+                    this.state.activeOrbitals.delete('trk_esp');
+                }
+                const espCb = document.querySelector('#chk-bundle-esp-surface');
+                if (espCb) espCb.checked = active;
+                this.refreshViewer();
+            },
+            onToggleCharges: (active) => {
+                this.state.showCharges = active;
+                const chkToolbar = document.querySelector('#chk-bundle-charges');
+                if (chkToolbar) chkToolbar.checked = active;
                 this.refreshViewer();
             },
             onReorder: (newTracks) => {
@@ -172,7 +197,7 @@ export const BundleViewerUI = {
         const atomLabels = frame.atom_labels || this.state.trajectoryAtomLabels?.[f] || this.state.megajson.trajectory_atom_labels?.[f] || null;
         const bonds = frame.bonds || this.state.trajectoryBonds?.[f] || null;
 
-        const showEspSurface = this.state.showEspSurface || this.state.activeOrbitals.has('track_esp_charge');
+        const showEspSurface = this.state.showEspSurface || this.state.activeOrbitals.has('track_esp_charge') || this.state.activeOrbitals.has('trk_esp');
         const showCharges = this.state.showCharges;
         const charges = this.state.frameDataCache[f]?.charges || this.state.trajectoryCharges?.[f] || frame.charges || null;
 

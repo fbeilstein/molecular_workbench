@@ -32,10 +32,41 @@ export class Bundle3DViewer extends MoleculeViewer3D {
         this.activeFrameIdx = frameIdx;
         this.viewer.removeAllSurfaces();
         this.viewer.removeAllShapes();
-        super.renderMolecule(symbols, coords, charges, showCharges, bonds, showLabels, atomLabels);
+        // Pass showCharges=false to super so super does not create a redundant VDW surface.
+        // Charge labels and ESP surface are handled independently below.
+        super.renderMolecule(symbols, coords, charges, false, bonds, showLabels, atomLabels);
+
+        if (showCharges) {
+            this._renderChargeLabels(symbols, coords, charges, atomLabels, showLabels);
+        }
 
         if (showEspSurface) {
             this._renderEspSurface(symbols, coords, charges, frameIdx);
+        }
+    }
+
+    _renderChargeLabels(symbols, coords, charges, atomLabels, showLabels) {
+        if (!this.viewer || !symbols || !coords || !charges) return;
+        const labelsVisible = (showLabels !== null && showLabels !== undefined) ? showLabels : this.showLabels;
+        for (let i = 0; i < symbols.length && i < charges.length; i++) {
+            const [x, y, z] = coords[i];
+            const q = charges[i];
+            if (q === undefined || q === null) continue;
+            const sign = q > 0 ? '+' : '';
+            const tag = (atomLabels && atomLabels[i]) ? atomLabels[i] : `${symbols[i]}${i}`;
+            const lbl = labelsVisible
+                ? `${tag}: ${sign}${Number(q).toFixed(2)}`
+                : `${symbols[i]}: ${sign}${Number(q).toFixed(2)}`;
+            this.viewer.addLabel(lbl, {
+                position: { x, y: y + 0.35, z },
+                fontSize: 10,
+                fontColor: '#ffffff',
+                backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                backgroundOpacity: 0.85,
+                borderColor: '#c084fc',
+                borderThickness: 1,
+                inFront: true
+            });
         }
     }
 
