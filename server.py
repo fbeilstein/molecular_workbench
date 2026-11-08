@@ -99,6 +99,8 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             return self._serve_file(os.path.join(PACKAGE_DIR, 'templates', 'index.html'))
         if path == '/viewer.html':
             return self._serve_file(os.path.join(PACKAGE_DIR, 'viewer.html'))
+        if path == '/gallery.html':
+            return self._serve_file(os.path.join(PACKAGE_DIR, 'gallery.html'))
         if path.startswith('/static/'):
             return self._serve_file(os.path.join(PACKAGE_DIR, path.lstrip('/')))
         if path.startswith('/static_viewer/'):
