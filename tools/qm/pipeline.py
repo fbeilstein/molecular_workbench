@@ -3,6 +3,7 @@ import numpy as np
 from pyscf import gto
 from qm.analyzers.planar_pi import extract_step0_planar_pi
 from qm.analyzers.valence import ValenceLocalizer
+from qm.classification import count_core_orbitals
 from qm.renderer import Renderer
 from qm.models import Orbital
 
@@ -151,7 +152,7 @@ class QuantumPipeline:
         )
         ovlp = self.mol.intor_symmetric("int1e_ovlp")
         n_mo = raw_coeff.shape[1]
-        n_core = int(np.sum((mo_energy[:nocc] * HARTREE_TO_EV) < -50.0))
+        n_core = count_core_orbitals(self.mol, mo_energy, nocc)
 
         # 1. Step-0 Planar Conjugated π Subspace Separation (unified engine shared with server_irc.py)
         C_non_pi_occ, C_non_pi_virt, pi_meta, pi_vecs = extract_step0_planar_pi(

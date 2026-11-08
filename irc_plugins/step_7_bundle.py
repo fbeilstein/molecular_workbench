@@ -196,9 +196,21 @@ class Step7Bundle(PipelineStep):
                     m_name = cfg["moleculeName"]
                     norm_name = re.sub(r'[\s\-_]+', '', m_name).lower()
                     for k, v in list(mb.items()):
-                        if k == grp_id or re.sub(r'[\s\-_]+', '', str(k)).lower() == norm_name or re.sub(r'[\s\-_]+', '', str(v.get("molecule_key", ""))).lower() == norm_name:
+                        if not isinstance(v, dict):
+                            continue
+                        if (
+                            k == grp_id
+                            or re.sub(r'[\s\-_]+', '', str(k)).lower() == norm_name
+                            or re.sub(r'[\s\-_]+', '', str(v.get("molecule_id", ""))).lower() == re.sub(r'[\s\-_]+', '', str(grp_id)).lower()
+                            or re.sub(r'[\s\-_]+', '', str(v.get("molecule_key", ""))).lower() == norm_name
+                            or re.sub(r'[\s\-_]+', '', str(v.get("molecule_name", ""))).lower() == norm_name
+                        ):
+                            v["molecule_id"] = grp_id
                             v["molecule_name"] = m_name
-                            mb[m_name] = mb[grp_id] = v
+                            v.pop("files", None)
+                            for dup_k in [k2 for k2, v2 in mb.items() if v2 is v and k2 != grp_id]:
+                                mb.pop(dup_k, None)
+                            mb[grp_id] = v
                             break
             for sk in ("step_7_bundle", "step_6_orbitals", "step_5_cascade"):
                 if sk in global_state and isinstance(global_state[sk], dict) and isinstance(global_state[sk].get("megajson"), dict):

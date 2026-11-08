@@ -90,7 +90,7 @@ export class BundleMoleculeModal {
 
         this.init3DViewer(modal.querySelector('#mol-3d-canvas'));
 
-        if (this.bundleData && (this.bundleData.orbitals || this.bundleData.xyz || this.bundleData.esp_surface)) {
+        if (this.bundleData && this.bundleData.files && Object.keys(this.bundleData.files).length > 0) {
             this.populateOrbitals(this.bundleData);
         } else {
             this.fetchExistingBundle();

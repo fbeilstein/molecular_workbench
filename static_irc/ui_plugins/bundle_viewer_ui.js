@@ -7,7 +7,7 @@ import { Bundle3DViewer } from './bundle/bundle_3d.js?v=2.1.0';
 import { BundlePesChart } from './bundle/bundle_pes.js?v=2.0.6';
 import { SvgMechanismManager } from './bundle/bundle_svg.js?v=2.0.4';
 import { BundleHighresManager } from './bundle/bundle_highres.js?v=2.0.3';
-import { BundleMoleculeModal } from './bundle/bundle_molecule_modal.js?v=2.1.2';
+import { BundleMoleculeModal } from './bundle/bundle_molecule_modal.js?v=2.1.3';
 import { exportMaxCompBundleZip } from './bundle/bundle_export.js';
 import { BundleTransportController } from './bundle/bundle_transport.js?v=2.1.0';
 import { BundleWiringManager } from './bundle/bundle_wiring_ui.js?v=2.0.9';

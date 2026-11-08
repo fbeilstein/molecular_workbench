@@ -32,37 +32,54 @@ def handle_molecule_bundle_upload(
     except Exception as e:
         return {"success": False, "error": f"Failed to parse ZIP bundle: {e}"}
 
+    def _norm_key(s):
+        return re.sub(r'[\s\-_]+', '', str(s or '')).lower()
+
+    mol_key = b_res.get("molecule_key", m_id)
+    mol_name = m_name or b_res.get("molecule_name", m_id)
+
     bundles = megajson.setdefault("molecule_bundles", {})
-    entry = {
+    # Remove stale alias duplicates for the same molecule so JSON state never serializes multiple copies
+    match_norms = {_norm_key(m_id), _norm_key(mol_key), _norm_key(mol_name)} - {""}
+    for existing_k in list(bundles.keys()):
+        existing_v = bundles.get(existing_k)
+        if not isinstance(existing_v, dict):
+            continue
+        ev_norms = {
+            _norm_key(existing_k),
+            _norm_key(existing_v.get("molecule_id", "")),
+            _norm_key(existing_v.get("molecule_key", "")),
+            _norm_key(existing_v.get("molecule_name", "")),
+        } - {""}
+        if existing_k == m_id or (match_norms & ev_norms):
+            bundles.pop(existing_k, None)
+
+    # Persist only compressed data_b64 + metadata in state (never uncompressed mesh 'files' dicts)
+    stored_entry = {
         "filename": filename,
         "molecule_id": m_id,
-        "molecule_key": b_res.get("molecule_key", m_id),
-        "molecule_name": m_name or b_res.get("molecule_name", m_id),
+        "molecule_key": mol_key,
+        "molecule_name": mol_name,
         "orbitals": b_res.get("orbitals", []),
         "orbitals_tree": b_res.get("orbitals_tree", []),
         "xyz": b_res.get("xyz", ""),
         "esp_surface": b_res.get("esp_surface"),
-        "files": b_res.get("files", {}),
-        "data_b64": data_b64
+        "data_b64": data_b64,
     }
-    bundles[m_id] = entry
-    if m_name:
-        bundles[m_name] = entry
-    if b_res.get("molecule_key") and b_res["molecule_key"] != m_id:
-        bundles[b_res["molecule_key"]] = entry
+    bundles[m_id] = stored_entry
 
     save_state_to_file(global_state)
     return {
         "success": True,
         "molecule_id": m_id,
-        "molecule_key": b_res.get("molecule_key", m_id),
-        "molecule_name": m_name or b_res.get("molecule_name", m_id),
-        "orbitals": b_res.get("orbitals", []),
-        "orbitals_tree": b_res.get("orbitals_tree", []),
-        "xyz": b_res.get("xyz", ""),
-        "esp_surface": b_res.get("esp_surface"),
+        "molecule_key": mol_key,
+        "molecule_name": mol_name,
+        "orbitals": stored_entry["orbitals"],
+        "orbitals_tree": stored_entry["orbitals_tree"],
+        "xyz": stored_entry["xyz"],
+        "esp_surface": stored_entry["esp_surface"],
         "files": b_res.get("files", {}),
-        "count": len(b_res.get("orbitals", []))
+        "count": len(stored_entry["orbitals"]),
     }
 
 
@@ -85,14 +102,25 @@ def handle_molecule_bundle_query(
     b = bundles.get(m_id) or bundles.get(m_name)
     if not b:
         for k, v in bundles.items():
+            if not isinstance(v, dict):
+                continue
             k_n = norm_k(k)
+            vid_n = norm_k(v.get("molecule_id", ""))
             vk_n = norm_k(v.get("molecule_key", ""))
             vn_n = norm_k(v.get("molecule_name", ""))
-            if (k_n in target_keys) or (vk_n in target_keys) or (vn_n in target_keys):
+            if ({k_n, vid_n, vk_n, vn_n} & target_keys):
                 b = v
                 break
     if not b:
         return {"success": False, "error": f"No bundle found for molecule '{m_name or m_id}'"}
+
+    files_dict = b.get("files")
+    if not files_dict and b.get("data_b64"):
+        try:
+            files_dict = unpack_molecule_bundle(b["data_b64"]).get("files", {})
+        except Exception:
+            files_dict = {}
+
     return {
         "success": True,
         "molecule_id": m_id,
@@ -103,7 +131,7 @@ def handle_molecule_bundle_query(
         "orbitals_tree": b.get("orbitals_tree", []),
         "xyz": b.get("xyz", ""),
         "esp_surface": b.get("esp_surface"),
-        "files": b.get("files", {})
+        "files": files_dict or {},
     }
 
 

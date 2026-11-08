@@ -99,6 +99,15 @@ _CORE_ELECTRONS = {
 }
 
 
+def count_core_orbitals(mol, mo_energy: np.ndarray, nocc: int, cutoff_ev: float = -50.0) -> int:
+    """Determine number of closed core orbitals combining energy threshold and noble-gas core table."""
+    if nocc <= 0:
+        return 0
+    n_core_energy = int(np.sum((mo_energy[:nocc] * 27.2114) < cutoff_ev))
+    n_core_table = sum(_CORE_ELECTRONS.get(mol.atom_symbol(i), 0) for i in range(mol.natm)) // 2
+    return min(int(nocc), max(n_core_energy, n_core_table))
+
+
 def _is_core_orbital(mol, mo_coeff, atom_idx, element):
     """Check if a localized MO on this atom is a core (inner-shell) orbital
     by computing its orbital energy proxy (kinetic energy contribution)."""

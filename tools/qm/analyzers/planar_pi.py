@@ -14,12 +14,12 @@ import numpy as np
 from pyscf import gto, lo
 
 try:
-    from qm.classification import _atom_populations, _classify_orbital
+    from qm.classification import _atom_populations, _classify_orbital, count_core_orbitals
 except ImportError:
     _tools_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     if _tools_dir not in sys.path:
         sys.path.insert(0, _tools_dir)
-    from qm.classification import _atom_populations, _classify_orbital
+    from qm.classification import _atom_populations, _classify_orbital, count_core_orbitals
 
 BOHR_TO_ANG = 0.52917721092
 ANG_TO_BOHR = 1.8897259886
@@ -238,8 +238,8 @@ def extract_step0_planar_pi(
     mo_coeff = mf.mo_coeff[0] if mol.spin > 0 else mf.mo_coeff
     mo_energy = mf.mo_energy[0] if mol.spin > 0 else mf.mo_energy
 
-    core_mask = (mo_energy[:nocc] * 27.2114) < -50.0
-    C_non_pi_occ = mo_coeff[:, :nocc][:, ~core_mask].copy()
+    n_core = count_core_orbitals(mol, mo_energy, nocc)
+    C_non_pi_occ = mo_coeff[:, n_core:nocc].copy()
     C_virt = mo_coeff[:, nocc:].copy()
     C_non_pi_virt = C_virt.copy()
 

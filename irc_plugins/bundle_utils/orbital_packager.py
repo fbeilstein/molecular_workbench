@@ -207,11 +207,10 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
 
 
 def save_state_to_file(global_state: Dict[str, Any]):
-    """Persist pipeline state to project state."""
-    from ..project_manager import save_step_state
+    """Persist pipeline state to active project step state."""
+    from ..project_manager import save_active_state
     try:
-        for sid, sdata in global_state.items():
-            if isinstance(sdata, dict):
-                save_step_state(sid, sdata)
+        if isinstance(global_state, dict) and global_state:
+            save_active_state(global_state)
     except Exception:
         pass

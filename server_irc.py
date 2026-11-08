@@ -1,10 +1,37 @@
 import os
+import sys
 import http.server
 import socketserver
 import json
 import urllib.parse
 import shutil
 import time
+
+
+class _SafeStream:
+    """Prevent BrokenPipeError from dropping HTTP requests if a parent runner pipe closes."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def write(self, data):
+        try:
+            return self._stream.write(data)
+        except (BrokenPipeError, OSError):
+            return len(data) if data else 0
+
+    def flush(self):
+        try:
+            self._stream.flush()
+        except (BrokenPipeError, OSError):
+            pass
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+sys.stdout = _SafeStream(sys.stdout)
+sys.stderr = _SafeStream(sys.stderr)
 
 import irc_plugins
 
@@ -38,6 +65,25 @@ def save_current_state():
         project_manager.save_active_state(pipeline_state)
     except Exception as e:
         print(f"Failed to save state: {e}")
+
+
+_HEAVY_CASCADE_STEPS = {"step_5_cascade", "step_6_orbitals", "step_7_bundle"}
+
+
+def _client_safe_step_data(step_id, step_val):
+    """Strip multi-hundred-MB megajson/bundle blobs from HTTP state payloads (UI reads ui_schema via /api/plugins)."""
+    if step_id not in _HEAVY_CASCADE_STEPS or not isinstance(step_val, dict):
+        return step_val
+    slim = {k: v for k, v in step_val.items() if k not in ("megajson", "highres_cubes", "cubes")}
+    slim["has_megajson"] = bool(step_val.get("megajson"))
+    slim.setdefault("completed", True)
+    return slim
+
+
+def _client_safe_state(state):
+    if not isinstance(state, dict):
+        return {}
+    return {k: _client_safe_step_data(k, v) for k, v in state.items()}
 
 
 load_saved_state()
@@ -140,7 +186,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
             return self._handle_get_plugins()
 
         if path == '/api/state':
-            return self._send_json(pipeline_state)
+            return self._send_json(_client_safe_state(pipeline_state))
 
         if path == '/api/project':
             return self._send_json(project_manager.get_project_summary())
@@ -197,7 +243,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
 
         self._send_json({
             "success": result.success,
-            "data": result.data,
+            "data": _client_safe_step_data(plugin.step_id, result.data),
             "error": result.error_message,
             "warnings": result.warnings
         })
@@ -251,7 +297,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                 new_state, summary = project_manager.select_step(target_id, pipeline_state)
                 pipeline_state.clear()
                 pipeline_state.update(new_state)
-                return self._send_json({"success": True, "active_step_id": target_id, "project": summary, "state": pipeline_state})
+                return self._send_json({"success": True, "active_step_id": target_id, "project": summary, "state": _client_safe_state(pipeline_state)})
 
             if path == '/api/project/step/add':
                 data = self._read_json_body()
@@ -259,7 +305,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                 new_id, new_state, summary = project_manager.add_step(seed_from_previous=seed, current_state=pipeline_state)
                 pipeline_state.clear()
                 pipeline_state.update(new_state)
-                return self._send_json({"success": True, "active_step_id": new_id, "project": summary, "state": pipeline_state})
+                return self._send_json({"success": True, "active_step_id": new_id, "project": summary, "state": _client_safe_state(pipeline_state)})
 
             if path == '/api/project/step/delete':
                 data = self._read_json_body()
@@ -267,7 +313,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                 new_id, new_state, summary = project_manager.delete_step(target_id)
                 pipeline_state.clear()
                 pipeline_state.update(new_state)
-                return self._send_json({"success": True, "active_step_id": new_id, "project": summary, "state": pipeline_state})
+                return self._send_json({"success": True, "active_step_id": new_id, "project": summary, "state": _client_safe_state(pipeline_state)})
 
             if path == '/api/project/stitch':
                 save_current_state()
@@ -295,7 +341,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                 if success:
                     pipeline_state.clear()
                     pipeline_state.update(new_state)
-                    return self._send_json({"success": True, "project": summary, "state": pipeline_state, "message": msg})
+                    return self._send_json({"success": True, "project": summary, "state": _client_safe_state(pipeline_state), "message": msg})
                 else:
                     return self._send_json({"success": False, "error": msg}, 400)
 

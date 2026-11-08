@@ -126,6 +126,29 @@ class ValenceLocalizer:
                             energy_ev=self._eval_energy_ev(c_star),
                             sym_score=1.0  # Perfect by definition
                         ))
+
+            # Intra-atomic Lone-Pair Subspace Fock Purification ("No Rabbit Ears" / NBO-like natural hybrids):
+            # Diagonalize the projected Fock operator strictly inside each single atom's localized LP subspace
+            # (m >= 2) to eliminate arbitrary s/p mixing without delocalizing onto neighboring bonds.
+            if self.fock is not None:
+                lp_groups = {}
+                for idx_orb, orb in enumerate(orbitals):
+                    if orb.type == 'lone_pair' and orb.atoms:
+                        lp_groups.setdefault(orb.atoms[0], []).append(idx_orb)
+
+                for _, orb_indices in lp_groups.items():
+                    if len(orb_indices) < 2:
+                        continue
+                    C_sub = np.column_stack([orbitals[k].mo_coeff for k in orb_indices])
+                    S_sub = C_sub.T @ self.ovlp @ C_sub
+                    ev_s, U_s = np.linalg.eigh(S_sub)
+                    C_orth = C_sub @ (U_s @ np.diag(1.0 / np.sqrt(np.maximum(ev_s, 1e-10))) @ U_s.T)
+                    F_sub = C_orth.T @ self.fock @ C_orth
+                    ev_f, U_f = np.linalg.eigh(F_sub)
+                    C_pur = C_orth @ U_f
+                    for j, k in enumerate(orb_indices):
+                        orbitals[k].mo_coeff = C_pur[:, j].copy()
+                        orbitals[k].energy_ev = round(float(ev_f[j] * HARTREE_TO_EV), 2)
                 
         except Exception as e:
             print(f"Valence localization failed: {e}")
