@@ -107,6 +107,8 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
             return self._serve_file(os.path.join(PACKAGE_DIR, path.lstrip('/')))
         if path.startswith('/bundles/'):
             return self._serve_file(os.path.join(PACKAGE_DIR, urllib.parse.unquote(path.lstrip('/'))))
+        if path.startswith('/out/'):
+            return self._serve_file(os.path.join(PACKAGE_DIR, urllib.parse.unquote(path.lstrip('/'))))
         if path.startswith('/ketcher/'):
             return self._serve_file(os.path.join(KETCHER_DIR, path[len('/ketcher/'):]))
         if path.startswith('/api/bundle/'):
@@ -266,6 +268,7 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
         self.send_header('Content-Type', _mime(filepath))
         self.send_header('Content-Length', os.path.getsize(filepath))
         self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Cache-Control', 'no-cache, must-revalidate')
         self.end_headers()
         with open(filepath, 'rb') as f:
             self.wfile.write(f.read())

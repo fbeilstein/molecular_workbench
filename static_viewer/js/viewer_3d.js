@@ -12,6 +12,7 @@ import {
   renderAtomCharges,
   findOrbitalMesh,
   updateEspColorbar,
+  prewarmViewerEspCache,
 } from './viewer_surface.js';
 
 export class Viewer3D {
@@ -121,6 +122,13 @@ export class Viewer3D {
   setEspActive(active) {
     this.activeEsp = !!active;
     this.updateColorbar(this.activeEsp);
+    if (this.activeEsp && this.bundle && this.bundle.trajectory) {
+      prewarmViewerEspCache(this.bundle, (f) => {
+        if (this.activeEsp && this.currentFrameIdx === f) {
+          this.renderFrame(this.currentFrameIdx, false);
+        }
+      });
+    }
     this.renderFrame(this.currentFrameIdx, false);
   }
 

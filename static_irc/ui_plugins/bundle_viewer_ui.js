@@ -78,7 +78,9 @@ export const BundleViewerUI = {
 
         try { await this.state.transport.seekFrame(0); } catch (e) {}
         if (megajson.esp_surfaces) Object.assign(this.state.viewer3D.espMeshCache, megajson.esp_surfaces);
-        if (this.state.showEspSurface) this.state.viewer3D.prewarmEspCache(this.state.trajectorySymbols || megajson.symbols, megajson.frames, megajson.trajectory_charges);
+        if (this.state.showEspSurface || this.state.tracks.some(t => t.orbital_key === 'track_esp_charge' || t.track_id === 'trk_esp')) {
+            this.state.viewer3D.prewarmEspCache(this.state.trajectorySymbols || megajson.symbols, megajson.frames, megajson.trajectory_charges);
+        }
         preloadAllCachedCubes(this.state, false, () => this.refreshViewer());
     },
 

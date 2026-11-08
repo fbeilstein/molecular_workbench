@@ -45,14 +45,17 @@ export async function prewarmEspCache(symbols, frames, trajectoryCharges, espMes
             });
             if (p && typeof p.then === 'function') {
                 const sId = await p;
-                const grp = bg.surfaces?.[sId]?.geo?.geometryGroups?.[0];
+                const surf = bg.surfaces?.[sId];
+                const meshObj = surf?.[0] || surf;
+                const grp = meshObj?.geo?.geometryGroups?.[0];
                 if (grp && grp.vertexArray && grp.faceArray) {
                     const vCount = grp.vertices || Math.floor(grp.vertexArray.length / 3);
+                    const fCount = grp.faceidx || grp.faceArray.length || 0;
                     const verts = [];
                     for (let vi = 0; vi < vCount; vi++) {
                         verts.push({ x: grp.vertexArray[vi * 3], y: grp.vertexArray[vi * 3 + 1], z: grp.vertexArray[vi * 3 + 2] });
                     }
-                    const faces = Array.from(grp.faceArray.slice(0, grp.faces * 3));
+                    const faces = Array.from(grp.faceArray.slice(0, fCount));
                     const cols = [];
                     if (grp.colorArray && grp.colorArray.length >= vCount * 3) {
                         for (let ci = 0; ci < vCount; ci++) {

@@ -62,11 +62,23 @@ export function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx,
 }
 
 export function renderEspLayer(glViewer, bundle, frame, symbols, coords, natoms, frameIdx) {
-  const espMesh = bundle.espMeshes ? (
+  let espMesh = bundle.espMeshes ? (
     bundle.espMeshes[frameIdx] ||
     bundle.espMeshes[String(frameIdx)] ||
     (bundle.isSingleMolecule ? (bundle.espMeshes['0'] || Object.values(bundle.espMeshes)[0]) : null)
   ) : null;
+
+  // Fallback during initial prewarming: display closest cached frame so surface never disappears
+  if (!espMesh && bundle.espMeshes) {
+    const keys = Object.keys(bundle.espMeshes).map(k => parseInt(k, 10)).filter(n => !isNaN(n));
+    if (keys.length > 0) {
+      let closest = keys[0];
+      for (const k of keys) {
+        if (Math.abs(k - frameIdx) < Math.abs(closest - frameIdx)) closest = k;
+      }
+      espMesh = bundle.espMeshes[closest] || bundle.espMeshes[String(closest)];
+    }
+  }
 
   const eV = espMesh?.vertices || espMesh?.vertexArr;
   const eF = espMesh?.faces || espMesh?.faceArr;
@@ -80,6 +92,8 @@ export function renderEspLayer(glViewer, bundle, frame, symbols, coords, natoms,
         const t = Math.max(-1, Math.min(1, v / absMax));
         return t < 0 ? { r: 1.0, g: 1.0 + t, b: 1.0 + t } : { r: 1.0 - t, g: 1.0 - t, b: 1.0 };
       });
+    } else if (espMesh.color && Array.isArray(espMesh.color)) {
+      colorParam = espMesh.color;
     }
     const customObj = { vertexArr: eV, faceArr: eF, color: colorParam, opacity: 0.65 };
     if (eN && eN.length === eV.length) customObj.normalArr = eN;
@@ -99,10 +113,32 @@ export function renderEspLayer(glViewer, bundle, frame, symbols, coords, natoms,
         atoms[i].partialCharge = q;
         atoms[i].properties = Object.assign(atoms[i].properties || {}, { partialCharge: q });
       }
-      glViewer.addSurface(window.$3Dmol.SurfaceType.VDW, {
+      const p = glViewer.addSurface(window.$3Dmol.SurfaceType.VDW, {
         opacity: 0.65,
         colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
       });
+      if (p && typeof p.then === 'function') {
+        p.then(sId => {
+          const surf = glViewer.surfaces?.[sId];
+          const meshObj = surf?.[0] || surf;
+          const grp = meshObj?.geo?.geometryGroups?.[0];
+          if (grp && grp.vertexArray && grp.faceArray) {
+            const vCount = grp.vertices || Math.floor(grp.vertexArray.length / 3);
+            const fCount = grp.faceidx || grp.faceArray.length || 0;
+            const verts = [], faces = Array.from(grp.faceArray.slice(0, fCount)), cols = [];
+            for (let vi = 0; vi < vCount; vi++) {
+              verts.push({ x: grp.vertexArray[vi * 3], y: grp.vertexArray[vi * 3 + 1], z: grp.vertexArray[vi * 3 + 2] });
+            }
+            if (grp.colorArray && grp.colorArray.length >= vCount * 3) {
+              for (let ci = 0; ci < vCount; ci++) {
+                cols.push({ r: grp.colorArray[ci * 3], g: grp.colorArray[ci * 3 + 1], b: grp.colorArray[ci * 3 + 2] });
+              }
+            }
+            bundle.espMeshes = bundle.espMeshes || {};
+            bundle.espMeshes[frameIdx] = { vertexArr: verts, faceArr: faces, color: cols.length ? cols : undefined };
+          }
+        }).catch(() => {});
+      }
     } catch (e) {
       console.warn('Dynamic surface rendering failed:', e);
     }
@@ -145,5 +181,87 @@ export function updateEspColorbar(container, active, bundle, frameIdx) {
     const maxEl = colorbar.querySelector('#esp-colorbar-max') || document.getElementById('esp-colorbar-max');
     if (minEl) minEl.textContent = `${(-absMax).toFixed(1)}`;
     if (maxEl) maxEl.textContent = `+${absMax.toFixed(1)}`;
+  }
+}
+
+let _bgViewerDiv = null;
+let _bgViewerInstance = null;
+
+export async function prewarmViewerEspCache(bundle, onFramePrewarmed) {
+  if (!bundle || !bundle.trajectory || !window.$3Dmol) return;
+  const traj = bundle.trajectory;
+  const frames = traj.frames || [];
+  const total = frames.length;
+  if (total === 0) return;
+
+  const trajectoryCharges = traj.trajectory_charges || [];
+  const symbols = traj.symbols || [];
+  bundle.espMeshes = bundle.espMeshes || {};
+
+  try {
+    if (!_bgViewerDiv) {
+      _bgViewerDiv = document.createElement('div');
+      _bgViewerDiv.style.cssText = 'position:fixed;left:-9999px;width:120px;height:120px;opacity:0;pointer-events:none;';
+      document.body.appendChild(_bgViewerDiv);
+      _bgViewerInstance = window.$3Dmol.createViewer(_bgViewerDiv);
+    }
+    const bg = _bgViewerInstance;
+
+    for (let f = 0; f < total; f++) {
+      if (bundle.espMeshes[f] || bundle.espMeshes[String(f)]) continue;
+      const coords = frames[f]?.coords || frames[f]?.positions;
+      const charges = trajectoryCharges?.[f] || frames[f]?.charges;
+      const syms = Array.isArray(symbols?.[f]) ? symbols[f] : (frames[f]?.symbols || symbols);
+      if (!coords || !syms) continue;
+      const n = Math.min(syms.length, coords.length);
+
+      bg.clear();
+      let mdl = `${n}\nFrame Model\n`;
+      for (let i = 0; i < n; i++) {
+        const [x, y, z] = coords[i];
+        mdl += `${syms[i]} ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`;
+      }
+      bg.addModel(mdl, 'xyz');
+      const atoms = bg.selectedAtoms({});
+      for (let i = 0; i < atoms.length && i < n; i++) {
+        let qVal = (charges && charges[i] !== undefined) ? charges[i] : null;
+        if (qVal === null) {
+          const s = syms[i];
+          qVal = s === 'H' ? 0.08 : (s === 'O' ? -0.50 : (s === 'Cl' ? -0.45 : 0.0));
+        }
+        atoms[i].partialCharge = qVal;
+        atoms[i].properties = { partialCharge: qVal };
+      }
+      const p = bg.addSurface(window.$3Dmol.SurfaceType.VDW, {
+        opacity: 0.65,
+        colorscheme: { prop: 'partialCharge', gradient: 'rwb', min: -0.6, max: 0.6 }
+      });
+      if (p && typeof p.then === 'function') {
+        const sId = await p;
+        const surf = bg.surfaces?.[sId];
+        const meshObj = surf?.[0] || surf;
+        const grp = meshObj?.geo?.geometryGroups?.[0];
+        if (grp && grp.vertexArray && grp.faceArray) {
+          const vCount = grp.vertices || Math.floor(grp.vertexArray.length / 3);
+          const fCount = grp.faceidx || grp.faceArray.length || 0;
+          const verts = [];
+          for (let vi = 0; vi < vCount; vi++) {
+            verts.push({ x: grp.vertexArray[vi * 3], y: grp.vertexArray[vi * 3 + 1], z: grp.vertexArray[vi * 3 + 2] });
+          }
+          const faces = Array.from(grp.faceArray.slice(0, fCount));
+          const cols = [];
+          if (grp.colorArray && grp.colorArray.length >= vCount * 3) {
+            for (let ci = 0; ci < vCount; ci++) {
+              cols.push({ r: grp.colorArray[ci * 3], g: grp.colorArray[ci * 3 + 1], b: grp.colorArray[ci * 3 + 2] });
+            }
+          }
+          bundle.espMeshes[f] = { vertexArr: verts, faceArr: faces, color: cols.length ? cols : undefined };
+        }
+        try { bg.removeSurface(sId); } catch (e) {}
+      }
+      if (onFramePrewarmed) onFramePrewarmed(f);
+    }
+  } catch (err) {
+    console.warn('[ViewerSurface] ESP prewarm error:', err);
   }
 }

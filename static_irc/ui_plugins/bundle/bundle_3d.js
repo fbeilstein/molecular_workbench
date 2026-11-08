@@ -91,10 +91,13 @@ export class Bundle3DViewer extends MoleculeViewer3D {
             if (p && typeof p.then === 'function') {
                 p.then(sId => {
                     this._espInFlight.delete(frameIdx);
-                    const grp = this.viewer.surfaces?.[sId]?.geo?.geometryGroups?.[0];
+                    const surf = this.viewer.surfaces?.[sId];
+                    const meshObj = surf?.[0] || surf;
+                    const grp = meshObj?.geo?.geometryGroups?.[0];
                     if (grp && grp.vertexArray && grp.faceArray) {
                         const vCount = grp.vertices || Math.floor(grp.vertexArray.length / 3);
-                        const verts = [], faces = Array.from(grp.faceArray.slice(0, grp.faces * 3)), cols = [];
+                        const fCount = grp.faceidx || grp.faceArray.length || 0;
+                        const verts = [], faces = Array.from(grp.faceArray.slice(0, fCount)), cols = [];
                         for (let vi = 0; vi < vCount; vi++) verts.push({ x: grp.vertexArray[vi * 3], y: grp.vertexArray[vi * 3 + 1], z: grp.vertexArray[vi * 3 + 2] });
                         if (grp.colorArray && grp.colorArray.length >= vCount * 3) {
                             for (let ci = 0; ci < vCount; ci++) cols.push({ r: grp.colorArray[ci * 3], g: grp.colorArray[ci * 3 + 1], b: grp.colorArray[ci * 3 + 2] });
