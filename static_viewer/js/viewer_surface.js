@@ -35,7 +35,7 @@ export function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx,
       if (pV && pF) {
         glViewer.addCustom({
           vertexArr: pV, faceArr: pF, normalArr: pN,
-          color: CC ? CC.color(posColorHex) : posColorInt, opacity: 0.75
+          color: CC ? CC.color(posColorHex) : posColorInt, opacity: 0.90
         });
       }
       const nV = meshPair.neg?.vertices || meshPair.neg?.vertexArr;
@@ -44,7 +44,7 @@ export function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx,
       if (nV && nF) {
         glViewer.addCustom({
           vertexArr: nV, faceArr: nF, normalArr: nN,
-          color: CC ? CC.color(negColorHex) : negColorInt, opacity: 0.75
+          color: CC ? CC.color(negColorHex) : negColorInt, opacity: 0.90
         });
       }
     } else if (bundle.cubeCache) {
@@ -53,8 +53,8 @@ export function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx,
         try {
           const vdo = new window.$3Dmol.VolumeData(cubeData, 'cube');
           const iso = isovalue || 0.035;
-          glViewer.addIsosurface(vdo, { isoval: iso, color: posColorHex, opacity: 0.72 });
-          glViewer.addIsosurface(vdo, { isoval: -iso, color: negColorHex, opacity: 0.72 });
+          glViewer.addIsosurface(vdo, { isoval: iso, color: posColorHex, opacity: 0.90 });
+          glViewer.addIsosurface(vdo, { isoval: -iso, color: negColorHex, opacity: 0.90 });
         } catch (_) {}
       }
     }

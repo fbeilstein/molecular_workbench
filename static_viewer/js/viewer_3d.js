@@ -35,9 +35,11 @@ export class Viewer3D {
       return;
     }
     this.glViewer = window.$3Dmol.createViewer(this.container, {
-      backgroundColor: '0x0f141c',
+      backgroundColor: '0x000000',
+      backgroundAlpha: 0.0,
       id: 'reactionViewer'
     });
+    this.glViewer.setBackgroundColor(0x000000, 0.0);
     window.addEventListener('resize', () => {
       if (this.glViewer) this.glViewer.resize();
     });

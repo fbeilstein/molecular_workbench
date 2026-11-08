@@ -106,10 +106,10 @@ html, body {
   background: radial-gradient(circle at center, #161e2b 0%, #0c1017 100%);
 }
 
-#gl-canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
+#gl-canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 2; pointer-events: auto; }
 #pes-canvas-container {
-  position: absolute; bottom: 0; left: 0; width: 100%; height: 140px;
-  z-index: 10; pointer-events: none; opacity: 0.9;
+  position: absolute; bottom: 0; left: 0; width: 100%; height: 90%;
+  z-index: 1; pointer-events: none; opacity: 0.9;
 }
 #pes-canvas { width: 100%; height: 100%; display: block; }
 

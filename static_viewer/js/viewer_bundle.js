@@ -467,7 +467,7 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
             faceArr: pF,
             normalArr: pN,
             color: CC ? CC.color(posColorHex) : posColorInt,
-            opacity: 0.75
+            opacity: 0.9
           });
         }
         const nV = meshPair.neg?.vertices || meshPair.neg?.vertexArr;
@@ -479,7 +479,7 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
             faceArr: nF,
             normalArr: nN,
             color: CC ? CC.color(negColorHex) : negColorInt,
-            opacity: 0.75
+            opacity: 0.9
           });
         }
       } else if (bundle.cubeCache) {
@@ -488,8 +488,8 @@ ${String(natoms).padStart(3, " ")}${String(bonds.length).padStart(3, " ")}  0  0
           try {
             const vdo = new window.$3Dmol.VolumeData(cubeData, "cube");
             const iso = isovalue || 0.035;
-            glViewer.addIsosurface(vdo, { isoval: iso, color: posColorHex, opacity: 0.72 });
-            glViewer.addIsosurface(vdo, { isoval: -iso, color: negColorHex, opacity: 0.72 });
+            glViewer.addIsosurface(vdo, { isoval: iso, color: posColorHex, opacity: 0.9 });
+            glViewer.addIsosurface(vdo, { isoval: -iso, color: negColorHex, opacity: 0.9 });
           } catch (_) {
           }
         }
@@ -709,9 +709,11 @@ Frame Model
         return;
       }
       this.glViewer = window.$3Dmol.createViewer(this.container, {
-        backgroundColor: "0x0f141c",
+        backgroundColor: "0x000000",
+        backgroundAlpha: 0,
         id: "reactionViewer"
       });
+      this.glViewer.setBackgroundColor(0, 0);
       window.addEventListener("resize", () => {
         if (this.glViewer) this.glViewer.resize();
       });
