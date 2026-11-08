@@ -192,6 +192,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
             return self._send_json(project_manager.get_project_summary())
 
         if path == '/api/project/archive/export':
+            save_current_state()
             from irc_plugins import project_archive
             zip_bytes, filename = project_archive.export_project_archive()
             self.send_response(200)

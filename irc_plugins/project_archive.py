@@ -62,12 +62,49 @@ def export_project_archive(out_dir: str = OUT_DIR) -> Tuple[bytes, str]:
                     rel_p = os.path.relpath(full_p, out_dir)
                     zf.write(full_p, arcname=rel_p)
 
-        # Write metadata manifest
+        # Write root master files (stitched cascade pathway, global state, orbital tracks)
+        for extra_file in ["reaction_state.json", "master_pathway.json", "curated_orbitals_backup.json"]:
+            full_p = os.path.join(out_dir, extra_file)
+            if os.path.exists(full_p):
+                zf.write(full_p, arcname=extra_file)
+
+        # Write generated bundles directory if present
+        bundles_path = os.path.join(out_dir, 'bundles')
+        if os.path.exists(bundles_path):
+            for root, dirs, files in os.walk(bundles_path):
+                for file in files:
+                    full_p = os.path.join(root, file)
+                    rel_p = os.path.relpath(full_p, out_dir)
+                    zf.write(full_p, arcname=rel_p)
+
+        # Write precalculated cubes directory if present
+        cubes_path = os.path.join(out_dir, 'cubes')
+        if os.path.exists(cubes_path):
+            for root, dirs, files in os.walk(cubes_path):
+                for file in files:
+                    full_p = os.path.join(root, file)
+                    rel_p = os.path.relpath(full_p, out_dir)
+                    zf.write(full_p, arcname=rel_p)
+
+        # Write comprehensive metadata manifest
         manifest = {
-            "version": "1.0",
+            "version": "2.0",
             "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "steps_count": len(steps),
-            "solvent": proj_data.get("solvent", "water")
+            "reaction_steps_count": len(steps),
+            "reaction_steps": [s.get("id") for s in steps],
+            "solvent": proj_data.get("solvent", "water"),
+            "pipeline_phases_included": [
+                "Phase 1: Reaction Input",
+                "Phase 2: Atom Mapping",
+                "Phase 3: Transition State (TS)",
+                "Phase 4: IRC Trajectories",
+                "Phase 5: Master Cascade Stitched Pathway",
+                "Phase 6: Molecular Orbitals Timeline",
+                "Phase 7: Packaging & Bundle Viewer"
+            ],
+            "has_master_pathway": os.path.exists(os.path.join(out_dir, "master_pathway.json")),
+            "has_curated_orbitals": os.path.exists(os.path.join(out_dir, "curated_orbitals_backup.json")),
+            "has_bundles": os.path.exists(bundles_path) and len(os.listdir(bundles_path)) > 0
         }
         zf.writestr("ARCHIVE_MANIFEST.json", json.dumps(manifest, indent=2))
 
@@ -102,21 +139,46 @@ def import_project_archive(zip_bytes: bytes, out_dir: str = OUT_DIR) -> Tuple[bo
                 shutil.rmtree(steps_path, ignore_errors=True)
             os.makedirs(steps_path, exist_ok=True)
 
+            allowed_prefixes = ("steps/", "bundles/", "cubes/")
+            allowed_files = {"project.json", "reaction_state.json", "master_pathway.json", "curated_orbitals_backup.json", "irc_trajectory.json"}
+
             # Extract recognized project files
             for member in namelist:
                 # Prevent directory traversal attacks
                 norm = os.path.normpath(member)
                 if norm.startswith("..") or os.path.isabs(norm):
                     continue
-                if norm == "project.json" or norm.startswith("steps" + os.sep) or norm.startswith("steps/"):
+                if norm in allowed_files or any(norm.startswith(p) for p in allowed_prefixes):
                     dest_p = os.path.join(out_dir, norm)
                     os.makedirs(os.path.dirname(dest_p), exist_ok=True)
                     with zf.open(member) as src, open(dest_p, "wb") as dst:
                         shutil.copyfileobj(src, dst)
 
+        # Sync master_pathway.json to trajectories/prolonged_pathway.json and out/irc_trajectory.json
+        master_p = os.path.join(out_dir, "master_pathway.json")
+        if os.path.exists(master_p):
+            traj_dir = os.path.join(ROOT_DIR, "trajectories")
+            os.makedirs(traj_dir, exist_ok=True)
+            shutil.copyfile(master_p, os.path.join(traj_dir, "prolonged_pathway.json"))
+            shutil.copyfile(master_p, os.path.join(out_dir, "irc_trajectory.json"))
+
         # Re-initialize project and load active state
         proj = project_manager.init_project()
         active_state = project_manager.load_active_state()
+
+        # Ensure cascade phases (Step 5, Step 6, Step 7) from top-level reaction_state.json
+        # are preserved in active_state
+        main_state_p = os.path.join(out_dir, "reaction_state.json")
+        if os.path.exists(main_state_p):
+            try:
+                with open(main_state_p, 'r') as f:
+                    main_st = json.load(f)
+                for k in ["step_5_cascade", "step_6_orbitals", "step_7_bundle"]:
+                    if k in main_st:
+                        active_state[k] = main_st[k]
+            except Exception:
+                pass
+
         summary = project_manager.get_project_summary()
 
         n_steps = len(proj.get("steps", []))
