@@ -23,10 +23,16 @@ export class ViewerSvgMechanism {
     this.wiring = wiring || {};
     if (!this.container || !svgText) return;
 
-    // Ensure proper SVG namespace
+    // Ensure proper SVG namespace and bottom-anchored aspect ratio
     let text = svgText;
     if (!/<svg[^>]+xmlns\s*=\s*['"]http:\/\/www\.w3\.org\/2000\/svg['"]/i.test(text)) {
       text = text.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+    // Anchor SVG to bottom so wide or constrained mechanism images sit directly above the playback controls
+    if (!/preserveAspectRatio=/i.test(text)) {
+      text = text.replace(/<svg\b/i, '<svg preserveAspectRatio="xMidYMax meet"');
+    } else {
+      text = text.replace(/preserveAspectRatio=["'][^"']*["']/i, 'preserveAspectRatio="xMidYMax meet"');
     }
 
     // Convert black strokes/fills to crisp white #f1f5f9 directly in SVG markup.

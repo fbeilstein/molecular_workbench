@@ -1229,6 +1229,11 @@ Frame Model
       if (!/<svg[^>]+xmlns\s*=\s*['"]http:\/\/www\.w3\.org\/2000\/svg['"]/i.test(text)) {
         text = text.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
       }
+      if (!/preserveAspectRatio=/i.test(text)) {
+        text = text.replace(/<svg\b/i, '<svg preserveAspectRatio="xMidYMax meet"');
+      } else {
+        text = text.replace(/preserveAspectRatio=["'][^"']*["']/i, 'preserveAspectRatio="xMidYMax meet"');
+      }
       text = text.replace(/stroke:\s*#000000/gi, "stroke:#f1f5f9").replace(/fill:\s*#000000/gi, "fill:#f1f5f9").replace(/stroke=["']#000000["']/gi, 'stroke="#f1f5f9"').replace(/fill=["']#000000["']/gi, 'fill="#f1f5f9"');
       text = text.replace(/<g([^>]*aria-label=[^>]*)>/gi, (match) => {
         if (/style=["']/i.test(match)) {

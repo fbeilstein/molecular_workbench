@@ -65,11 +65,11 @@ html, body {
 
 #mechanism-strip {
   position: absolute;
-  bottom: 12px;
+  bottom: 4px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   background: transparent;
   border: none;
@@ -77,6 +77,7 @@ html, body {
   z-index: 15;
   pointer-events: none;
   max-width: 96%;
+  width: auto;
   padding: 0;
   margin: 0;
 }
@@ -84,8 +85,8 @@ html, body {
   display: none !important;
 }
 #mechanism-strip svg {
-  height: 220px;
-  max-height: 260px;
+  height: auto;
+  max-height: min(220px, 36vh);
   max-width: 96vw;
   width: auto;
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.85));
