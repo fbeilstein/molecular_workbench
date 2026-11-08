@@ -83,6 +83,7 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 |Reaction|Bundle|
 |---|---|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/reactions/tetrahedral_intermediate_CO.svg)|[View Reaction](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/reactions/tetrahedral_intermediate_CO.zip&download)
+|![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/reactions/SN1_acyl_intermediate.svg)|[View Reaction](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/reactions/SN1_acyl_intermediate.zip&download)
 
 </details>
 
