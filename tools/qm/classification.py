@@ -108,54 +108,6 @@ def count_core_orbitals(mol, mo_energy: np.ndarray, nocc: int, cutoff_ev: float 
     return min(int(nocc), max(n_core_energy, n_core_table))
 
 
-def _is_core_orbital(mol, mo_coeff, atom_idx, element):
-    """Check if a localized MO on this atom is a core (inner-shell) orbital
-    by computing its orbital energy proxy (kinetic energy contribution)."""
-    core_e = _CORE_ELECTRONS.get(element, 0)
-    if core_e == 0:
-        return False
-
-    # Check if the orbital is dominated by low-n AOs (core-like)
-    ao_labels = mol.ao_labels(fmt=False)
-    core_ao_weight = 0.0
-    valence_ao_weight = 0.0
-
-    # Determine valence shell n for this element
-    # Row 1: n=1, Row 2: n=2, Row 3: n=3, Row 4: n=4 etc
-    _VALENCE_N = {
-        'H': 1, 'He': 1,
-        'Li': 2, 'Be': 2, 'B': 2, 'C': 2, 'N': 2, 'O': 2, 'F': 2, 'Ne': 2,
-        'Na': 3, 'Mg': 3, 'Al': 3, 'Si': 3, 'P': 3, 'S': 3, 'Cl': 3, 'Ar': 3,
-        'K': 4, 'Ca': 4, 'Sc': 4, 'Ti': 4, 'V': 4, 'Cr': 4, 'Mn': 4, 'Fe': 4,
-        'Co': 4, 'Ni': 4, 'Cu': 4, 'Zn': 4,
-        'Ga': 4, 'Ge': 4, 'As': 4, 'Se': 4, 'Br': 4, 'Kr': 4,
-        'Rb': 5, 'Sr': 5, 'I': 5, 'Xe': 5,
-    }
-    val_n = _VALENCE_N.get(element, 1)
-
-    for mu, (ai, *rest) in enumerate(ao_labels):
-        if ai != atom_idx:
-            continue
-        c2 = mo_coeff[mu] ** 2
-        # AO label format: (atom_idx, element, shell_label, sublabel)
-        # shell_label is '1s', '2s', '2p', '3s', '3p', '3d', '4s', etc.
-        shell_label = rest[1] if len(rest) > 1 else ''
-        n = 0
-        for ch in shell_label:
-            if ch.isdigit():
-                n = int(ch)
-                break
-        if n > 0 and n < val_n:
-            core_ao_weight += c2
-        else:
-            valence_ao_weight += c2
-
-    total_w = core_ao_weight + valence_ao_weight
-    if total_w < 1e-10:
-        return False
-
-    return core_ao_weight / total_w > 0.5
-
 
 def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     """Distinguish σ vs π using a nodal-plane test.
