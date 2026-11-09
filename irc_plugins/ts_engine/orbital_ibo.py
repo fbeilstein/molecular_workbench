@@ -11,6 +11,7 @@ if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 
 from qm.classification import _classify_orbital
+from qm.constants import HARTREE_TO_EV
 
 
 def classify_ibo_quick(symbols: List[str], pop: np.ndarray, atom_labels: Optional[List[str]] = None) -> Tuple[str, str]:
@@ -47,7 +48,7 @@ def compute_density_flux(
 def compute_frame_ibos(
     mol: Any,
     mf: Any,
-    symbols: List[str],
+    symbols: Optional[List[str]] = None,
     prev_data: Optional[Dict[str, Any]] = None,
     atom_labels: Optional[List[str]] = None,
     non_pi_occ_coeff: Optional[np.ndarray] = None,
@@ -56,7 +57,7 @@ def compute_frame_ibos(
     """Compute non-conjugated localized IBOs (respecting Step-0 pi exclusion) and textbook antibonds."""
     nocc = mol.nelectron // 2 if mol.spin == 0 else mol.nelec[0]
     occ_mo = mf.mo_coeff[:, :nocc] if mol.spin == 0 else mf.mo_coeff[0][:, :nocc]
-    mo_e = (mf.mo_energy[:nocc] if mol.spin == 0 else mf.mo_energy[0][:nocc]) * 27.2114
+    mo_e = (mf.mo_energy[:nocc] if mol.spin == 0 else mf.mo_energy[0][:nocc]) * HARTREE_TO_EV
     core_mask = mo_e < -50.0
     core_mo = occ_mo[:, core_mask]
     val_mo = non_pi_occ_coeff.copy() if non_pi_occ_coeff is not None else occ_mo[:, ~core_mask]
@@ -99,7 +100,7 @@ def compute_frame_ibos(
             C_purified = C_pair @ U_f
 
             # 3. Deterministic geometric gauge for 2D degenerate triple-bond pi subspace (m == 3)
-            if C_purified.shape[1] == 3 and abs(ev_f[2] - ev_f[1]) * 27.2114 < 3.0:
+            if C_purified.shape[1] == 3 and abs(ev_f[2] - ev_f[1]) * HARTREE_TO_EV < 3.0:
                 coords_b = mol.atom_coords()
                 bond_v = coords_b[a2] - coords_b[a1]
                 bond_hat = bond_v / max(np.linalg.norm(bond_v), 1e-8)
@@ -167,7 +168,7 @@ def compute_frame_ibos(
 
     fock = mf.get_fock()
     ibo_fock = ibo_coeff.T @ fock @ ibo_coeff
-    energies_ev = np.diag(ibo_fock) * 27.2114
+    energies_ev = np.diag(ibo_fock) * HARTREE_TO_EV
     elem_symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
     atom_ids = atom_labels if (atom_labels and len(atom_labels) == mol.natm) else [f"{mol.atom_symbol(i)}{i}" for i in range(mol.natm)]
     ao_labels = mol.ao_labels(fmt=False)
@@ -237,7 +238,7 @@ def compute_frame_ibos(
                     star_key = f"STAR_{k:02d}"
                     star_type = "sigma_star" if "sigma" in typ else "pi_star"
                     star_sym = "σ*" if "sigma" in typ else "π*"
-                    e_star = float(c_star.T @ fock @ c_star) * 27.2114
+                    e_star = float(c_star.T @ fock @ c_star) * HARTREE_TO_EV
                     star_dict[star_key] = {
                         "key": star_key, "name": star_key, "index": 100 + k, "type": star_type,
                         "category": "antibonding", "label": f"{star_sym}({a1}-{a2})",
@@ -262,6 +263,6 @@ def compute_frame_ibos(
             for idx_s, sk in enumerate(sk_list):
                 v_s = C_ps[:, idx_s]
                 vec_dict[sk] = v_s
-                star_dict[sk]["energy_ev"] = round(float(v_s.T @ fock @ v_s) * 27.2114, 2)
+                star_dict[sk]["energy_ev"] = round(float(v_s.T @ fock @ v_s) * HARTREE_TO_EV, 2)
 
     return ibo_dict, star_dict, vec_dict, pops, ibo_coeff

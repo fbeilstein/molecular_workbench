@@ -1,4 +1,21 @@
 import numpy as np
+from qm.constants import (
+    BOHR_TO_ANG,
+    CORE_ELECTRONS,
+    HARTREE_TO_EV,
+    LP_DOMINANT_POPULATION_THRESHOLD,
+    LP_HYPERCONJUGATION_PRIMARY_MIN,
+    LP_HYPERCONJUGATION_SECONDARY_MAX,
+    NODAL_AMPLITUDE_FLOOR,
+    NODAL_MIN_SIGNIFICANT_POINTS,
+    NODAL_SCAN_RADII_BOHR,
+    NODAL_SCAN_SAMPLE_POINTS,
+    NODAL_SIGNIFICANT_AMP_RATIO,
+    SP3_MAX_NEIGHBOR_DIST_ANG,
+    TWO_CENTER_BOND_MIN_POPULATION,
+)
+
+_CORE_ELECTRONS = CORE_ELECTRONS
 
 def _atom_populations(mol, mo_coeff, ovlp):
     """Mulliken population of a single MO on each atom."""
@@ -34,9 +51,9 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
         if sym != 'H':
             is_lp = False
             second_frac = major[1][1] if len(major) >= 2 else 0.0
-            if top_frac >= 0.88:
+            if top_frac >= LP_DOMINANT_POPULATION_THRESHOLD:
                 is_lp = True
-            elif top_frac >= 0.78 and second_frac < 0.14:
+            elif top_frac >= LP_HYPERCONJUGATION_PRIMARY_MIN and second_frac < LP_HYPERCONJUGATION_SECONDARY_MAX:
                 is_lp = True
             elif len(major) == 1:
                 is_lp = True
@@ -46,7 +63,7 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
 
     # Bond: two+ atoms with >10% population
     if len(major) >= 2:
-        sig_atoms = [m for m in major if m[1] > 0.10]
+        sig_atoms = [m for m in major if m[1] > TWO_CENTER_BOND_MIN_POPULATION]
         if len(sig_atoms) > 2:
             # Find a genuinely bonded pair among the significant atoms to determine sigma/pi symmetry
             coords = mol.atom_coords()
@@ -86,24 +103,14 @@ def _classify_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
     return {'type': 'lone_pair', 'atom': atom_ids[idx]}
 
 
-_CORE_ELECTRONS = {
-    'H': 0, 'He': 0,
-    'Li': 2, 'Be': 2, 'B': 2, 'C': 2, 'N': 2, 'O': 2, 'F': 2, 'Ne': 2,
-    'Na': 10, 'Mg': 10, 'Al': 10, 'Si': 10, 'P': 10, 'S': 10, 'Cl': 10, 'Ar': 10,
-    'K': 18, 'Ca': 18,
-    'Sc': 18, 'Ti': 18, 'V': 18, 'Cr': 18, 'Mn': 18, 'Fe': 18, 'Co': 18, 'Ni': 18,
-    'Cu': 18, 'Zn': 18,
-    'Ga': 28, 'Ge': 28, 'As': 28, 'Se': 28, 'Br': 28, 'Kr': 28,
-    'Rb': 36, 'Sr': 36,
-    'I': 46, 'Xe': 46,
-}
+
 
 
 def count_core_orbitals(mol, mo_energy: np.ndarray, nocc: int, cutoff_ev: float = -50.0) -> int:
     """Determine number of closed core orbitals combining energy threshold and noble-gas core table."""
     if nocc <= 0:
         return 0
-    n_core_energy = int(np.sum((mo_energy[:nocc] * 27.2114) < cutoff_ev))
+    n_core_energy = int(np.sum((mo_energy[:nocc] * HARTREE_TO_EV) < cutoff_ev))
     n_core_table = sum(_CORE_ELECTRONS.get(mol.atom_symbol(i), 0) for i in range(mol.natm)) // 2
     return min(int(nocc), max(n_core_energy, n_core_table))
 
@@ -117,7 +124,6 @@ def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     all around), while a π orbital has a nodal plane through the bond
     axis (opposite signs on diametrically opposed points).
     """
-    BOHR_TO_ANG = 0.52917721092
     coords_bohr = mol.atom_coords()
     coords_ang = coords_bohr * BOHR_TO_ANG
 
@@ -130,7 +136,7 @@ def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
         if mol.atom_symbol(a_idx) in ('C', 'Si'):
             dists_ang = np.linalg.norm(coords_ang - coords_ang[a_idx], axis=1)
             # count bonded neighbors within 1.95 A (excluding self)
-            n_neighbors = int(np.sum((dists_ang > 0.2) & (dists_ang < 1.95)))
+            n_neighbors = int(np.sum((dists_ang > 0.2) & (dists_ang < SP3_MAX_NEIGHBOR_DIST_ANG)))
             if n_neighbors >= 4:
                 return 'sigma'
 
@@ -147,9 +153,8 @@ def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     perp2 = np.cross(bond_hat, perp1)
 
     midpoint = (coords_bohr[atom1_idx] + coords_bohr[atom2_idx]) / 2.0
-    n_samples = 12
-    angles = 2 * np.pi * np.arange(n_samples) / n_samples
-    radii = [0.45, 0.85]  # Bohr (~0.24 Å and ~0.45 Å)
+    angles = 2 * np.pi * np.arange(NODAL_SCAN_SAMPLE_POINTS) / NODAL_SCAN_SAMPLE_POINTS
+    radii = NODAL_SCAN_RADII_BOHR
     is_pi = False
 
     for radius in radii:
@@ -159,12 +164,12 @@ def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
         ao_vals = mol.eval_gto("GTOval", sample_coords)
         mo_vals = ao_vals @ mo_coeff
         max_abs = np.max(np.abs(mo_vals))
-        if max_abs < 1e-5:
+        if max_abs < NODAL_AMPLITUDE_FLOOR:
             continue
 
-        sig_mask = np.abs(mo_vals) > max_abs * 0.1
+        sig_mask = np.abs(mo_vals) > max_abs * NODAL_SIGNIFICANT_AMP_RATIO
         n_sig = int(np.sum(sig_mask))
-        if n_sig < 4:
+        if n_sig < NODAL_MIN_SIGNIFICANT_POINTS:
             continue
 
         n_pos = int(np.sum(mo_vals[sig_mask] > 0))

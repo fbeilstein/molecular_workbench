@@ -30,6 +30,39 @@ TRAJECTORIES_DIR = os.path.join(ROOT_DIR, 'trajectories')
 PROLONGED_PATH = os.path.join(TRAJECTORIES_DIR, 'prolonged_pathway.json')
 
 
+def _matches_molecule_group(k: Any, v: Dict[str, Any], grp_id: str, norm_name: str) -> bool:
+    if k == grp_id:
+        return True
+    if re.sub(r'[\s\-_]+', '', str(k)).lower() == norm_name:
+        return True
+    if re.sub(r'[\s\-_]+', '', str(v.get("molecule_id", ""))).lower() == re.sub(r'[\s\-_]+', '', str(grp_id)).lower():
+        return True
+    if re.sub(r'[\s\-_]+', '', str(v.get("molecule_key", ""))).lower() == norm_name:
+        return True
+    if re.sub(r'[\s\-_]+', '', str(v.get("molecule_name", ""))).lower() == norm_name:
+        return True
+    return False
+
+
+def _apply_wiring_to_bundles(mb: Dict[str, Any], wiring: Dict[str, Any]) -> None:
+    for grp_id, cfg in wiring.items():
+        if not isinstance(cfg, dict) or not cfg.get("moleculeName"):
+            continue
+        m_name = cfg["moleculeName"]
+        norm_name = re.sub(r'[\s\-_]+', '', m_name).lower()
+        for k, v in list(mb.items()):
+            if not isinstance(v, dict):
+                continue
+            if _matches_molecule_group(k, v, grp_id, norm_name):
+                v["molecule_id"] = grp_id
+                v["molecule_name"] = m_name
+                v.pop("files", None)
+                for dup_k in [k2 for k2, v2 in mb.items() if v2 is v and k2 != grp_id]:
+                    mb.pop(dup_k, None)
+                mb[grp_id] = v
+                break
+
+
 class Step7Bundle(PipelineStep):
     """Step 7: Reaction Cascade Bundler & Pure Data Export for Molecular Workbench Viewer."""
 
@@ -191,27 +224,7 @@ class Step7Bundle(PipelineStep):
             wiring = user_input.get("wiring", {})
             megajson["svg_wiring"] = wiring
             mb = megajson.get("molecule_bundles", {})
-            for grp_id, cfg in wiring.items():
-                if isinstance(cfg, dict) and cfg.get("moleculeName"):
-                    m_name = cfg["moleculeName"]
-                    norm_name = re.sub(r'[\s\-_]+', '', m_name).lower()
-                    for k, v in list(mb.items()):
-                        if not isinstance(v, dict):
-                            continue
-                        if (
-                            k == grp_id
-                            or re.sub(r'[\s\-_]+', '', str(k)).lower() == norm_name
-                            or re.sub(r'[\s\-_]+', '', str(v.get("molecule_id", ""))).lower() == re.sub(r'[\s\-_]+', '', str(grp_id)).lower()
-                            or re.sub(r'[\s\-_]+', '', str(v.get("molecule_key", ""))).lower() == norm_name
-                            or re.sub(r'[\s\-_]+', '', str(v.get("molecule_name", ""))).lower() == norm_name
-                        ):
-                            v["molecule_id"] = grp_id
-                            v["molecule_name"] = m_name
-                            v.pop("files", None)
-                            for dup_k in [k2 for k2, v2 in mb.items() if v2 is v and k2 != grp_id]:
-                                mb.pop(dup_k, None)
-                            mb[grp_id] = v
-                            break
+            _apply_wiring_to_bundles(mb, wiring)
             for sk in ("step_7_bundle", "step_6_orbitals", "step_5_cascade"):
                 if sk in global_state and isinstance(global_state[sk], dict) and isinstance(global_state[sk].get("megajson"), dict):
                     global_state[sk]["megajson"]["svg_wiring"] = wiring

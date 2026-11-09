@@ -1,10 +1,9 @@
 from typing import Optional
 import numpy as np
 from pyscf import gto, lo
+from qm.constants import HARTREE_TO_EV
 from qm.classification import _atom_populations, _classify_orbital
 from qm.models import Orbital
-
-HARTREE_TO_EV = 27.2114
 
 
 class ValenceLocalizer:

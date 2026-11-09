@@ -146,7 +146,16 @@ def _integrate_reaction_branch(atoms_ts, model, direction_sign, max_steps, log, 
 
 
 
-def run_irc_path(atoms, model, log, max_steps=35, dx=0.08, fmax=0.03, relax_fragments=True, engine="xtb"):
+def run_irc_path(
+    atoms,
+    model,
+    log,
+    max_steps=35,
+    _dx=0.08,
+    _fmax=0.03,
+    _relax_fragments=True,
+    engine="xtb",
+):
     """Compute bidirectional Intrinsic Reaction Coordinate (IRC) downhill from Transition State."""
     log("=== Intrinsic Reaction Coordinate (IRC) Integration ===")
     solvent = getattr(model, "solvent", "water")

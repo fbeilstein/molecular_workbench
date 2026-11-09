@@ -3,8 +3,11 @@ import os
 import numpy as np
 from skimage import measure
 import trimesh
-
-ANG2BOHR = 1.8897259886
+try:
+    from qm.constants import ANG2BOHR, DEFAULT_ORBITAL_ISOVALUE
+except ImportError:
+    ANG2BOHR = 1.8897259886
+    DEFAULT_ORBITAL_ISOVALUE = 0.045
 
 class CubeConverter:
     """Processes .cube files AFTER calculation to extract lightweight surface meshes."""
@@ -74,7 +77,7 @@ class CubeConverter:
             return None
 
     @classmethod
-    def process_cube(cls, cube_path, isoval=0.045, adaptive=False):
+    def process_cube(cls, cube_path, isoval=DEFAULT_ORBITAL_ISOVALUE, adaptive=False):
         """Converts a .cube file into _pos.json and _neg.json surface files.
         
         If adaptive=True, ignores isoval and instead computes the threshold

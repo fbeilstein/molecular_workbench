@@ -105,8 +105,9 @@ def smiles_to_3d(smiles, name, out_dir, charge=0, engine="xtb", molfile=None, le
         result = AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3())
         if result == -1:
             # Retry with random coords
-            result = AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3(),
-                                           useRandomCoords=True)
+            params = AllChem.ETKDGv3()
+            params.useRandomCoords = True
+            result = AllChem.EmbedMolecule(mol_h, params)
             if result == -1:
                 raise RuntimeError(f"Failed to embed 3D coordinates for {smiles}")
 

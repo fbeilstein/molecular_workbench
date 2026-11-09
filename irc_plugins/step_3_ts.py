@@ -28,6 +28,54 @@ def _format_frequency_verdict(ts_report):
     return f" | ⚠️ {ts_report.get('n_imag', 0)} imag freq(s) - check log"
 
 
+def _seed_blocks_from_trajectory(traj, r_smiles, current_blocks, model_fn) -> int:
+    from .ts_engine.trajectory_stitcher import extract_fragment_molblock
+    prods = traj.get("fragments", {}).get("products", [])
+    seeded = 0
+    for r_idx, r_smi in enumerate(r_smiles):
+        can_r = Chem.CanonSmiles(r_smi) if r_smi else ""
+        if not can_r:
+            continue
+        for fp in prods:
+            can_p = Chem.CanonSmiles(fp.get("smiles", "")) if fp.get("smiles") else ""
+            if can_r != can_p:
+                continue
+            target_m = model_fn(r_idx, r_smi)
+            mb = extract_fragment_molblock(traj, fp, target_mol=target_m)
+            if r_idx < len(current_blocks):
+                current_blocks[r_idx] = mb
+            else:
+                current_blocks.append(mb)
+            seeded += 1
+            break
+    return seeded
+
+
+def _reorder_reactant_positions(model, mols, pos_list, symbols):
+    """Reorder reactant 3D coordinates if atoms match but were input in different order."""
+    if not (symbols != model.symbols and sorted(symbols) == sorted(model.symbols) and len(mols) == len(model.r_mols)):
+        return np.vstack(pos_list), symbols, mols
+    try:
+        reordered = []
+        for r_idx, ref_m in enumerate(model.r_mols):
+            mt = ref_m.GetSubstructMatch(mols[r_idx])
+            if not (mt and len(mt) == ref_m.GetNumAtoms()):
+                from rdkit.Chem import AllChem
+                try:
+                    assigned = AllChem.AssignBondOrdersFromTemplate(ref_m, mols[r_idx])
+                    mt = ref_m.GetSubstructMatch(assigned)
+                except Exception:
+                    pass
+            if mt and len(mt) == ref_m.GetNumAtoms():
+                inv = {ref_i: tr_i for tr_i, ref_i in enumerate(mt)}
+                reordered.append(pos_list[r_idx][[inv[k] for k in range(len(ref_m.GetAtoms()))]])
+        if len(reordered) == len(model.r_mols):
+            return np.vstack(reordered), list(model.symbols), list(model.r_mols)
+    except Exception:
+        pass
+    return np.vstack(pos_list), symbols, mols
+
+
 class Step3TS(PipelineStep):
     _dock_cache: Dict[Any, Any] = {}
     _mb_cache: Dict[str, str] = {}
@@ -204,27 +252,17 @@ class Step3TS(PipelineStep):
             if not current_blocks:
                 from .ts_builder import auto_dock_molblocks
                 current_blocks, _, _ = auto_dock_molblocks(self._model(global_state), variant=0)
+            def _resolve_target_mol(r_idx: int, r_smi: str):
+                try:
+                    return self._model(global_state).r_mols[r_idx]
+                except Exception:
+                    return Chem.AddHs(Chem.MolFromSmiles(r_smi)) if r_smi else None
+
             for c_path in cand_files:
                 try:
                     with open(c_path, "r") as f:
                         traj = json.load(f)
-                    prods = traj.get("fragments", {}).get("products", [])
-                    seeded = 0
-                    for r_idx, r_smi in enumerate(r_smiles):
-                        can_r = Chem.CanonSmiles(r_smi) if r_smi else ""
-                        for fp in prods:
-                            can_p = Chem.CanonSmiles(fp.get("smiles", "")) if fp.get("smiles") else ""
-                            if can_r and can_r == can_p:
-                                target_m = None
-                                try: target_m = self._model(global_state).r_mols[r_idx]
-                                except Exception: target_m = Chem.AddHs(Chem.MolFromSmiles(r_smi)) if r_smi else None
-                                mb = extract_fragment_molblock(traj, fp, target_mol=target_m)
-                                if r_idx < len(current_blocks):
-                                    current_blocks[r_idx] = mb
-                                else:
-                                    current_blocks.append(mb)
-                                seeded += 1
-                                break
+                    seeded = _seed_blocks_from_trajectory(traj, r_smiles, current_blocks, _resolve_target_mol)
                     if seeded > 0:
                         src = os.path.basename(c_path)
                         global_state.setdefault("step_3_ts", {})["docked_reactants"] = current_blocks
@@ -268,8 +306,12 @@ class Step3TS(PipelineStep):
     def _optimize_ts(self, user_input, global_state):
         import numpy as np
         from ase import Atoms
-        from .ts_builder import (molblocks_to_positions, positions_to_molblocks,
-                                 check_geometry_sanity, analyse_mode)
+        from .ts_builder import (
+            molblocks_to_positions,
+            positions_to_molblocks,
+            check_geometry_sanity,
+            analyse_mode,
+        )
 
         docked = user_input.get("docked_molblocks", [])
         mode = user_input.get("mode", "auto")
@@ -296,25 +338,7 @@ class Step3TS(PipelineStep):
             mols, pos_list = molblocks_to_positions(docked)
             positions = np.vstack(pos_list)
             symbols = [a.GetSymbol() for m in mols for a in m.GetAtoms()]
-            if symbols != model.symbols and sorted(symbols) == sorted(model.symbols) and len(mols) == len(model.r_mols):
-                try:
-                    reordered = []
-                    for r_idx, ref_m in enumerate(model.r_mols):
-                        mt = ref_m.GetSubstructMatch(mols[r_idx])
-                        if not (mt and len(mt) == ref_m.GetNumAtoms()):
-                            from rdkit.Chem import AllChem
-                            try:
-                                assigned = AllChem.AssignBondOrdersFromTemplate(ref_m, mols[r_idx])
-                                mt = ref_m.GetSubstructMatch(assigned)
-                            except Exception:
-                                pass
-                        if mt and len(mt) == ref_m.GetNumAtoms():
-                            inv = {ref_i: tr_i for tr_i, ref_i in enumerate(mt)}
-                            reordered.append(pos_list[r_idx][[inv[k] for k in range(len(ref_m.GetAtoms()))]])
-                    if len(reordered) == len(model.r_mols):
-                        positions, symbols, mols = np.vstack(reordered), list(model.symbols), list(model.r_mols)
-                except Exception:
-                    pass
+            positions, symbols, mols = _reorder_reactant_positions(model, mols, pos_list, symbols)
             if len(symbols) != model.n_atoms or symbols != model.symbols:
                 return {"error": "3D atoms do not match the mapped reaction (re-run Step 3)."}
             atoms = Atoms(symbols=symbols, positions=positions)

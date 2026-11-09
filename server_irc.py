@@ -38,7 +38,8 @@ import irc_plugins
 def get_plugins():
     return irc_plugins.get_plugins()
 
-PORT = 8082
+from irc_plugins.constants import DEFAULT_PORT_IRC
+PORT = DEFAULT_PORT_IRC
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(ROOT_DIR, 'out')
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -350,11 +351,10 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
                 data = self._read_json_body()
                 if data.get("all_steps"):
                     shutil.rmtree(project_manager.STEPS_DIR, ignore_errors=True)
-                    if os.path.exists(project_manager.PROJECT_FILE):
-                        try:
-                            os.remove(project_manager.PROJECT_FILE)
-                        except Exception:
-                            pass
+                    try:
+                        os.remove(project_manager.PROJECT_FILE)
+                    except OSError:
+                        pass
                     pipeline_state.clear()
                     project_manager.init_project()
                 else:

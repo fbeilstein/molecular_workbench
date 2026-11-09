@@ -129,6 +129,32 @@ def audit_bundle(zip_path, target_key=None):
     }
 
 
+def _remap_mol_json_content(content: bytes, old_key: str, new_key: str) -> bytes:
+    """Update internal molecule key and orbital file paths inside molecule JSON."""
+    try:
+        mol_data = json.loads(content.decode("utf-8"))
+        mol_data["key"] = new_key
+        old_pfx = f"molecules/{old_key}_"
+        new_pfx = f"molecules/{new_key}_"
+
+        esp = mol_data.get("esp_surface")
+        if isinstance(esp, dict):
+            f = esp.get("file", "")
+            if f.startswith(old_pfx):
+                esp["file"] = f.replace(old_pfx, new_pfx, 1)
+
+        for cat in mol_data.get("orbitals", []):
+            for it in cat.get("items", []):
+                f = it.get("file", "")
+                if f.startswith(old_pfx):
+                    it["file"] = f.replace(old_pfx, new_pfx, 1)
+
+        return json.dumps(mol_data, indent=2).encode("utf-8")
+    except Exception as e:
+        print(f"Warning: could not parse molecule JSON: {e}")
+        return content
+
+
 def fix_bundle(zip_path, target_key=None, dry_run=False, backup=False):
     """
     Rewrite bundle archive so that manifest and all internal files/references
@@ -200,25 +226,7 @@ def fix_bundle(zip_path, target_key=None, dry_run=False, backup=False):
                     and not (fname.endswith("_pos.json") or fname.endswith("_neg.json") or fname.endswith("_esp.json"))
                 ):
                     new_fname = f"molecules/{new_key}.json"
-                    try:
-                        mol_data = json.loads(content.decode("utf-8"))
-                        mol_data["key"] = new_key
-                        if isinstance(mol_data.get("esp_surface"), dict):
-                            f = mol_data["esp_surface"].get("file", "")
-                            if f.startswith(f"molecules/{old_key}_"):
-                                mol_data["esp_surface"]["file"] = f.replace(
-                                    f"molecules/{old_key}_", f"molecules/{new_key}_", 1
-                                )
-                        for cat in mol_data.get("orbitals", []):
-                            for it in cat.get("items", []):
-                                f = it.get("file", "")
-                                if f.startswith(f"molecules/{old_key}_"):
-                                    it["file"] = f.replace(
-                                    f"molecules/{old_key}_", f"molecules/{new_key}_", 1
-                                )
-                        content = json.dumps(mol_data, indent=2).encode("utf-8")
-                    except Exception as e:
-                        print(f"Warning: could not parse {fname} as json: {e}")
+                    content = _remap_mol_json_content(content, old_key, new_key)
 
                 # Mesh files: molecules/<old_key>_...
                 elif fname.startswith(f"molecules/{old_key}_"):

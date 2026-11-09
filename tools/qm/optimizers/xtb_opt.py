@@ -31,8 +31,9 @@ class XtbOptimizer(GeometryOptimizer):
         print("  Optimizing with xTB...")
         try:
             cmd = [xtb_bin, xyz_path, '--opt', '--chrg', str(charge)]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                    cwd=out_dir, timeout=120)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, cwd=out_dir, timeout=120
+            )
 
             opt_xyz = os.path.join(out_dir, 'xtbopt.xyz')
             if os.path.exists(opt_xyz):

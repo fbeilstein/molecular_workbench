@@ -295,8 +295,9 @@ class WorkbenchHandler(http.server.BaseHTTPRequestHandler):
 
 def main():
     import argparse
+    from qm.constants import DEFAULT_PORT_BENCHMARK
     parser = argparse.ArgumentParser(description='Molecular Workbench')
-    parser.add_argument('--port', type=int, default=8080)
+    parser.add_argument('--port', type=int, default=DEFAULT_PORT_BENCHMARK)
     parser.add_argument('--host', default='0.0.0.0')
     args = parser.parse_args()
 

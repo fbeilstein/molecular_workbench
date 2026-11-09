@@ -169,7 +169,12 @@ def tag_orbital_classes(f_meta: Dict[str, Any], ibos_m: Dict[str, Any], star_m: 
             m["palette"] = {"pos": "#38bdf8", "neg": "#1d4ed8"}
 
 
-def enrich_timeline_tracks(megajson: Dict[str, Any], tracks: list, scf_cache: Optional[Dict[int, Dict[str, Any]]] = None, ensure_fn: Optional[Any] = None) -> list:
+def enrich_timeline_tracks(
+    megajson: Dict[str, Any],
+    tracks: list,
+    _scf_cache: Optional[Dict[int, Dict[str, Any]]] = None,
+    _ensure_fn: Optional[Any] = None,
+) -> list:
     """Enrich orbital timeline tracks with exact track metadata, role transitions, and frame maps."""
     if not tracks:
         return tracks

@@ -124,8 +124,12 @@ def auto_map_atoms(reactants_smi, products_smi):
         cands = []
         for pi, pmol in p_valid:
             try:
-                mcs = rdFMCS.FindMCS([rmol, pmol], atomCompare=rdFMCS.AtomCompare.CompareElements,
-                                     bondCompare=rdFMCS.BondCompare.CompareAny, timeout=5)
+                mcs = rdFMCS.FindMCS(
+                    [rmol, pmol],
+                    atomCompare=rdFMCS.AtomCompare.CompareElements,
+                    bondCompare=rdFMCS.BondCompare.CompareAny,
+                    timeout=5,
+                )
             except Exception:
                 continue
             if mcs.numAtoms == 0:

@@ -35,10 +35,10 @@ def normalize_svg_text(svg_text: str) -> str:
                 print(f"[Step7] Inkscape text-to-path error: {e}")
             finally:
                 for p in (in_path, out_path):
-                    if p and os.path.exists(p):
+                    if p:
                         try:
                             os.remove(p)
-                        except Exception:
+                        except OSError:
                             pass
 
         # Fallback regex sanitization if inkscape is not available: only modify <text> elements

@@ -5,10 +5,10 @@ from pyscf import gto, tools
 from skimage import measure
 import trimesh
 
-ANG2BOHR = 1.8897259886
+from qm.constants import ANG2BOHR, DEFAULT_GRID_POINTS
 
 
-def compute_esp_surface(mol, mf, name, out_dir, grid_points=50, iso_density=0.01):
+def compute_esp_surface(mol, mf, name, out_dir, grid_points=DEFAULT_GRID_POINTS, iso_density=0.01):
     """Compute molecular electrostatic potential mapped onto electron density isosurface.
 
     Steps:

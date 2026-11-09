@@ -8,6 +8,11 @@ import re
 from typing import Any, Dict, List, Optional
 import numpy as np
 
+try:
+    from ...constants import EV_TO_KCAL
+except (ImportError, ValueError):
+    from irc_plugins.constants import EV_TO_KCAL
+
 
 def parse_orca_trj_file(filepath: str) -> List[Dict[str, Any]]:
     """Parse multi-frame .xyz trajectory from ORCA (_IRC_Full_trj.xyz or _MEP_trj.xyz)."""
@@ -56,7 +61,6 @@ def build_trajectory_result(
     thermo_info: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Package raw frames into full trajectory JSON format with arc length s and barriers."""
-    EV_TO_KCAL = 23.060541945329334
 
     try:
         atom_masses = atoms.get_masses()

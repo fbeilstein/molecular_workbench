@@ -1,7 +1,7 @@
 import glob
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from .base import PipelineStep, StepResult
 from .ts_engine.trajectory_stitcher import stitch_multistep_trajectories
 
@@ -37,6 +37,43 @@ def invert_trajectory_direction(traj: Dict[str, Any]) -> Dict[str, Any]:
 
     inv["frames"] = inv_frames
     return inv
+
+
+def _load_step_trajectory_backup(sid: str, t_path: str) -> Optional[Dict[str, Any]]:
+    """Try to recover step trajectory from step state if primary trajectory file is missing."""
+    s_state_path = _step_state_path(sid)
+    if not os.path.exists(s_state_path):
+        return None
+    try:
+        with open(s_state_path, "r") as f:
+            st = json.load(f)
+        tj = st.get("step_4_irc", {}).get("trajectory")
+        if tj and tj.get("frames") and tj.get("n_steps", 1) == 1:
+            try:
+                with open(t_path, "w") as out_f:
+                    json.dump(tj, out_f, indent=2)
+            except Exception:
+                pass
+            return tj
+    except Exception:
+        pass
+    return None
+
+
+def _preserve_cached_tracks(megajson: Dict[str, Any], prolonged_path: str) -> None:
+    """Preserve existing electron tracks and timeline if frame counts match."""
+    if not os.path.exists(prolonged_path):
+        return
+    try:
+        with open(prolonged_path, "r") as f:
+            old_mj = json.load(f)
+        if len(old_mj.get("frames", [])) == len(megajson.get("frames", [])):
+            if old_mj.get("global_electron_tracks"):
+                megajson["global_electron_tracks"] = old_mj["global_electron_tracks"]
+            if old_mj.get("orbital_timeline"):
+                megajson["orbital_timeline"] = old_mj["orbital_timeline"]
+    except Exception:
+        pass
 
 
 class Step5Cascade(PipelineStep):
@@ -79,22 +116,7 @@ class Step5Cascade(PipelineStep):
 
             # 2. Secondary isolated source: step directory reaction_state.json
             if not traj_data:
-                s_state_path = _step_state_path(sid)
-                if os.path.exists(s_state_path):
-                    try:
-                        with open(s_state_path, "r") as f:
-                            st = json.load(f)
-                        tj = st.get("step_4_irc", {}).get("trajectory")
-                        if tj and tj.get("frames") and tj.get("n_steps", 1) == 1:
-                            traj_data = tj
-                            # Resync to step trajectory file
-                            try:
-                                with open(t_path, "w") as out_f:
-                                    json.dump(tj, out_f, indent=2)
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                traj_data = _load_step_trajectory_backup(sid, t_path)
 
             if traj_data and traj_data.get("frames"):
                 smi = traj_data.get("reaction_smiles") or s.get("smiles", "")
@@ -132,17 +154,7 @@ class Step5Cascade(PipelineStep):
                 megajson = stitch_multistep_trajectories([a["data"] for a in available], n_bridge_frames=8, auto_sort=False, balance_energies=True)
                 if current_state.get("solvent"):
                     megajson["solvent"] = current_state["solvent"]
-                if os.path.exists(PROLONGED_PATH):
-                    try:
-                        with open(PROLONGED_PATH, "r") as f:
-                            old_mj = json.load(f)
-                        if len(old_mj.get("frames", [])) == len(megajson.get("frames", [])):
-                            if old_mj.get("global_electron_tracks"):
-                                megajson["global_electron_tracks"] = old_mj["global_electron_tracks"]
-                            if old_mj.get("orbital_timeline"):
-                                megajson["orbital_timeline"] = old_mj["orbital_timeline"]
-                    except Exception:
-                        pass
+                _preserve_cached_tracks(megajson, PROLONGED_PATH)
                 os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
                 with open(PROLONGED_PATH, "w") as f:
                     json.dump(megajson, f, indent=2)
@@ -200,17 +212,7 @@ class Step5Cascade(PipelineStep):
             megajson = stitch_multistep_trajectories(to_stitch, junction_choices=junction_choices, n_bridge_frames=n_bridge, auto_sort=False, balance_energies=True)
             if global_state.get("solvent"):
                 megajson["solvent"] = global_state["solvent"]
-            if os.path.exists(PROLONGED_PATH):
-                try:
-                    with open(PROLONGED_PATH, "r") as f:
-                        old_mj = json.load(f)
-                    if len(old_mj.get("frames", [])) == len(megajson.get("frames", [])):
-                        if old_mj.get("global_electron_tracks"):
-                            megajson["global_electron_tracks"] = old_mj["global_electron_tracks"]
-                        if old_mj.get("orbital_timeline"):
-                            megajson["orbital_timeline"] = old_mj["orbital_timeline"]
-                except Exception:
-                    pass
+            _preserve_cached_tracks(megajson, PROLONGED_PATH)
 
             os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
             with open(PROLONGED_PATH, "w") as f:

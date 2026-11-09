@@ -16,6 +16,11 @@ from .parser import parse_orca_trj_file, build_trajectory_result
 
 from .dft_ts import run_orca_dft_ts, eval_orca_dft_profile
 
+try:
+    from ...constants import EV_TO_KCAL, HARTREE_TO_KCAL
+except (ImportError, ValueError):
+    from irc_plugins.constants import EV_TO_KCAL, HARTREE_TO_KCAL
+
 
 def run_orca_native_irc(atoms: Any, model: Any, solvent: str, log: Any, max_points: int = 25, nprocs: int = 4) -> Optional[Dict[str, Any]]:
     """Run native ab initio ORCA 6.1 IRC downhill integration from Transition State."""
@@ -161,7 +166,6 @@ def run_orca_thermo_profile(atoms: Any, model: Any, solvent: str, log: Any, max_
 
     g_ts = ts_res["gibbs_eh"]
     imag_freqs = ts_res.get("imaginary_freqs", [])
-    HARTREE_TO_KCAL = 627.509474
     delta_g_std_eh = 1.89 / HARTREE_TO_KCAL if len(model.r_mols) > 1 else 0.0
 
     if len(model.r_mols) > 1:
@@ -173,8 +177,10 @@ def run_orca_thermo_profile(atoms: Any, model: Any, solvent: str, log: Any, max_
                 mult = int(sum(a.GetNumRadicalElectrons() for a in pm.GetAtoms())) + 1
                 syms = [model.symbols[k] for k in f_idxs]
                 sub_pos = pos_r[f_idxs]
-                f_res = run_orca_calc(syms, sub_pos, chg, mult, solvent, "Freq", log=log,
-                                      name=f"reactant_frag_{fi+1}", nprocs=nprocs)
+                f_res = run_orca_calc(
+                    syms, sub_pos, chg, mult, solvent, "Freq",
+                    log=log, name=f"reactant_frag_{fi+1}", nprocs=nprocs,
+                )
                 if f_res.get("gibbs_eh") is not None:
                     g_reac_sum += f_res["gibbs_eh"]
         g_reac = g_reac_sum + delta_g_std_eh if g_reac_sum != 0.0 else g_ts - 0.03
@@ -191,7 +197,6 @@ def run_orca_thermo_profile(atoms: Any, model: Any, solvent: str, log: Any, max_
     barrier_rev_kcal = (g_ts - g_prod) * HARTREE_TO_KCAL
     delta_g_rxn_kcal = (g_prod - g_reac) * HARTREE_TO_KCAL
 
-    EV_TO_KCAL = 23.060541945329334
     n_frames = len(base_traj["frames"])
     for k in range(n_frames):
         if k <= ts_idx:

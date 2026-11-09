@@ -21,7 +21,7 @@ class PipelineStep:
         """Human-readable name (e.g., '1. 2D Atom Mapping')."""
         raise NotImplementedError
 
-    def get_ui_schema(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
+    def get_ui_schema(self, _current_state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Returns the data required to render this step's UI on the frontend.
         """
@@ -33,7 +33,7 @@ class PipelineStep:
         """
         raise NotImplementedError
         
-    def validate(self, step_data: Dict[str, Any]) -> bool:
+    def validate(self, _step_data: Dict[str, Any]) -> bool:
         """
         Fast check to verify if the data produced by this step is valid.
         """

@@ -63,8 +63,12 @@ def run_drive_sella_ts(atoms, model, log, n_points=11, k=25.0):
 
     for n, lam in enumerate(np.linspace(0.0, 1.0, n_points)):
         targets = d_start + lam * (d_end - d_start)
-        calc = _make_restrained_calc(base, [(i, j, t) for (i, j), t in zip(pairs, targets)], k,
-                                     spectator_restraints=spec_restraints)
+        calc = _make_restrained_calc(
+            base,
+            [(i, j, t) for (i, j), t in zip(pairs, targets)],
+            k,
+            spectator_restraints=spec_restraints,
+        )
         atoms.calc = calc
         opt = LBFGS(atoms, logfile=None, maxstep=0.15)
         opt.run(fmax=0.08, steps=100)

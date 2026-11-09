@@ -1,13 +1,17 @@
 from typing import Dict, List, Tuple
 import numpy as np
 from pyscf import gto
+from qm.constants import (
+    DEFAULT_GRID_POINTS,
+    FRONTIER_DEFAULT_DEPTH,
+    FRONTIER_SNAP_THRESHOLD,
+    HARTREE_TO_EV,
+)
 from qm.analyzers.planar_pi import extract_step0_planar_pi
 from qm.analyzers.valence import ValenceLocalizer
 from qm.classification import count_core_orbitals
 from qm.renderer import Renderer
 from qm.models import Orbital
-
-HARTREE_TO_EV = 27.2114
 
 
 def _frontier_label_and_key(mo_idx: int, homo_idx: int, lumo_idx: int) -> Tuple[str, str]:
@@ -114,9 +118,9 @@ class QuantumPipeline:
         smiles: str,
         name: str,
         out_dir: str,
-        grid_points: int = 50,
-        frontier_depth: int = 0,
-        snap_threshold: float = 0.90,
+        grid_points: int = DEFAULT_GRID_POINTS,
+        frontier_depth: int = FRONTIER_DEFAULT_DEPTH,
+        snap_threshold: float = FRONTIER_SNAP_THRESHOLD,
     ):
         self.mol = mol
         self.mf = mf

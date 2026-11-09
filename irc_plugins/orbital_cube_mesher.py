@@ -45,15 +45,29 @@ def get_grid(megajson: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarr
     return _GRID_CACHE["lo"], _GRID_CACHE["step"], _GRID_CACHE["npts"]
 
 
+def _read_cached_disk_cube(disk_cube_path: str, header_expected: str) -> Optional[str]:
+    """Read cube file from disk if present and matching expected header."""
+    if not os.path.exists(disk_cube_path):
+        return None
+    try:
+        with open(disk_cube_path, "r") as cf:
+            if cf.readline().strip() == header_expected:
+                cf.seek(0)
+                return cf.read()
+    except Exception:
+        pass
+    return None
+
+
 def get_or_compute_cube(
     frame_idx: int,
     ok: str,
     ck: Optional[str],
     iso: float,
-    d: Optional[Dict[str, Any]],
+    _d: Optional[Dict[str, Any]],
     megajson: Dict[str, Any],
     track_id: Optional[str] = None,
-    ensure_frame_computed_fn: Optional[Callable[[int, Dict[str, Any]], Dict[str, Any]]] = None
+    _ensure_frame_computed_fn: Optional[Callable[[int, Dict[str, Any]], Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Fetch cached Gaussian cube text or evaluate molecular orbital on grid using exact track_id."""
     tid = track_id or ok
@@ -76,21 +90,14 @@ def get_or_compute_cube(
             }
 
     # 2. Check disk cache
-    if os.path.exists(disk_cube_path):
-        try:
-            with open(disk_cube_path, "r") as cf:
-                first_line = cf.readline().strip()
-                if first_line == header_expected:
-                    cf.seek(0)
-                    cube_text = cf.read()
-                    _CUBE_CACHE[cache_key] = cube_text
-                    return {
-                        "success": True, "cached": True, "frame_index": frame_idx,
-                        "track_id": tid, "orbital": tid, "resolved_orbital": tid, "chem_key": ck,
-                        "isovalue": iso, "cube": cube_text, "filename": f"{tid}_f{frame_idx}.cube", "coords": coords
-                    }
-        except Exception:
-            pass
+    cached_disk = _read_cached_disk_cube(disk_cube_path, header_expected)
+    if cached_disk:
+        _CUBE_CACHE[cache_key] = cached_disk
+        return {
+            "success": True, "cached": True, "frame_index": frame_idx,
+            "track_id": tid, "orbital": tid, "resolved_orbital": tid, "chem_key": ck,
+            "isovalue": iso, "cube": cached_disk, "filename": f"{tid}_f{frame_idx}.cube", "coords": coords
+        }
 
     # 3. Retrieve orbital vector and PySCF Mol directly from orbital_tracker
     mol, vec, meta = get_track_vector_and_mol(megajson, frame_idx, tid)
@@ -128,7 +135,7 @@ def batch_precompute_cubes(
     sz: int,
     sel: List[Any],
     force: bool,
-    ensure_frame_computed_fn: Optional[Callable[[int, Dict[str, Any]], Dict[str, Any]]] = None
+    _ensure_frame_computed_fn: Optional[Callable[[int, Dict[str, Any]], Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Precompute batches of cubes for selected tracks along the reaction path."""
     n_frames = len(megajson.get("frames", []))
@@ -155,17 +162,11 @@ def batch_precompute_cubes(
                 if cache_key in _CUBE_CACHE and _CUBE_CACHE[cache_key].startswith(header_expected):
                     batch_cubes[cache_key] = _CUBE_CACHE[cache_key]
                     continue
-                if os.path.exists(disk_cube_path):
-                    try:
-                        with open(disk_cube_path, "r") as cf:
-                            if cf.readline().strip() == header_expected:
-                                cf.seek(0)
-                                cube_text = cf.read()
-                                _CUBE_CACHE[cache_key] = cube_text
-                                batch_cubes[cache_key] = cube_text
-                                continue
-                    except Exception:
-                        pass
+                cached_disk = _read_cached_disk_cube(disk_cube_path, header_expected)
+                if cached_disk:
+                    _CUBE_CACHE[cache_key] = cached_disk
+                    batch_cubes[cache_key] = cached_disk
+                    continue
 
             mol, vec, meta = get_track_vector_and_mol(megajson, fi, tid)
             if vec is None or mol is None:
@@ -209,14 +210,8 @@ def get_cached_cubes(
                 found[cache_key] = _CUBE_CACHE[cache_key]
                 continue
             disk_cube_path = os.path.join(CUBES_DIR, f"{cache_key}.cube")
-            if os.path.exists(disk_cube_path):
-                try:
-                    with open(disk_cube_path, "r") as cf:
-                        if cf.readline().strip() == header_expected:
-                            cf.seek(0)
-                            cube_text = cf.read()
-                            _CUBE_CACHE[cache_key] = cube_text
-                            found[cache_key] = cube_text
-                except Exception:
-                    pass
+            cached_disk = _read_cached_disk_cube(disk_cube_path, header_expected)
+            if cached_disk:
+                _CUBE_CACHE[cache_key] = cached_disk
+                found[cache_key] = cached_disk
     return found

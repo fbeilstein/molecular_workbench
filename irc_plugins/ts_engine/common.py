@@ -4,10 +4,11 @@ from rdkit.Geometry import Point3D
 from scipy.spatial.transform import Rotation
 
 _PT = Chem.GetPeriodicTable()
-EV_TO_KCAL = 23.060548
 
-DOCK_EXTRA = 1.0      # pre-reaction complex: forming bond = d0 + 1.0 A
-BREAK_EXTRA = 1.4     # end of drive: breaking bond = d0 + 1.4 A
+try:
+    from ..constants import EV_TO_KCAL, DOCK_EXTRA, BREAK_EXTRA
+except (ImportError, ValueError):
+    from irc_plugins.constants import EV_TO_KCAL, DOCK_EXTRA, BREAK_EXTRA
 
 
 def rcov(sym: str) -> float:
