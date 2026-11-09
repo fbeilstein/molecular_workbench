@@ -5,17 +5,8 @@
  * Chemistry bond perception and surface rendering delegated to viewer_bonds.js and viewer_surface.js.
  */
 
-import { buildMolBlock } from './viewer_bonds.js';
-import {
-  renderActiveOrbitals,
-  renderEspLayer,
-  renderAtomCharges,
-  findOrbitalMesh,
-  updateEspColorbar,
-  prewarmViewerEspCache,
-} from './viewer_surface.js';
 
-export class Viewer3D {
+class Viewer3D {
   constructor(containerElement) {
     this.container = containerElement;
     this.glViewer = null;
@@ -143,3 +134,5 @@ export class Viewer3D {
     updateEspColorbar(this.container, active, this.bundle, this.currentFrameIdx);
   }
 }
+
+window.Viewer3D = Viewer3D;

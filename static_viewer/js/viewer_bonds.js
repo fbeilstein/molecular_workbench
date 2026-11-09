@@ -2,14 +2,14 @@
  * Chemical bond perception and MolBlock generation for standalone viewer.
  */
 
-export const COV_RADII = {
+const COV_RADII = {
   H: 0.31, C: 0.76, N: 0.71, O: 0.66, F: 0.57,
   P: 1.07, S: 1.05, Cl: 1.02, Br: 1.20, I: 1.39
 };
 
-export const MAX_VALENCE = { H: 1, F: 1, Cl: 1, Br: 1, I: 1, O: 3, N: 4, C: 4, S: 6, P: 5 };
+const MAX_VALENCE = { H: 1, F: 1, Cl: 1, Br: 1, I: 1, O: 3, N: 4, C: 4, S: 6, P: 5 };
 
-export function computeBonds(symbols, coords) {
+function computeBonds(symbols, coords) {
   const bonds = [];
   const n = Math.min(symbols.length, coords.length);
   const valences = new Array(n).fill(0);
@@ -146,7 +146,7 @@ export function computeBonds(symbols, coords) {
   return bonds;
 }
 
-export function buildMolBlock(symbols, coords) {
+function buildMolBlock(symbols, coords) {
   const natoms = Math.min(symbols.length, coords.length);
   const bonds = computeBonds(symbols, coords);
   let sdf = `\n  Reaction Pathway Viewer\n\n${String(natoms).padStart(3, ' ')}${String(bonds.length).padStart(3, ' ')}  0  0  0  0  0  0  0  0999 V2000\n`;
@@ -162,3 +162,8 @@ export function buildMolBlock(symbols, coords) {
   sdf += 'M  END\n$$$$\n';
   return sdf;
 }
+
+window.COV_RADII = COV_RADII;
+window.MAX_VALENCE = MAX_VALENCE;
+window.computeBonds = computeBonds;
+window.buildMolBlock = buildMolBlock;

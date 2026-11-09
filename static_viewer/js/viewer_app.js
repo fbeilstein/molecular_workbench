@@ -4,14 +4,9 @@
  * Supports multi-bundle dropdown switching, molecule inspection modal, and self-invoking popups.
  */
 
-import { loadReactionBundle, buildMoleculeBundle } from './viewer_loader.js';
-import { Viewer3D } from './viewer_3d.js';
-import { ViewerPES } from './viewer_pes.js';
-import { ViewerUI } from './viewer_ui.js';
-import { ViewerMoleculeModal } from './viewer_modal.js';
-import { ViewerDownloadModal } from './viewer_download.js';
 
 class ReactionViewerApp {
+
   constructor() {
     this.bundle = null;
     this.currentBundleUrl = '';
@@ -409,3 +404,5 @@ window.addEventListener('DOMContentLoaded', () => {
   window.app = app;
   app.init();
 });
+
+window.ReactionViewerApp = ReactionViewerApp;

@@ -4,11 +4,8 @@
  * Reuses Viewer3D and ViewerOrbitalsPanel with draggable and scalable pop-up dialog.
  */
 
-import { buildMoleculeBundle } from './viewer_loader.js';
-import { Viewer3D } from './viewer_3d.js';
-import { ViewerOrbitalsPanel } from './viewer_orbitals.js';
 
-export class ViewerMoleculeModal {
+class ViewerMoleculeModal {
   constructor(app) {
     this.app = app;
     this.modalEl = null;
@@ -255,3 +252,5 @@ export class ViewerMoleculeModal {
     this.orbitalsPanel = null;
   }
 }
+
+window.ViewerMoleculeModal = ViewerMoleculeModal;

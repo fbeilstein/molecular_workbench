@@ -4,7 +4,7 @@
  * Supports multiple active orbital checkboxes and embedded ESP toggle.
  */
 
-export class ViewerOrbitalsPanel {
+class ViewerOrbitalsPanel {
   constructor(containerElement, onOrbitalToggle, onEspToggle, onChargesToggle) {
     this.container = containerElement;
     this.onOrbitalToggle = onOrbitalToggle || (() => {});
@@ -364,3 +364,5 @@ export class ViewerOrbitalsPanel {
       .map(([name, items]) => ({ name, items }));
   }
 }
+
+window.ViewerOrbitalsPanel = ViewerOrbitalsPanel;

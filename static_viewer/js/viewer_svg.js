@@ -8,7 +8,7 @@
  * - Dynamic electron-pushing arrow highlighting & pulsing on playback
  */
 
-export class ViewerSvgMechanism {
+class ViewerSvgMechanism {
   constructor(containerElement, options = {}) {
     this.container = containerElement;
     this.wiring = options.wiring || {};
@@ -376,3 +376,5 @@ export class ViewerSvgMechanism {
     return null;
   }
 }
+
+window.ViewerSvgMechanism = ViewerSvgMechanism;

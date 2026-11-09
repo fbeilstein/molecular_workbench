@@ -5,10 +5,8 @@
  * embedded ESP surface toggle, collapsible side drawer, and Step 5 SVG interactions.
  */
 
-import { ViewerOrbitalsPanel } from './viewer_orbitals.js';
-import { ViewerSvgMechanism } from './viewer_svg.js';
 
-export class ViewerUI {
+class ViewerUI {
   constructor(app) {
     this.app = app;
 
@@ -211,3 +209,5 @@ export class ViewerUI {
     }
   }
 }
+
+window.ViewerUI = ViewerUI;

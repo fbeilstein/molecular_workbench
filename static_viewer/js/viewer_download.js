@@ -7,7 +7,7 @@
  * Activated when ?download is present in the URL query parameters.
  */
 
-export class ViewerDownloadModal {
+class ViewerDownloadModal {
   constructor(app) {
     this.app = app;
     this.elBtn = document.getElementById('btn-header-download');
@@ -321,3 +321,5 @@ export class ViewerDownloadModal {
     }, 1000);
   }
 }
+
+window.ViewerDownloadModal = ViewerDownloadModal;

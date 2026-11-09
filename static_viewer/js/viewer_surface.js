@@ -3,7 +3,7 @@
  * Manages volumetric orbitals, dual-phase coloring, and ESP electrostatic surfaces.
  */
 
-export function findTrack(bundle, orbKey) {
+function findTrack(bundle, orbKey) {
   if (!bundle || !orbKey) return null;
   const tracks = (bundle.manifest && bundle.manifest.orbital_timeline && bundle.manifest.orbital_timeline.tracks) ||
                  (bundle.trajectory && bundle.trajectory.orbital_timeline && bundle.trajectory.orbital_timeline.tracks) ||
@@ -22,7 +22,7 @@ export function findTrack(bundle, orbKey) {
   return null;
 }
 
-export function findOrbitalMesh(bundle, frameIdx, orbKey) {
+function findOrbitalMesh(bundle, frameIdx, orbKey) {
   if (!bundle || !bundle.orbitalMeshes) return null;
   const meshes = bundle.orbitalMeshes;
   const exactKey = `${frameIdx}_${orbKey}`;
@@ -55,7 +55,7 @@ export function findOrbitalMesh(bundle, frameIdx, orbKey) {
   return null;
 }
 
-export function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx, isovalue) {
+function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx, isovalue) {
   if (!activeOrbitals || activeOrbitals.size === 0 || !bundle) return;
   const CC = window.$3Dmol ? window.$3Dmol.CC : null;
 
@@ -138,7 +138,7 @@ export function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx,
   }
 }
 
-export function renderEspLayer(glViewer, bundle, frame, symbols, coords, natoms, frameIdx) {
+function renderEspLayer(glViewer, bundle, frame, symbols, coords, natoms, frameIdx) {
   let espMesh = bundle.espMeshes ? (
     bundle.espMeshes[frameIdx] ||
     bundle.espMeshes[String(frameIdx)] ||
@@ -222,7 +222,7 @@ export function renderEspLayer(glViewer, bundle, frame, symbols, coords, natoms,
   }
 }
 
-export function renderAtomCharges(glViewer, bundle, frame, symbols, coords, natoms, frameIdx) {
+function renderAtomCharges(glViewer, bundle, frame, symbols, coords, natoms, frameIdx) {
   const traj = bundle.trajectory || {};
   const trajCharges = traj.trajectory_charges ? traj.trajectory_charges[frameIdx] : null;
   const charges = trajCharges || frame.charges || traj.charges || bundle.charges || bundle.manifest?.charges || [];
@@ -243,7 +243,7 @@ export function renderAtomCharges(glViewer, bundle, frame, symbols, coords, nato
   }
 }
 
-export function updateEspColorbar(container, active, bundle, frameIdx) {
+function updateEspColorbar(container, active, bundle, frameIdx) {
   const colorbar = container.parentElement?.querySelector('#esp-colorbar') || document.getElementById('esp-colorbar');
   if (!colorbar) return;
   colorbar.style.display = active ? 'flex' : 'none';
@@ -264,7 +264,7 @@ export function updateEspColorbar(container, active, bundle, frameIdx) {
 let _bgViewerDiv = null;
 let _bgViewerInstance = null;
 
-export async function prewarmViewerEspCache(bundle, onFramePrewarmed) {
+async function prewarmViewerEspCache(bundle, onFramePrewarmed) {
   if (!bundle || !bundle.trajectory || !window.$3Dmol) return;
   const traj = bundle.trajectory;
   const frames = traj.frames || [];
@@ -342,3 +342,11 @@ export async function prewarmViewerEspCache(bundle, onFramePrewarmed) {
     console.warn('[ViewerSurface] ESP prewarm error:', err);
   }
 }
+
+window.findTrack = findTrack;
+window.findOrbitalMesh = findOrbitalMesh;
+window.renderActiveOrbitals = renderActiveOrbitals;
+window.renderEspLayer = renderEspLayer;
+window.renderAtomCharges = renderAtomCharges;
+window.updateEspColorbar = updateEspColorbar;
+window.prewarmViewerEspCache = prewarmViewerEspCache;

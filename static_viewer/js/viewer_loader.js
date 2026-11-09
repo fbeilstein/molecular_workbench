@@ -4,7 +4,7 @@
  * Unpacks all trajectory coords, SVG, orbital meshes, and ESP surfaces upfront for zero-lag playback.
  */
 
-export async function loadReactionBundle(source, onProgress) {
+async function loadReactionBundle(source, onProgress) {
   let arrayBuffer;
 
   if (typeof source === 'string') {
@@ -169,7 +169,7 @@ export async function loadReactionBundle(source, onProgress) {
 /**
  * Adapt a molecule sub-directory inside a reaction bundle into a standalone 1-state bundle.
  */
-export function buildMoleculeBundle(molIdentifier, parentBundle) {
+function buildMoleculeBundle(molIdentifier, parentBundle) {
   if (!parentBundle || !parentBundle.molecules) return null;
   const mols = parentBundle.molecules;
 
@@ -297,3 +297,6 @@ export function buildMoleculeBundle(molIdentifier, parentBundle) {
     isSingleMolecule: true
   };
 }
+
+window.loadReactionBundle = loadReactionBundle;
+window.buildMoleculeBundle = buildMoleculeBundle;

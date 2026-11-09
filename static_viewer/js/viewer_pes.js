@@ -4,7 +4,7 @@
  * Renders the relative energy curve and a live indicator for the active frame.
  */
 
-export class ViewerPES {
+class ViewerPES {
   constructor(canvasElement) {
     this.canvas = canvasElement;
     this.ctx = canvasElement.getContext('2d');
@@ -124,3 +124,5 @@ export class ViewerPES {
     }
   }
 }
+
+window.ViewerPES = ViewerPES;
