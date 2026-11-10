@@ -59,17 +59,17 @@ def clear_orbital_store():
                     pass
 
 
-def get_or_build_orbital_store(megajson: Dict[str, Any], force_rebuild: bool = False) -> Dict[str, Any]:
-    """Retrieve in-memory or on-disk orbital store, building if missing or stale."""
+def get_existing_orbital_store(megajson: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Retrieve in-memory or on-disk orbital store if valid, without building if missing."""
     global _MEMORY_STORE
     p_hash = compute_pathway_fingerprint(megajson)
     with _STORE_LOCK:
-        if not force_rebuild and _MEMORY_STORE is not None:
+        if _MEMORY_STORE is not None:
             if _MEMORY_STORE.get("pathway_hash") == p_hash:
                 megajson["global_electron_tracks"] = _MEMORY_STORE["registry"]["tracks"]
                 return _MEMORY_STORE
 
-        if not force_rebuild and os.path.exists(REGISTRY_PATH) and os.path.exists(NPZ_PATH):
+        if os.path.exists(REGISTRY_PATH) and os.path.exists(NPZ_PATH):
             try:
                 with open(REGISTRY_PATH, "r") as f:
                     reg = json.load(f)
@@ -86,14 +86,32 @@ def get_or_build_orbital_store(megajson: Dict[str, Any], force_rebuild: bool = F
                     return store_dict
             except Exception:
                 pass
+    return None
 
+
+def get_or_build_orbital_store(megajson: Dict[str, Any], force_rebuild: bool = False) -> Dict[str, Any]:
+    """Retrieve in-memory or on-disk orbital store, building if missing or stale."""
+    global _MEMORY_STORE
+    if not force_rebuild:
+        existing = get_existing_orbital_store(megajson)
+        if existing is not None:
+            return existing
+
+    p_hash = compute_pathway_fingerprint(megajson)
+    with _STORE_LOCK:
         _MEMORY_STORE = _build_orbital_store(megajson, p_hash)
         return _MEMORY_STORE
 
 
 def get_frame_pool_payload(megajson: Dict[str, Any], frame_idx: int) -> Dict[str, Any]:
     """Return instant get_frame_orbitals dictionary for the given frame index."""
-    store = get_or_build_orbital_store(megajson)
+    store = get_existing_orbital_store(megajson)
+    if not store:
+        return {
+            "success": False,
+            "not_computed": True,
+            "message": "Orbital tracking not calculated yet. Click 'Calculate Orbitals' in Step 6 to compute."
+        }
     frames = megajson.get("frames", [])
     if frame_idx < 0 or frame_idx >= len(frames):
         return {"success": False, "error": f"Frame {frame_idx} out of bounds"}
@@ -203,7 +221,9 @@ def get_track_vector_and_mol(
     megajson: Dict[str, Any], frame_idx: int, track_id: str
 ) -> Tuple[Optional[Any], Optional[np.ndarray], Optional[Dict[str, Any]]]:
     """Retrieve lightweight PySCF Mol, orbital vector, and metadata without recomputing SCF."""
-    store = get_or_build_orbital_store(megajson)
+    store = get_existing_orbital_store(megajson)
+    if not store:
+        return None, None, None
     npz = store["npz"]
     key_tids = f"f{frame_idx}_tids"
     if key_tids not in npz:

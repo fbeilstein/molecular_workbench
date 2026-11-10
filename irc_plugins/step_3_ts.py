@@ -4,7 +4,7 @@ from .base import PipelineStep, StepResult
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-OUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'out'))
+from .constants import ROOT_DIR, OUT_DIR, CASCADE_DIR
 os.makedirs(OUT_DIR, exist_ok=True)
 LOG_PATH = os.path.join(OUT_DIR, 'optimization.log')
 
@@ -237,14 +237,14 @@ class Step3TS(PipelineStep):
         for p in [os.path.join(OUT_DIR, "irc_trajectory_prev.json"), os.path.join(OUT_DIR, "irc_trajectory.json")]:
             if os.path.exists(p) and p not in cand_files:
                 cand_files.append(p)
-        t_dir = os.path.join(os.path.dirname(OUT_DIR), "trajectories")
+        t_dir = CASCADE_DIR
         if os.path.exists(t_dir):
             for p in sorted(glob.glob(os.path.join(t_dir, "*.json")), reverse=True):
                 if p not in cand_files and not p.endswith("prolonged_pathway.json"):
                     cand_files.append(p)
 
         if not cand_files:
-            return {"error": "No previous IRC trajectory found in project steps or trajectories/."}
+            return {"error": "No previous IRC trajectory found in project steps or cascade cache."}
         try:
             raw_smiles = global_state.get("step_1_input", {}).get("raw_smiles", "")
             r_smiles = raw_smiles.split(">>")[0].split(".") if ">>" in raw_smiles else []

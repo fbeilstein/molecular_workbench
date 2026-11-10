@@ -25,9 +25,14 @@ from .bundle_utils import (
     save_state_to_file,
 )
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-TRAJECTORIES_DIR = os.path.join(ROOT_DIR, 'trajectories')
-PROLONGED_PATH = os.path.join(TRAJECTORIES_DIR, 'prolonged_pathway.json')
+from .constants import (
+    ROOT_DIR,
+    BUNDLES_DIR,
+    CASCADE_DIR,
+    PROLONGED_PATH,
+)
+
+TRAJECTORIES_DIR = CASCADE_DIR
 
 
 def _matches_molecule_group(k: Any, v: Dict[str, Any], grp_id: str, norm_name: str) -> bool:
@@ -111,7 +116,7 @@ class Step7Bundle(PipelineStep):
             ui_megajson["highres_cubes"] = {k: (v if (isinstance(v, str) and "\n" not in v) else True) for k, v in ui_megajson["highres_cubes"].items()}
         ui_megajson["molecule_bundles"] = molecule_summary
 
-        bundle_path = os.path.join(ROOT_DIR, "out", "bundles", "reaction_cascade_bundle.zip")
+        bundle_path = os.path.join(BUNDLES_DIR, "reaction_cascade_bundle.zip")
         has_bundle = os.path.exists(bundle_path)
 
         return {
@@ -131,8 +136,8 @@ class Step7Bundle(PipelineStep):
             "existing_bundle": {
                 "exists": has_bundle, "filename": "reaction_cascade_bundle.zip",
                 "size_bytes": os.path.getsize(bundle_path) if has_bundle else 0,
-                "download_url": "/out/bundles/reaction_cascade_bundle.zip",
-                "viewer_url": "/viewer.html?bundle=/out/bundles/reaction_cascade_bundle.zip"
+                "download_url": "/irc_cache/bundles/reaction_cascade_bundle.zip",
+                "viewer_url": "/viewer.html?bundle=/irc_cache/bundles/reaction_cascade_bundle.zip"
             },
             "message": "Export lightweight, max-compression pure data archive for Molecular Workbench Viewer."
         }

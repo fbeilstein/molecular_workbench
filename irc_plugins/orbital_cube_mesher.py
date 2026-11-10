@@ -12,9 +12,7 @@ import numpy as np
 from .ts_engine import orbital_engine
 from .orbital_tracker import get_track_vector_and_mol
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-OUT_DIR = os.path.join(ROOT_DIR, 'out')
-CUBES_DIR = os.path.join(OUT_DIR, 'cubes')
+from .constants import ROOT_DIR, OUT_DIR, CUBES_DIR
 
 _GRID_CACHE: Dict[str, Any] = {}
 _CUBE_CACHE: Dict[str, str] = {}

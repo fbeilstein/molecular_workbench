@@ -187,6 +187,45 @@ export const OrbitalsUI = {
             else if (e.key === '0') v3?.resetCamera();
             else if (e.key === 'l' || e.key === 'L') toggleLabels();
         });
+        const btnCalc = container.querySelector('#btn-calc-orbitals');
+        if (btnCalc) {
+            btnCalc.addEventListener('click', async () => {
+                const orig = btnCalc.textContent;
+                btnCalc.disabled = true;
+                btnCalc.textContent = 'Calculating (PySCF)...';
+                this.state.pool?.setCalculating(true);
+                try {
+                    const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action_type: 'calculate_orbitals', force: true })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        btnCalc.textContent = '✓ Done';
+                        this.state.frameDataCache = {};
+                        this.state.pool?.setCalculating(false);
+                        this.state.pool?.setNotComputed(false);
+                        await this.loadFrameData(this.state.currentFrame);
+                        setTimeout(() => { btnCalc.textContent = orig; btnCalc.disabled = false; }, 2000);
+                    } else {
+                        alert('Orbital calculation failed: ' + (data.error || data.message || 'Unknown error'));
+                        btnCalc.textContent = orig;
+                        btnCalc.disabled = false;
+                        this.state.pool?.setCalculating(false);
+                        this.state.pool?.setNotComputed(true);
+                    }
+                } catch (e) {
+                    console.error('Calculation error:', e);
+                    alert('Error requesting orbital calculation: ' + e);
+                    btnCalc.textContent = orig;
+                    btnCalc.disabled = false;
+                    this.state.pool?.setCalculating(false);
+                    this.state.pool?.setNotComputed(true);
+                }
+            });
+        }
+
         container.querySelector('#pool-search-input').addEventListener('input', e => this.state.pool.setSearch(e.target.value));
         container.querySelectorAll('.tab-cat').forEach(btn => btn.addEventListener('click', () => {
             container.querySelectorAll('.tab-cat').forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-secondary'); });
@@ -198,10 +237,16 @@ export const OrbitalsUI = {
     async loadFrameData(frameIdx) {
         if (!this.state.frameDataCache[frameIdx]) {
             const data = await fetchFrameData(this.state.stepId, frameIdx);
-            if (data && data.success) this.state.frameDataCache[frameIdx] = data;
+            if (data && data.success) {
+                this.state.frameDataCache[frameIdx] = data;
+            } else if (data && data.not_computed) {
+                this.state.pool?.setNotComputed(true);
+                return;
+            }
         }
         const fd = this.state.frameDataCache[frameIdx];
         if (fd && this.state.currentFrame === frameIdx) {
+            this.state.pool.setNotComputed(false);
             this.state.pool.setOrbitalsFromFrameData(fd);
             const syms = fd.symbols || (this.state.trajectorySymbols && this.state.trajectorySymbols[frameIdx]) || this.state.uiSchema.symbols;
             if (this.state.timeline) this.state.timeline.updatePopulations(frameIdx, fd, syms);

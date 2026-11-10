@@ -10,8 +10,7 @@ from .ts_builder import (
     run_irc_path
 )
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-OUT_DIR = os.path.join(ROOT_DIR, 'out')
+from .constants import ROOT_DIR, OUT_DIR, CASCADE_DIR, PROLONGED_PATH
 os.makedirs(OUT_DIR, exist_ok=True)
 LOG_PATH = os.path.join(OUT_DIR, 'optimization.log')
 TRAJECTORY_FILE = os.path.join(OUT_DIR, 'irc_trajectory.json')
@@ -126,6 +125,10 @@ class Step4IRC(PipelineStep):
             if not traj or not isinstance(traj, dict) or not traj.get("frames"):
                 return {"error": "Failed to calculate IRC trajectory. Check log for details."}
 
+            # Apply rigorous, continuous Free Energy (ΔG) thermodynamics
+            from .ts_engine.free_energy_engine import compute_pathway_free_energy
+            traj = compute_pathway_free_energy(traj, model, solvent=solvent, log_fn=log)
+
             # Persist trajectory JSON with previous backup
             try:
                 import shutil
@@ -142,15 +145,14 @@ class Step4IRC(PipelineStep):
                 with open(step_traj_file, 'w') as f:
                     json.dump(traj, f, indent=2)
 
-                # Also backup to trajectories directory with step index
+                # Also backup to cascade directory with step index
                 step_idx = 1
                 for s in proj.get("steps", []):
                     if s["id"] == active_id:
                         step_idx = s.get("index", 1)
                         break
-                traj_dir = os.path.join(ROOT_DIR, "trajectories")
-                os.makedirs(traj_dir, exist_ok=True)
-                with open(os.path.join(traj_dir, f"irc_trajectory{step_idx}.json"), 'w') as f:
+                os.makedirs(CASCADE_DIR, exist_ok=True)
+                with open(os.path.join(CASCADE_DIR, f"irc_trajectory{step_idx}.json"), 'w') as f:
                     json.dump(traj, f, indent=2)
             except Exception as err:
                 log(f"  Note: Failed to write {TRAJECTORY_FILE}: {err}")
@@ -184,7 +186,7 @@ class Step4IRC(PipelineStep):
             return {"error": "Current IRC trajectory missing."}
 
         cand_files = [p for p in [os.path.join(OUT_DIR, "irc_trajectory_prev.json")] if os.path.exists(p)]
-        t_dir = os.path.join(os.path.dirname(OUT_DIR), "trajectories")
+        t_dir = CASCADE_DIR
         if os.path.exists(t_dir):
             cand_files.extend(sorted(glob.glob(os.path.join(t_dir, "*.json"))))
 
@@ -205,7 +207,7 @@ class Step4IRC(PipelineStep):
             mega = stitch_multistep_trajectories([prev_traj, current_traj], n_bridge_frames=8)
             with open(TRAJECTORY_FILE, "w") as f:
                 json.dump(mega, f, indent=2)
-            prolong_p = os.path.join(os.path.dirname(OUT_DIR), "trajectories", "prolonged_pathway.json")
+            prolong_p = PROLONGED_PATH
             try:
                 with open(prolong_p, "w") as f:
                     json.dump(mega, f, indent=2)
@@ -233,7 +235,7 @@ class Step4IRC(PipelineStep):
         if not current_traj:
             return {"error": "Current IRC trajectory missing."}
 
-        t_dir = os.path.join(os.path.dirname(OUT_DIR), "trajectories")
+        t_dir = CASCADE_DIR
         os.makedirs(t_dir, exist_ok=True)
         existing_steps = [p for p in sorted(glob.glob(os.path.join(t_dir, "*.json"))) if not p.endswith("prolonged_pathway.json")]
         step_num = len(existing_steps) + 1

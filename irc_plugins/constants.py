@@ -21,3 +21,21 @@ DEFAULT_IRC_MARGIN_ANG: float = 2.5
 DEFAULT_IRC_MAX_STEPS: int = 35
 DEFAULT_IRC_ISOVALUE: float = 0.045
 
+# Centralized Directory Architecture
+import os
+ROOT_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+CACHE_DIR_NAME: str = "irc_cache"
+CACHE_DIR: str = os.path.join(ROOT_DIR, CACHE_DIR_NAME)
+OUT_DIR: str = CACHE_DIR  # Alias for backward compatibility
+STEPS_DIR: str = os.path.join(CACHE_DIR, "steps")
+CASCADE_DIR: str = os.path.join(CACHE_DIR, "cascade")
+CUBES_DIR: str = os.path.join(CACHE_DIR, "cubes")
+BUNDLES_DIR: str = os.path.join(CACHE_DIR, "bundles")
+PROJECT_FILE: str = os.path.join(CACHE_DIR, "project.json")
+LEGACY_STATE_FILE: str = os.path.join(CACHE_DIR, "reaction_state.json")
+LEGACY_TRAJ_FILE: str = os.path.join(CACHE_DIR, "irc_trajectory.json")
+MASTER_PATHWAY_FILE: str = os.path.join(CACHE_DIR, "master_pathway.json")
+PROLONGED_PATH: str = os.path.join(CASCADE_DIR, "prolonged_pathway.json")
+NPZ_PATH: str = os.path.join(CASCADE_DIR, "orbital_tracks.npz")
+REGISTRY_PATH: str = os.path.join(CASCADE_DIR, "orbital_registry.json")
+

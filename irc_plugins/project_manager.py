@@ -9,6 +9,7 @@ import shutil
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
+from .constants import CASCADE_DIR, PROLONGED_PATH, MASTER_PATHWAY_FILE
 from .project_store import (
     ROOT_DIR,
     OUT_DIR,
@@ -51,7 +52,7 @@ def get_project_summary() -> Dict[str, Any]:
         st = read_json_file(step_state_path(sid), {})
         has_input = bool(st.get("step_1_input", {}).get("raw_smiles"))
         has_mapping = bool(st.get("step_2_mapping", {}).get("final_mapping"))
-        has_ts = bool(st.get("step_3_ts", {}).get("ts_geometry") or st.get("step_3_ts", {}).get("ts_guess"))
+        has_ts = bool(st.get("step_3_ts", {}).get("ts_geometry") or st.get("step_3_ts", {}).get("ts_guess") or st.get("step_3_ts", {}).get("docked_reactants") or has_irc)
         has_irc = os.path.exists(step_traj_path(sid))
 
         status = "Completed" if has_irc else "In Progress" if has_ts else "Configured" if has_input else "Empty"
@@ -235,8 +236,9 @@ def stitch_project_trajectories() -> Tuple[bool, Optional[Dict[str, Any]], str]:
     from .ts_engine.trajectory_stitcher import stitch_multistep_trajectories
     try:
         master = stitch_multistep_trajectories(trajs, n_bridge_frames=8, auto_trim=True, auto_sort=False)
-        write_json_file(os.path.join(OUT_DIR, 'master_pathway.json'), master)
-        write_json_file(os.path.join(ROOT_DIR, 'trajectories', 'prolonged_pathway.json'), master)
+        os.makedirs(CASCADE_DIR, exist_ok=True)
+        write_json_file(MASTER_PATHWAY_FILE, master)
+        write_json_file(PROLONGED_PATH, master)
         write_json_file(LEGACY_TRAJ_FILE, master)
         n_frames = master.get("total_frames", len(master["frames"]))
         n_steps = master.get("n_steps", len(trajs))

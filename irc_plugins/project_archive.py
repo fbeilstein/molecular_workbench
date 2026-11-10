@@ -12,10 +12,14 @@ import time
 import zipfile
 from typing import Any, Dict, Optional, Tuple
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-OUT_DIR = os.path.join(ROOT_DIR, 'out')
-STEPS_DIR = os.path.join(OUT_DIR, 'steps')
-PROJECT_FILE = os.path.join(OUT_DIR, 'project.json')
+from .constants import (
+    ROOT_DIR,
+    OUT_DIR,
+    STEPS_DIR,
+    PROJECT_FILE,
+    CASCADE_DIR,
+    PROLONGED_PATH,
+)
 
 
 def export_project_archive(out_dir: str = OUT_DIR) -> Tuple[bytes, str]:
@@ -154,12 +158,11 @@ def import_project_archive(zip_bytes: bytes, out_dir: str = OUT_DIR) -> Tuple[bo
                     with zf.open(member) as src, open(dest_p, "wb") as dst:
                         shutil.copyfileobj(src, dst)
 
-        # Sync master_pathway.json to trajectories/prolonged_pathway.json and out/irc_trajectory.json
+        # Sync master_pathway.json to CASCADE_DIR/prolonged_pathway.json and out/irc_trajectory.json
         master_p = os.path.join(out_dir, "master_pathway.json")
         if os.path.exists(master_p):
-            traj_dir = os.path.join(ROOT_DIR, "trajectories")
-            os.makedirs(traj_dir, exist_ok=True)
-            shutil.copyfile(master_p, os.path.join(traj_dir, "prolonged_pathway.json"))
+            os.makedirs(CASCADE_DIR, exist_ok=True)
+            shutil.copyfile(master_p, PROLONGED_PATH)
             shutil.copyfile(master_p, os.path.join(out_dir, "irc_trajectory.json"))
 
         # Re-initialize project and load active state

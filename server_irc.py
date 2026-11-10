@@ -162,7 +162,7 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        if path == '/' or path.startswith(('/ketcher/', '/static_irc/', '/static_viewer/', '/out/', '/bundles/', '/output/')) or path.endswith('.html'):
+        if path == '/' or path.startswith(('/ketcher/', '/static_irc/', '/static_viewer/', '/out/', '/irc_cache/', '/bundles/', '/output/')) or path.endswith('.html'):
             return super().do_GET()
 
         if path == '/favicon.ico':

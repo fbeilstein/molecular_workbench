@@ -233,12 +233,16 @@ def balance_pathway_energies(
     step_delta_kcal = []
     if frag_energies and stoich.get("steps"):
         valid_steps = 0
+        from .free_energy_engine import DELTA_G_ASSOC_KCAL
         for k, s in enumerate(stoich["steps"]):
             e_r = sum(frag_energies.get(_clean_smiles(r["smiles"]), 0.0) for r in s.get("reactants", []))
             e_p = sum(frag_energies.get(_clean_smiles(p["smiles"]), 0.0) for p in s.get("products", []))
             if e_r != 0.0 and e_p != 0.0:
                 valid_steps += 1
-            step_delta_kcal.append((e_p - e_r) * eV_to_kcal)
+            n_r_k = max(1, len(s.get("reactants", [])))
+            n_p_k = max(1, len(s.get("products", [])))
+            delta_n_entropy = (n_r_k - n_p_k) * DELTA_G_ASSOC_KCAL
+            step_delta_kcal.append((e_p - e_r) * eV_to_kcal + delta_n_entropy)
         if valid_steps == len(stoich["steps"]) and len(boundaries) == len(stoich["steps"]):
             has_thermo = True
 
@@ -260,23 +264,46 @@ def balance_pathway_energies(
             raw = np.array([float(master_frames[i].get("rel_energy_kcal", 0.0)) for i in range(start, end + 1)])
             raw = raw - raw[0]
 
-            # Forward barrier height from calculation
+            # Forward barrier height from quantum calculations
             raw_barrier = float(np.max(raw)) if len(raw) > 0 else 0.0
             rep_barrier = float(traj.get("barriers", {}).get("forward_barrier_kcal", 0.0) or 0.0)
-            barrier = max(raw_barrier, rep_barrier, 1.0)
+            barrier = max(raw_barrier, rep_barrier, 0.0)
 
-            ts_rel_idx = ts - start if start <= ts <= end else int(s_len * 0.4)
-            e_ts_target = e_start_target + barrier
+            # Determine whether this step has an authentic barrier or is monotonic downhill / barrierless
+            is_downhill = (raw_barrier <= 1e-4 and rep_barrier <= 1e-4) or (raw[-1] < -0.1 and raw_barrier <= 0.05)
 
-            for local_i, global_i in enumerate(range(start, end + 1)):
-                if local_i <= ts_rel_idx:
-                    t = local_i / max(1, ts_rel_idx)
-                    s_curve = np.sin(t * np.pi / 2.0) ** 2
-                    rel_kcal[global_i] = e_start_target + (e_ts_target - e_start_target) * s_curve
-                else:
-                    t = (local_i - ts_rel_idx) / max(1, (s_len - 1 - ts_rel_idx))
-                    s_curve = np.sin(t * np.pi / 2.0) ** 2
-                    rel_kcal[global_i] = e_ts_target - (e_ts_target - e_end_target) * s_curve
+            if is_downhill:
+                # Strictly preserve authentic downhill IRC shape without any synthetic bump or barrier
+                raw_delta = raw[-1]
+                for local_i, global_i in enumerate(range(start, end + 1)):
+                    if abs(raw_delta) > 1e-6:
+                        progress = raw[local_i] / raw_delta
+                        rel_kcal[global_i] = e_start_target + progress * de_step
+                    else:
+                        rel_kcal[global_i] = e_start_target + raw[local_i]
+            else:
+                # Step possesses an authentic TS barrier
+                ts_rel_idx = ts - start if start <= ts <= end else int(np.argmax(raw))
+                e_ts_target = e_start_target + barrier
+                raw_ts = raw[ts_rel_idx] if ts_rel_idx < len(raw) else raw_barrier
+                raw_denom_prod = raw[-1] - raw_ts
+
+                for local_i, global_i in enumerate(range(start, end + 1)):
+                    if local_i <= ts_rel_idx:
+                        # Follow authentic quantum IRC barrier curve up to TS
+                        if raw_ts > 1e-4:
+                            f = raw[local_i] / raw_ts
+                        else:
+                            f = local_i / max(1, ts_rel_idx)
+                        rel_kcal[global_i] = e_start_target + f * (e_ts_target - e_start_target)
+                    else:
+                        # Follow authentic quantum IRC descent curve from TS down to product
+                        if abs(raw_denom_prod) > 1e-4:
+                            f = (raw[local_i] - raw_ts) / raw_denom_prod
+                        else:
+                            denom_frames = max(1, s_len - 1 - ts_rel_idx)
+                            f = (local_i - ts_rel_idx) / denom_frames
+                        rel_kcal[global_i] = e_ts_target + f * (e_end_target - e_ts_target)
 
             cum_baseline = e_end_target
 
@@ -289,9 +316,18 @@ def balance_pathway_energies(
         balanced_ev = rel_kcal / eV_to_kcal
     else:
         # Fallback if fragment energies are unavailable: relative IRC curve
-        rel_kcal = np.array([float(fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0))) for fr in master_frames])
-        if len(rel_kcal) > 0:
-            rel_kcal = rel_kcal - rel_kcal[0]
+        cum_baseline = 0.0
+        for k, b in enumerate(boundaries):
+            start, end = b["start_frame"], b["end_frame"]
+            raw = np.array([float(master_frames[i].get("rel_energy_kcal", 0.0)) for i in range(start, end + 1)])
+            raw = raw - raw[0]
+            for local_i, global_i in enumerate(range(start, end + 1)):
+                rel_kcal[global_i] = cum_baseline + raw[local_i]
+            cum_baseline += raw[-1]
+            if k < len(boundaries) - 1:
+                next_start = boundaries[k + 1]["start_frame"]
+                for br_i in range(end + 1, next_start):
+                    rel_kcal[br_i] = cum_baseline
         balanced_ev = rel_kcal / eV_to_kcal
 
     step_metrics = [

@@ -19,6 +19,7 @@ from .pose_sampler import run_genetic_swarm_ts
 from .orca_runner import run_orca_dft_ts
 from .vibrations import analyse_mode
 from .irc_runner import run_irc_path
+from .free_energy_engine import compute_pathway_free_energy
 
 __all__ = [
     "ReactionModel",

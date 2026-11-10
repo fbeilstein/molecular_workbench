@@ -17,6 +17,7 @@ export function buildOrbitalsLayout(container, maxF) {
                     <span id="transport-frame-counter" style="font-size: 0.74rem; font-weight: 600; color: #334155; min-width: 105px; text-align: right; flex-shrink: 0;">Frame 0 / ${maxF}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0;">
+                    <button id="btn-calc-orbitals" class="btn btn-sm btn-primary" style="padding: 0.2rem 0.6rem; flex-shrink: 0; font-weight: 600;" title="Calculate molecular orbitals and electron tracking for pathway">⚡ Calculate Orbitals</button>
                     <button id="btn-toggle-lecture" class="btn btn-sm btn-secondary" title="Mute/Unmute Orbitals (M)">👁 Toggle MOs</button>
                     <button id="btn-toggle-esp" class="btn btn-sm btn-secondary" title="Toggle ESP / Charge Spheres (E)">⚡ ESP</button>
                     <button id="btn-toggle-labels" class="btn btn-sm btn-secondary" title="Toggle Atom Labels (L)">🏷 Labels</button>

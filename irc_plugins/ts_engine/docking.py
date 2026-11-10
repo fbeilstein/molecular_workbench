@@ -6,7 +6,7 @@ from scipy.optimize import minimize
 from .common import rvdw, _unit, dir_pen, set_positions, DOCK_EXTRA
 
 
-def _select_lowest_energy_conf(mol, cids, _solvent="water"):
+def _select_lowest_energy_conf(mol, cids, solvent="water"):
     if not cids or len(cids) <= 1:
         return cids[0] if cids else 0
     # 1. Fast MMFF optimization for all molecules

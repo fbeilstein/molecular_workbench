@@ -119,6 +119,8 @@ def stitch_multistep_trajectories(
 
         if cand:
             R, t = np.array(cand["R"]), np.array(cand["t"])
+            is_refl = cand.get("is_reflected", False)
+            refl_mat = np.array(cand.get("refl_mat", np.diag([-1.0, 1.0, 1.0])))
             idxs_p, idxs_n = cand["prev_indices"], cand["next_indices"]
             prev_syms = prev_step.get("symbols", [])
             prev_global_ids = prev_step.get("global_atom_ids", list(range(len(prev_syms))))
@@ -128,6 +130,8 @@ def stitch_multistep_trajectories(
             from scipy.optimize import linear_sum_assignment
             prev_cut_pos = np.array(prev_step["frames"][p_cut].get("coords", prev_step["frames"][p_cut].get("positions", [])))
             raw_next_cut_pos = np.array(next_step["frames"][n_cut].get("coords", next_step["frames"][n_cut].get("positions", [])))
+            if is_refl and len(raw_next_cut_pos) > 0:
+                raw_next_cut_pos = raw_next_cut_pos @ refl_mat
             if len(prev_cut_pos) > 0 and len(raw_next_cut_pos) > 0 and len(idxs_p) > 0 and len(idxs_n) == len(idxs_p):
                 aligned_cut_pos = raw_next_cut_pos @ R.T + t
                 p_sub = prev_cut_pos[idxs_p]
@@ -184,10 +188,14 @@ def stitch_multistep_trajectories(
                             fg["atom_indices"] = [inv_order.get(idx, idx) for idx in fg["atom_indices"]]
 
             orig_unaligned_cut = np.array(next_step["frames"][n_cut].get("coords", next_step["frames"][n_cut].get("positions", [])))
+            if is_refl and len(orig_unaligned_cut) > 0:
+                orig_unaligned_cut = orig_unaligned_cut @ refl_mat
             orig_unaligned_cut = orig_unaligned_cut[order] if len(orig_unaligned_cut) == len(order) else orig_unaligned_cut
 
             for fr in out_next["frames"]:
                 raw_pos = np.array(fr.get("coords", fr.get("positions", [])))
+                if is_refl and len(raw_pos) > 0:
+                    raw_pos = raw_pos @ refl_mat
                 fr["coords"] = ((raw_pos @ R.T + t)[order]).round(4).tolist()
                 fr.pop("positions", None)
             b_rmsd = cand["rmsd"]
@@ -225,6 +233,7 @@ def stitch_multistep_trajectories(
             "next_coords_aligned": align_pos.round(4).tolist(), "next_coords_unaligned": orig_unaligned_cut.round(4).tolist(),
             "matched_prev_indices": idxs_p, "matched_next_indices": list(range(len(idxs_p))) if cand else [],
             "all_candidates": all_cands, "selected_candidate_id": cand["id"] if cand else None,
+            "is_reflected": (cand.get("is_reflected", False) if cand else False),
             "n_matched_atoms": len(idxs_p), "joint_rmsd_angstrom": b_rmsd, "rmsd": b_rmsd,
             "bridge_frames": bridge, "n_bridge_frames": len(bridge),
             "prev_cut": p_cut, "next_cut": n_cut, "is_trimmed": (p_cut < orig_p_len - 1 or n_cut > 0)
@@ -240,6 +249,7 @@ def stitch_multistep_trajectories(
         s_frames, ts_idx = step.get("frames", []), step.get("ts_frame_index", 0)
         step_boundaries.append({
             "step_index": k + 1, "step_name": step.get("reaction_smiles", f"Step {k + 1}"),
+            "reaction_smiles": step.get("reaction_smiles", f"Step {k + 1}"),
             "start_frame": curr_idx, "end_frame": curr_idx + len(s_frames) - 1, "ts_frame": curr_idx + ts_idx
         })
         k_bonds = step.get("bonds", [])

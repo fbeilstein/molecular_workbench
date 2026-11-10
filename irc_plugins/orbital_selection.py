@@ -181,9 +181,9 @@ def enrich_timeline_tracks(
     catalog = megajson.get("global_electron_tracks")
     if not catalog or len(catalog) <= 3:
         try:
-            from .orbital_tracker import get_or_build_orbital_store
-            store = get_or_build_orbital_store(megajson)
-            catalog = store.get("registry", {}).get("tracks", {})
+            from .orbital_tracker import get_existing_orbital_store
+            store = get_existing_orbital_store(megajson)
+            catalog = store.get("registry", {}).get("tracks", {}) if store else {}
         except Exception:
             catalog = {}
 

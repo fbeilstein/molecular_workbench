@@ -111,7 +111,17 @@ export function buildCascadeLayout(container, ui, options = {}) {
     restitchBtn.style.fontWeight = '600';
     restitchBtn.textContent = '⚡ Re-Stitch Pathway';
 
+    const exportBtn = document.createElement('button');
+    exportBtn.style.padding = '8px 12px';
+    exportBtn.style.fontWeight = '600';
+    exportBtn.style.borderRadius = '6px';
+    exportBtn.style.border = '1px solid #cbd5e1';
+    exportBtn.style.background = '#ffffff';
+    exportBtn.style.cursor = 'pointer';
+    exportBtn.textContent = '💾 Export Master JSON';
+
     actionRow.appendChild(restitchBtn);
+    actionRow.appendChild(exportBtn);
     leftPanel.appendChild(actionRow);
 
     // 5. Metrics Box
@@ -191,6 +201,9 @@ export function buildCascadeLayout(container, ui, options = {}) {
     btnModeOverlap.style.background = '#f1f5f9';
     btnModeOverlap.style.color = '#334155';
     btnModeOverlap.style.border = '1px solid #cbd5e1';
+    btnModeOverlap.textContent = '🔍 Boundary Overlap';
+    btnModeOverlap.title = 'Inspect Step Boundary Overlap';
+
     const btnToggleLabels = document.createElement('button');
     btnToggleLabels.style.padding = '5px 12px';
     btnToggleLabels.style.fontSize = '12px';
@@ -326,7 +339,7 @@ export function buildCascadeLayout(container, ui, options = {}) {
 
     return {
         root, seqList, juncList, bSlider, bVal,
-        restitchBtn, viewerBox, hudOverlay,
+        restitchBtn, exportBtn, viewerBox, hudOverlay,
         btnModeCascade, btnModeOverlap, btnToggleLabels, overlapSubControls,
         juncSelect, alignTypeBtn, heroFilterBtn, rmsdBadge,
         playBtn, prevBtn, nextBtn, frameSlider, frameLabel,

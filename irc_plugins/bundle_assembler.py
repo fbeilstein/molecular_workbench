@@ -172,7 +172,7 @@ def handle_bundle_export(
                     global_state[s_key]["orbital_timeline"] = tl_input
         save_state_to_file(global_state)
 
-    bundle_dir = os.path.join(root_dir, "out", "bundles")
+    bundle_dir = os.path.join(root_dir, "irc_cache", "bundles")
     os.makedirs(bundle_dir, exist_ok=True)
     bundle_filename = "multistep_reaction_bundle_maxcomp.zip"
     bundle_path = os.path.join(bundle_dir, bundle_filename)
@@ -187,8 +187,8 @@ def handle_bundle_export(
     ratio = (1.0 - (len(zip_bytes) / max(1, uncompressed_bytes))) * 100.0
     return {
         "success": True,
-        "download_url": f"/out/bundles/{bundle_filename}",
-        "viewer_url": f"/viewer.html?bundle=/out/bundles/{bundle_filename}",
+        "download_url": f"/irc_cache/bundles/{bundle_filename}",
+        "viewer_url": f"/viewer.html?bundle=/irc_cache/bundles/{bundle_filename}",
         "filename": bundle_filename,
         "size_bytes": len(zip_bytes),
         "uncompressed_bytes": uncompressed_bytes,

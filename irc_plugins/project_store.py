@@ -8,18 +8,27 @@ import os
 import shutil
 from typing import Any, Dict, Optional
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-OUT_DIR = os.path.join(ROOT_DIR, 'out')
-STEPS_DIR = os.path.join(OUT_DIR, 'steps')
-PROJECT_FILE = os.path.join(OUT_DIR, 'project.json')
-LEGACY_STATE_FILE = os.path.join(OUT_DIR, 'reaction_state.json')
-LEGACY_TRAJ_FILE = os.path.join(OUT_DIR, 'irc_trajectory.json')
+from .constants import (
+    ROOT_DIR,
+    CACHE_DIR,
+    OUT_DIR,
+    STEPS_DIR,
+    CASCADE_DIR,
+    CUBES_DIR,
+    BUNDLES_DIR,
+    PROJECT_FILE,
+    LEGACY_STATE_FILE,
+    LEGACY_TRAJ_FILE,
+)
 
 
 def ensure_dirs():
     """Ensure base project and step output directories exist."""
-    os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(CACHE_DIR, exist_ok=True)
     os.makedirs(STEPS_DIR, exist_ok=True)
+    os.makedirs(CASCADE_DIR, exist_ok=True)
+    os.makedirs(CUBES_DIR, exist_ok=True)
+    os.makedirs(BUNDLES_DIR, exist_ok=True)
 
 
 def get_step_dir(step_id: str) -> str:

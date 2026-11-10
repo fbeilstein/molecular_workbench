@@ -4,10 +4,14 @@ Common definitions, paths, and constants for Orbital Tracker.
 
 import os
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-TRAJECTORIES_DIR = os.path.join(ROOT_DIR, "trajectories")
-NPZ_PATH = os.path.join(TRAJECTORIES_DIR, "orbital_tracks.npz")
-REGISTRY_PATH = os.path.join(TRAJECTORIES_DIR, "orbital_registry.json")
+from ..constants import (
+    ROOT_DIR,
+    CASCADE_DIR,
+    NPZ_PATH,
+    REGISTRY_PATH,
+)
+
+TRAJECTORIES_DIR = CASCADE_DIR
 
 FRONTIER_KEYS = ["HOMO-3", "HOMO-2", "HOMO-1", "HOMO", "LUMO", "LUMO+1", "LUMO+2"]
 FRONTIER_TRACK_MAP = {

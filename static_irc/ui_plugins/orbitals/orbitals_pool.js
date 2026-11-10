@@ -22,6 +22,16 @@ export class OrbitalsPool {
         this.render();
     }
 
+    setCalculating(isCalc) {
+        this.isCalculating = isCalc;
+        this.render();
+    }
+
+    setNotComputed(notComputed) {
+        this.notComputed = notComputed;
+        this.render();
+    }
+
     setOrbitalsFromFrameData(frameData) { this.setFrameData(frameData); }
 
     setFrameData(frameData) {
@@ -146,9 +156,34 @@ export class OrbitalsPool {
             return true;
         });
 
+        if (this.isCalculating) {
+            this.containerEl.innerHTML = `<div class="empty-state" style="padding: 2rem 1rem; text-align: center; color: #0284c7; font-size: 0.85rem;">
+                <div style="font-size: 1.6rem; margin-bottom: 0.5rem; animation: pulse 1.5s infinite;">⚡</div>
+                <strong>Calculating Solvated Orbitals (PySCF ddCOSMO)...</strong>
+                <div style="font-size: 0.72rem; color: #64748b; margin-top: 0.35rem;">Computing localized IBOs and tracking across frames. Please wait...</div>
+            </div>`;
+            return;
+        }
+
+        if (this.notComputed || this.orbitals.length === 0) {
+            this.containerEl.innerHTML = `<div class="empty-state" style="padding: 1.8rem 1rem; text-align: center; color: #475569; font-size: 0.82rem; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; margin: 0.4rem;">
+                <div style="font-size: 1.6rem; margin-bottom: 0.4rem;">⚛️</div>
+                <strong style="color: #0f172a; font-size: 0.88rem;">Orbital Tracking Not Computed Yet</strong>
+                <div style="font-size: 0.72rem; color: #64748b; margin: 0.4rem 0 0.8rem 0; line-height: 1.4;">
+                    Run PySCF ddCOSMO implicit solvation wavefunctions and Knizia IBO tracking across all frames.
+                </div>
+                <button id="pool-trigger-calc" class="btn btn-sm btn-primary" style="padding: 0.35rem 0.9rem; font-weight: 600;">⚡ Calculate Orbitals</button>
+            </div>`;
+            this.containerEl.querySelector('#pool-trigger-calc')?.addEventListener('click', () => {
+                const btn = document.querySelector('#btn-calc-orbitals');
+                if (btn) btn.click();
+            });
+            return;
+        }
+
         if (filtered.length === 0) {
             this.containerEl.innerHTML = `<div class="empty-state" style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.75rem;">
-                ${this.orbitals.length === 0 ? 'Computing molecular orbitals for current frame...' : 'No orbitals match current filter.'}
+                No orbitals match current filter.
             </div>`;
             return;
         }

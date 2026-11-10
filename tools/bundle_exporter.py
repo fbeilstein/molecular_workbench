@@ -141,7 +141,7 @@ def _process_molecule_orbitals(mol_info, job_dir, cube_dir, zf, frontier_depth=0
         
     return mol_data
 
-def export_bundle(job_dir, output_path=None, _significant_only=False, _clean=False):
+def export_bundle(job_dir, output_path=None, significant_only=False, clean=False):
     """Package job_dir into a data-only .rxnbundle.zip.
 
     Cube files are stored raw — ZIP_DEFLATED handles all compression

@@ -3,12 +3,11 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 from .base import PipelineStep, StepResult
+from .project_manager import init_project, _step_traj_path, _step_state_path
 from .ts_engine.trajectory_stitcher import stitch_multistep_trajectories
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-OUT_DIR = os.path.join(ROOT_DIR, 'out')
-TRAJECTORIES_DIR = os.path.join(ROOT_DIR, 'trajectories')
-PROLONGED_PATH = os.path.join(TRAJECTORIES_DIR, 'prolonged_pathway.json')
+from .constants import ROOT_DIR, OUT_DIR, CASCADE_DIR, PROLONGED_PATH
+TRAJECTORIES_DIR = CASCADE_DIR
 
 
 def invert_trajectory_direction(traj: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,8 +91,6 @@ class Step5Cascade(PipelineStep):
         Discover trajectories in strict project index order [Step 1, Step 2, ...].
         No automated topological re-sorting or fuzzy multi-directory globbing.
         """
-        from .project_manager import init_project, _step_traj_path, _step_state_path
-
         proj = init_project()
         steps = proj.get("steps", [])
 
@@ -141,25 +138,12 @@ class Step5Cascade(PipelineStep):
                     cand_mj = json.load(f)
                 if cand_mj and cand_mj.get("step_boundaries") and len(available) >= 1:
                     boundaries = cand_mj.get("step_boundaries", [])
-                    b_smiles = [b.get("reaction_smiles") for b in boundaries]
-                    a_smiles = [a.get("reaction_smiles") for a in available]
-                    if len(boundaries) == len(available) and b_smiles == a_smiles and b_smiles:
+                    b_smiles = [b.get("reaction_smiles") or b.get("step_name") for b in boundaries]
+                    a_smiles = [a.get("reaction_smiles") or a.get("step_name") for a in available]
+                    if len(boundaries) == len(available) and (b_smiles == a_smiles or not any(b_smiles)):
                         megajson = cand_mj
             except Exception:
                 pass
-
-        has_coords = bool(megajson and megajson.get("stitching_alignment_report") and "prev_symbols" in megajson["stitching_alignment_report"][0])
-        if (not megajson or not has_coords) and len(available) >= 1:
-            try:
-                megajson = stitch_multistep_trajectories([a["data"] for a in available], n_bridge_frames=8, auto_sort=False, balance_energies=True)
-                if current_state.get("solvent"):
-                    megajson["solvent"] = current_state["solvent"]
-                _preserve_cached_tracks(megajson, PROLONGED_PATH)
-                os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
-                with open(PROLONGED_PATH, "w") as f:
-                    json.dump(megajson, f, indent=2)
-            except Exception:
-                megajson = None
 
         stitching_report = megajson.get("stitching_alignment_report", []) if megajson else []
         step_boundaries = megajson.get("step_boundaries", []) if megajson else []

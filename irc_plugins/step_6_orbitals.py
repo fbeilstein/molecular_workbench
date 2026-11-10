@@ -24,13 +24,13 @@ from .orbital_cube_mesher import (
 )
 from .orbital_tracker import (
     clear_orbital_store,
+    get_existing_orbital_store,
     get_or_build_orbital_store,
     get_frame_pool_payload,
 )
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-TRAJECTORIES_DIR = os.path.join(ROOT_DIR, 'trajectories')
-PROLONGED_PATH = os.path.join(TRAJECTORIES_DIR, 'prolonged_pathway.json')
+from .constants import ROOT_DIR, CASCADE_DIR, PROLONGED_PATH
+TRAJECTORIES_DIR = CASCADE_DIR
 
 _SCF_CACHE: Dict[int, Dict[str, Any]] = {}
 
@@ -77,7 +77,7 @@ class Step6Orbitals(PipelineStep):
 
         # Check if orbital store is available to attach ESP charges and electron tracks
         try:
-            store = get_or_build_orbital_store(megajson)
+            store = get_existing_orbital_store(megajson)
             if store and "npz" in store:
                 npz = store["npz"]
                 n_f = len(megajson["frames"])
@@ -124,6 +124,11 @@ class Step6Orbitals(PipelineStep):
             clear_orbital_caches()
             return {"success": True, "message": "Orbital store and cube caches cleared."}
 
+        if action in ["calculate_orbitals", "build_orbital_store"]:
+            force = bool(user_input.get("force", False))
+            store = get_or_build_orbital_store(megajson, force_rebuild=force)
+            return {"success": True, "message": "Orbital tracking computed successfully.", "total_tracks": len(store.get("registry", {}).get("tracks", {}))}
+
         frame_idx = int(user_input.get("frame_index", user_input.get("frame_idx", 0)))
         n_frames = len(megajson.get("frames", []))
         if frame_idx < 0 or frame_idx >= n_frames:
@@ -156,7 +161,7 @@ class Step6Orbitals(PipelineStep):
             frames, tracks = [int(x) for x in user_input.get("frames", [])], user_input.get("tracks", [])
             return {"success": True, "cubes": get_cached_cubes(frames, tracks, megajson=megajson)}
 
-        if action in ["get_orbital_mesh", "get_cube"]:
+        if action in ["get_orbital_mesh", "get_cube", "get_orbital_cube"]:
             tid = user_input.get("track_id") or user_input.get("orbital", "HOMO")
             ok = str(user_input.get("orbital", tid))
             ck_raw = user_input.get("chem_key")

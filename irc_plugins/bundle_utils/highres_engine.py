@@ -1,12 +1,12 @@
 import os
 from typing import Any, Dict, List, Optional
 from irc_plugins.ts_engine import orbital_engine
+from ..constants import ROOT_DIR, CUBES_DIR
 from ..orbital_tracker import get_track_vector_and_mol
 
 _HIGHRES_GRID_CACHE: Dict[int, Any] = {}
 _HIGHRES_CUBE_CACHE: Dict[str, str] = {}
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-CUBE_DIR = os.path.join(ROOT_DIR, "out", "cubes")
+CUBE_DIR = CUBES_DIR
 os.makedirs(CUBE_DIR, exist_ok=True)
 
 

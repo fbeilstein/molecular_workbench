@@ -107,16 +107,28 @@ export const CascadeUI = {
         function setViewMode(mode) {
             currentViewMode = mode;
             if (mode === 'cascade') {
-                dom.btnModeCascade.style.cssText = 'background:#0284c7;color:#ffffff;border:none;';
-                dom.btnModeOverlap.style.cssText = 'background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;';
+                dom.btnModeCascade.style.background = '#0284c7';
+                dom.btnModeCascade.style.color = '#ffffff';
+                dom.btnModeCascade.style.border = 'none';
+
+                dom.btnModeOverlap.style.background = '#f1f5f9';
+                dom.btnModeOverlap.style.color = '#334155';
+                dom.btnModeOverlap.style.border = '1px solid #cbd5e1';
+
                 dom.overlapSubControls.style.display = 'none';
                 dom.ctrlRow.style.display = 'flex';
                 dom.energyCanvas.style.display = 'block';
                 if (currentMegajson) { activeViewer.loadTrajectory(currentMegajson); setFrame(currentFrameIndex); }
             } else {
                 if (isPlaying) { clearInterval(playbackTimer); isPlaying = false; dom.playBtn.textContent = '▶ Play'; }
-                dom.btnModeCascade.style.cssText = 'background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;';
-                dom.btnModeOverlap.style.cssText = 'background:#0284c7;color:#ffffff;border:none;';
+                dom.btnModeCascade.style.background = '#f1f5f9';
+                dom.btnModeCascade.style.color = '#334155';
+                dom.btnModeCascade.style.border = '1px solid #cbd5e1';
+
+                dom.btnModeOverlap.style.background = '#0284c7';
+                dom.btnModeOverlap.style.color = '#ffffff';
+                dom.btnModeOverlap.style.border = 'none';
+
                 dom.overlapSubControls.style.display = 'flex';
                 dom.ctrlRow.style.display = 'none';
                 dom.energyCanvas.style.display = 'none';
@@ -237,6 +249,22 @@ export const CascadeUI = {
                 dom.restitchBtn.textContent = '⚡ Re-Stitch Pathway';
             }
         };
+
+        if (dom.exportBtn) {
+            dom.exportBtn.onclick = () => {
+                if (!currentMegajson) {
+                    alert('No cascade pathway to export. Please stitch the pathway first.');
+                    return;
+                }
+                const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(currentMegajson, null, 2));
+                const a = document.createElement('a');
+                a.setAttribute('href', dataStr);
+                a.setAttribute('download', 'master_reaction_cascade.json');
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            };
+        }
 
         if (currentMegajson) {
             loadMegajson(currentMegajson);

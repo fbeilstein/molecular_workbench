@@ -152,7 +152,7 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
         return _SURFACE_CACHE[cache_key]
 
     root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-    bundle_zip = os.path.join(root_dir, "out", "bundles", "reaction_cascade_bundle.zip")
+    bundle_zip = os.path.join(root_dir, "irc_cache", "bundles", "reaction_cascade_bundle.zip")
     if os.path.exists(bundle_zip):
         try:
             with zipfile.ZipFile(bundle_zip, "r") as zf:

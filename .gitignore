@@ -11,7 +11,12 @@ venv.bak/
 
 # Project output / data
 output/
+out
 out/
+irc_cache
+irc_cache/
+trajectories
+trajectories/
 data/
 
 # IDE
