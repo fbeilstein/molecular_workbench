@@ -235,4 +235,49 @@ export class TSEditorViewer {
             });
         });
     }
+
+    getAtomDistance(f1, a1, f2, a2) {
+        const g1 = this.moleculeGroups[f1];
+        const g2 = this.moleculeGroups[f2];
+        if (!g1 || !g2) return 0.0;
+        g1.updateMatrixWorld(true);
+        g2.updateMatrixWorld(true);
+        const m1 = (g1.userData.atomMeshes || [])[a1];
+        const m2 = (g2.userData.atomMeshes || [])[a2];
+        if (!m1 || !m2) return 0.0;
+        const p1 = m1.position.clone().applyMatrix4(g1.matrixWorld);
+        const p2 = m2.position.clone().applyMatrix4(g2.matrixWorld);
+        return p1.distanceTo(p2);
+    }
+
+    setAtomDistance(f1, a1, f2, a2, targetDist) {
+        const g1 = this.moleculeGroups[f1];
+        const g2 = this.moleculeGroups[f2];
+        if (!g1 || !g2) return;
+        g1.updateMatrixWorld(true);
+        g2.updateMatrixWorld(true);
+        const m1 = (g1.userData.atomMeshes || [])[a1];
+        const m2 = (g2.userData.atomMeshes || [])[a2];
+        if (!m1 || !m2) return;
+
+        const p1 = m1.position.clone().applyMatrix4(g1.matrixWorld);
+        const p2 = m2.position.clone().applyMatrix4(g2.matrixWorld);
+        const vec = new THREE.Vector3().subVectors(p2, p1);
+        const curDist = vec.length();
+        if (curDist < 1e-4) return;
+        const u = vec.clone().normalize();
+
+        if (f1 === f2) {
+            // Atoms within the same molecule (unimolecular bond adjustment)
+            const newWorldP2 = p1.clone().add(u.multiplyScalar(targetDist));
+            const invM = new THREE.Matrix4().copy(g1.matrixWorld).invert();
+            m2.position.copy(newWorldP2.applyMatrix4(invM));
+        } else {
+            // Atoms in different molecules (intermolecular distance adjustment)
+            const shift = u.multiplyScalar(targetDist - curDist);
+            g2.position.add(shift);
+        }
+        this._updateBondsAll();
+        if (this.onTransformChange) this.onTransformChange();
+    }
 }

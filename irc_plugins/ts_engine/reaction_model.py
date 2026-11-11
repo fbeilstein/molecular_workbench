@@ -194,7 +194,50 @@ class ReactionModel:
             lines.append("  (no bond changes detected - check the mapping)")
         return lines
 
-    def reaction_info(self):
+    def compute_recommended_scan(self, positions=None):
+        """
+        Computes universal, physics-based 1D coordinate drive defaults (start, end, n_points)
+        derived from covalent radii and current geometry for active reacting bonds.
+        """
+        pairs = self.broken + self.formed
+        if not pairs:
+            return None
+        i, j = pairs[0]
+        is_forming = (i, j) in self.formed
+        d0 = float(self.d0(i, j))
+        d_cur = None
+        if positions is not None:
+            try:
+                pos_arr = np.asarray(positions)
+                if len(pos_arr) > max(i, j):
+                    d_cur = float(np.linalg.norm(pos_arr[i] - pos_arr[j]))
+            except Exception:
+                d_cur = None
+
+        if is_forming:
+            dc = d_cur if d_cur is not None else (d0 + 1.5)
+            d_start = round(min(max(dc, d0 + 1.0), d0 + 2.5), 2)
+            d_end = round(d0, 2)
+        else:
+            dc = d_cur if d_cur is not None else d0
+            d_start = round(dc if dc < 1.35 * d0 else d0, 2)
+            d_end = round(max(d_start + 0.42 * d0, 1.55 * d0), 2)
+
+        n_pts = int(max(15, min(40, round(abs(d_end - d_start) / 0.04) + 1)))
+        return {
+            "start": d_start,
+            "end": d_end,
+            "points": n_pts,
+            "d0": round(d0, 2),
+            "d_cur": round(d_cur, 2) if d_cur is not None else round(d0, 2),
+            "is_forming": is_forming,
+            "pair": [i, j],
+            "pair_local": [list(self.local(i)), list(self.local(j))],
+            "label": f"{self.label(i)} {'...' if is_forming else '--'} {self.label(j)}"
+        }
+
+    def reaction_info(self, positions=None):
+        rec_scan = self.compute_recommended_scan(positions)
         return {
             "forming": [[list(self.local(i)), list(self.local(j))] for i, j in self.formed],
             "breaking": [[list(self.local(i)), list(self.local(j))] for i, j in self.broken],
@@ -203,6 +246,7 @@ class ReactionModel:
             "summary": self.summary_lines(),
             "charge": self.charge,
             "multiplicity": self.multiplicity,
+            "recommended_scan": rec_scan,
         }
 
     def _convert_pairs(self, pairs):

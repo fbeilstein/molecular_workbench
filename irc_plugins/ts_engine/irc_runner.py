@@ -109,12 +109,18 @@ def _integrate_reaction_branch(atoms_ts, model, direction_sign, max_steps, log, 
         fmax_cur = float(np.max(np.linalg.norm(f, axis=1)))
         d_cur = float(np.linalg.norm(pos[i] - pos[j]))
         if step > 0:
-            if len(raw_descent) >= 3 and e > min(x["energy_ev"] for x in raw_descent) + 0.04:
+            if len(raw_descent) >= 6 and d_cur <= d_ideal + 0.10 and e > min(x["energy_ev"] for x in raw_descent) + 0.06:
                 break
             raw_descent.append({"positions": pos.copy().tolist(), "energy_ev": e, "fmax": fmax_cur, "d": d_cur})
 
-        reached_bond = (d_cur <= d_ideal + 0.05) if (model.formed and direction_sign > 0) else (d_cur >= d_ideal + 0.90)
-        if reached_bond or (step > 8 and fmax_cur < fmax):
+        if direction_sign < 0:
+            # Reverse branch contracting toward bound reactant intermediate
+            reached_bond = (d_cur <= d_ideal + 0.02)
+        else:
+            # Forward branch: forming adduct or dissociating products
+            reached_bond = (d_cur <= d_ideal + 0.05) if model.formed else (d_cur >= d_ideal + 1.20)
+
+        if reached_bond or (step > 10 and fmax_cur < fmax):
             break
 
         f_tan = np.sum(f_mw * t_cur)

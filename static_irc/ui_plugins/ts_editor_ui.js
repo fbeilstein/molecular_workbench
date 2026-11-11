@@ -3,9 +3,22 @@ import { TSEditorActions } from './ts_editor_actions.js';
 import { updateMolBlockPositions } from './ts_sdf_parser.js';
 import { createReactionCard, createRefinementCard, createOptimizationCard } from './ts_editor_cards.js';
 
-function el(tag, style = {}, text = null) {
+const HTML_ATTRS = new Set([
+    'type', 'value', 'min', 'max', 'step', 'placeholder', 'disabled',
+    'checked', 'id', 'title', 'name', 'rows', 'cols', 'href', 'src', 'alt'
+]);
+
+function el(tag, props = {}, text = null) {
     const e = document.createElement(tag);
-    Object.assign(e.style, style);
+    for (const [k, v] of Object.entries(props)) {
+        if (HTML_ATTRS.has(k)) {
+            e[k] = v;
+        } else if (k === 'style' && typeof v === 'string') {
+            e.style.cssText = v;
+        } else {
+            e.style[k] = v;
+        }
+    }
     if (text !== null) e.textContent = text;
     return e;
 }
@@ -114,6 +127,7 @@ export function renderTSEditor(arg1, arg2) {
         state.overridden = true;
         activeViewer.updateDynamicBonds(state.rxnBonds);
         updateLiveHUD();
+        if (rxnCard) rxnCard.refreshBondList();
     });
 
     const rxnCard = createReactionCard({
@@ -123,7 +137,8 @@ export function renderTSEditor(arg1, arg2) {
             state.overridden = true;
             activeViewer.updateDynamicBonds(state.rxnBonds);
         },
-        el, styledButton, card
+        el, styledButton, card,
+        viewer: activeViewer
     });
     controlsContainer.appendChild(rxnCard.card);
 
@@ -155,6 +170,28 @@ export function renderTSEditor(arg1, arg2) {
     optCard = createOptimizationCard({
         strats,
         currentSolvent: state.solvent || ui.solvent || 'water',
+        reactionInfo: ui.reaction_info,
+        onComputeDefaults: async () => {
+            const currentData = TSEditorUI.extractData();
+            try {
+                const res = await fetch('/api/step/step_3_ts/custom', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: 'compute_scan_defaults',
+                        docked_molblocks: currentData,
+                        reaction_override: state.overridden ? state.rxnBonds : null
+                    })
+                });
+                const data = await res.json();
+                if (data.success && data.recommended_scan) {
+                    return data.recommended_scan;
+                }
+            } catch (e) {
+                console.error("Failed to compute scan defaults:", e);
+            }
+            return null;
+        },
         onSolventChange: async (s) => {
             state.solvent = s;
             const g = document.getElementById('global-solvent-select');

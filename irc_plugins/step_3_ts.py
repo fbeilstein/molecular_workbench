@@ -1,5 +1,6 @@
 import os
 from typing import Any, Dict
+import numpy as np
 from .base import PipelineStep, StepResult
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -121,9 +122,25 @@ class Step3TS(PipelineStep):
         p_blocks = [self._generate_3d_molblock(s) for s in p_smiles_list]
         r_clean_blocks = self._side_by_side([self._generate_3d_molblock(s) for s in r_smiles_list])
 
+        model = None
+        try:
+            model = self._model(current_state)
+        except Exception:
+            pass
+
         existing_docked = current_state.get("step_3_ts", {}).get("docked_reactants", [])
         if existing_docked:
-            r_blocks, n_var, info = existing_docked, 1, {"forming": [], "breaking": [], "order_changed": [], "summary": []}
+            r_blocks, n_var = existing_docked, 1
+            if model:
+                try:
+                    from .ts_builder import molblocks_to_positions
+                    _, pos_list = molblocks_to_positions(existing_docked)
+                    pos = np.vstack(pos_list)
+                    info = model.reaction_info(positions=pos)
+                except Exception:
+                    info = model.reaction_info()
+            else:
+                info = {"forming": [], "breaking": [], "order_changed": [], "summary": []}
             msg = "Using existing docked reactants."
         else:
             mapping = mapping_data.get("final_mapping") or Step2Mapping().get_ui_schema(current_state).get("initial_mapping", {})
@@ -131,15 +148,23 @@ class Step3TS(PipelineStep):
             try:
                 if key not in self._dock_cache:
                     from .ts_builder import auto_dock_molblocks
-                    model = self._model(current_state)
+                    if not model:
+                        model = self._model(current_state)
                     blocks, n_var, _ = auto_dock_molblocks(model, variant=0)
                     self._dock_cache.clear()
-                    self._dock_cache[key] = (blocks, n_var, model.reaction_info())
+                    try:
+                        from .ts_builder import molblocks_to_positions
+                        _, pos_list = molblocks_to_positions(blocks)
+                        pos = np.vstack(pos_list)
+                        r_info = model.reaction_info(positions=pos)
+                    except Exception:
+                        r_info = model.reaction_info()
+                    self._dock_cache[key] = (blocks, n_var, r_info)
                 r_blocks, n_var, info = self._dock_cache[key]
                 msg = "Reactants docked from atom mapping. Choose an optimization strategy."
             except Exception as e:
                 r_blocks, n_var = r_clean_blocks, 1
-                info = {"forming": [], "breaking": [], "order_changed": [], "summary": [f"Auto-dock note: {e}"]}
+                info = model.reaction_info() if model else {"forming": [], "breaking": [], "order_changed": [], "summary": [f"Auto-dock note: {e}"]}
                 msg = "Position fragments in 3D and select an optimization strategy."
 
         return {
@@ -273,6 +298,26 @@ class Step3TS(PipelineStep):
         except Exception as e:
             return {"error": f"Seeding failed: {e}"}
 
+    def _handle_compute_scan_defaults(self, global_state, user_input):
+        try:
+            model = self._model(global_state)
+            override = user_input.get("reaction_override")
+            if override:
+                model.apply_override(override)
+            molblocks = user_input.get("docked_molblocks", [])
+            pos = None
+            if molblocks:
+                try:
+                    from .ts_builder import molblocks_to_positions
+                    _, pos_list = molblocks_to_positions(molblocks)
+                    pos = np.vstack(pos_list)
+                except Exception:
+                    pos = None
+            rec = model.compute_recommended_scan(positions=pos)
+            return {"success": True, "recommended_scan": rec}
+        except Exception as e:
+            return {"error": f"Failed to compute scan defaults: {e}"}
+
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
         global_state = global_state or {}
         action_type = user_input.get("action_type")
@@ -281,6 +326,7 @@ class Step3TS(PipelineStep):
             "refine_fragment": self._handle_refine_fragment,
             "reset_clean": self._handle_reset_clean,
             "seed_from_previous": self._handle_seed_from_previous,
+            "compute_scan_defaults": self._handle_compute_scan_defaults,
             "optimize_ts": lambda gs, ui: self._optimize_ts(ui, gs),
         }
         handler = handlers.get(action_type)
@@ -289,11 +335,19 @@ class Step3TS(PipelineStep):
         return handler(global_state, user_input)
 
     @staticmethod
-    def _run_strategy(strategy, atoms, model, log):
+    def _run_strategy(strategy, atoms, model, log, user_input=None):
+        user_input = user_input or {}
         from .ts_builder import (
             run_dimer_ts, run_drive_sella_ts, run_seeded_sella_ts, run_neb_ts,
             run_rits_ts, run_lego_ts, run_guided_manual_ts, run_genetic_swarm_ts, run_orca_dft_ts
         )
+        if strategy == "drive":
+            n_pts = int(user_input.get("n_points")) if user_input.get("n_points") else None
+            s_start = user_input.get("scan_start")
+            s_end = user_input.get("scan_end")
+            res = run_drive_sella_ts(atoms, model, log, n_points=n_pts, scan_start=s_start, scan_end=s_end)
+            return (res[0] if isinstance(res, tuple) else res) or []
+
         d = {
             "rits": run_rits_ts, "lego": run_lego_ts, "genetic_swarm": run_genetic_swarm_ts,
             "manual_valley": run_guided_manual_ts, "auto_dock": run_drive_sella_ts,
@@ -349,7 +403,7 @@ class Step3TS(PipelineStep):
                 log(line)
 
             log(f"\nOptimization Strategy: {strategy.upper()}")
-            profile = self._run_strategy(strategy, atoms, model, log)
+            profile = self._run_strategy(strategy, atoms, model, log, user_input=user_input)
 
             # Sanity verification: protect against bond tearing / unphysical distortion
             is_sane = check_geometry_sanity(atoms, model, log)

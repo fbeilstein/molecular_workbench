@@ -127,7 +127,10 @@ export class TSEditorActions {
                 strategy,
                 docked_molblocks: currentData,
                 reaction_override: this.state.overridden ? this.state.rxnBonds : null,
-                solvent: solv
+                solvent: solv,
+                scan_start: this.optCard.getScanStart ? this.optCard.getScanStart() : null,
+                scan_end: this.optCard.getScanEnd ? this.optCard.getScanEnd() : null,
+                n_points: this.optCard.getScanPoints ? this.optCard.getScanPoints() : null
             };
             const res = await fetch('/api/step/step_3_ts/custom', {
                 method: 'POST',
