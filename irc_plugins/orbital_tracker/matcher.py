@@ -251,6 +251,18 @@ def smooth_and_label_tracks(track_records: Dict[str, Dict[str, Any]], N: int) ->
             elif t_counts:
                 trk_type = t_counts.most_common(1)[0][0]
                 trk_cat = "non_bonding" if trk_type == "lone_pair" else "bonding"
+        elif rec["subspace"] == "antibond":
+            t_counts = Counter(ft for ft in smoothed_types[s_f:e_f + 1] if ft is not None)
+            total_t = sum(t_counts.values())
+            if t_counts.get("delocalized_pistar", 0) == total_t and total_t > 0:
+                trk_type, trk_cat = "delocalized_pistar", "conjugated_pi_star"
+            elif (t_counts.get("pi_star", 0) + t_counts.get("delocalized_pistar", 0)) >= 3:
+                trk_type, trk_cat = "pi_star", "antibonding"
+            elif t_counts.get("sigma_star", 0) >= 3:
+                trk_type, trk_cat = "sigma_star", "antibonding"
+            elif t_counts:
+                trk_type = t_counts.most_common(1)[0][0]
+                trk_cat = "antibonding"
 
         atoms_list = sorted(list(rec["atoms_set"]))
         registry_tracks[tid] = {
