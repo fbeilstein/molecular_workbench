@@ -192,8 +192,26 @@ export const OrbitalsUI = {
             btnCalc.addEventListener('click', async () => {
                 const orig = btnCalc.textContent;
                 btnCalc.disabled = true;
-                btnCalc.textContent = 'Calculating (PySCF)...';
-                this.state.pool?.setCalculating(true);
+                btnCalc.textContent = 'Calculating... 0%';
+                this.state.pool?.setCalculating(true, { percent: 0, completed_frames: 0, total_frames: this.state.totalFrames, message: 'Initializing parallel PySCF calculations...' });
+
+                const pollTimer = setInterval(async () => {
+                    try {
+                        const pRes = await fetch(`/api/step/${this.state.stepId}/custom`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action_type: 'get_calc_progress' })
+                        });
+                        const pData = await pRes.json();
+                        if (pData?.progress) {
+                            const p = pData.progress;
+                            const pct = Math.min(100, Math.max(0, p.percent || 0));
+                            btnCalc.textContent = `Calculating... ${pct}%`;
+                            this.state.pool?.updateProgress(p);
+                        }
+                    } catch (e) {}
+                }, 400);
+
                 try {
                     const res = await fetch(`/api/step/${this.state.stepId}/custom`, {
                         method: 'POST',
@@ -201,8 +219,9 @@ export const OrbitalsUI = {
                         body: JSON.stringify({ action_type: 'calculate_orbitals', force: true })
                     });
                     const data = await res.json();
+                    clearInterval(pollTimer);
                     if (data.success) {
-                        btnCalc.textContent = '✓ Done';
+                        btnCalc.textContent = '✓ Done (100%)';
                         this.state.frameDataCache = {};
                         this.state.pool?.setCalculating(false);
                         this.state.pool?.setNotComputed(false);
@@ -216,6 +235,7 @@ export const OrbitalsUI = {
                         this.state.pool?.setNotComputed(true);
                     }
                 } catch (e) {
+                    clearInterval(pollTimer);
                     console.error('Calculation error:', e);
                     alert('Error requesting orbital calculation: ' + e);
                     btnCalc.textContent = orig;

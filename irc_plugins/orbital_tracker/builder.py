@@ -2,7 +2,7 @@
 Orbital Store Builder — Parallel Frame SCF, Sequential Cross-Frame Assignment & Serialization.
 """
 
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -21,6 +21,21 @@ from .common import (
     TRAJECTORIES_DIR,
 )
 from .matcher import match_subspace_orbitals, smooth_and_label_tracks
+
+
+_CALC_PROGRESS: Dict[str, Any] = {
+    "is_calculating": False,
+    "completed_frames": 0,
+    "total_frames": 0,
+    "stage": "idle",
+    "percent": 0,
+    "message": "",
+}
+
+
+def get_calc_progress() -> Dict[str, Any]:
+    """Return a snapshot of current orbital calculation progress."""
+    return dict(_CALC_PROGRESS)
 
 
 def _worker_compute_frame(
@@ -47,12 +62,30 @@ def _worker_compute_frame(
     return (t, mull, ibos_dict, star_dict, vecs_dict, pops, f_meta, c_meta, f_vecs)
 
 
-def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any]:
+def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any]:
     """Run parallel frame SCF and sequential tracking to build persistent store."""
+    global _CALC_PROGRESS
     frames = megajson.get("frames", [])
     N = len(frames)
     if N == 0:
+        _CALC_PROGRESS = {
+            "is_calculating": False,
+            "completed_frames": 0,
+            "total_frames": 0,
+            "stage": "idle",
+            "percent": 100,
+            "message": "Empty pathway frames.",
+        }
         return {"pathway_hash": p_hash, "total_frames": 0, "registry": {"tracks": {}}}
+
+    _CALC_PROGRESS = {
+        "is_calculating": True,
+        "completed_frames": 0,
+        "total_frames": N,
+        "stage": "scf_ibo",
+        "percent": 0,
+        "message": f"Starting parallel SCF & IBO evaluation for {N} frames...",
+    }
 
     solvent = get_system_solvent(megajson)
 
@@ -69,10 +102,28 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
         tasks.append((t, symbols, coords, atom_labels, charge, solvent))
 
     workers = min(8, max(1, os.cpu_count() or 4))
+    precomputed_list = []
     with ProcessPoolExecutor(max_workers=workers) as ex:
-        precomputed_list = list(ex.map(_worker_compute_frame, tasks))
+        futures = {ex.submit(_worker_compute_frame, task): task[0] for task in tasks}
+        completed = 0
+        for fut in as_completed(futures):
+            res = fut.result()
+            precomputed_list.append(res)
+            completed += 1
+            pct = int((completed / N) * 85)
+            _CALC_PROGRESS.update({
+                "completed_frames": completed,
+                "percent": pct,
+                "message": f"Evaluated PySCF SCF + IBO for frame {res[0] + 1}/{N} ({completed}/{N} done, {pct}%)",
+            })
 
     precomputed_list.sort(key=lambda x: x[0])
+
+    _CALC_PROGRESS.update({
+        "stage": "tracking",
+        "percent": 85,
+        "message": f"Propagating orbital tracks across {N} frames...",
+    })
 
     track_records: Dict[str, Dict[str, Any]] = {}
     frame_outputs: List[Dict[str, Any]] = []
@@ -90,6 +141,11 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
 
     # Step 2: Sequential cross-frame propagation across subspaces
     for t in range(N):
+        pct = 85 + int(((t + 1) / N) * 12)
+        _CALC_PROGRESS.update({
+            "percent": pct,
+            "message": f"Tracking orbital manifolds at frame {t + 1}/{N} ({pct}%)",
+        })
         fr = frames[t]
         symbols = fr.get("symbols") or megajson.get("symbols", [])
         coords = fr.get("coords", fr.get("positions", []))
@@ -277,6 +333,11 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
         prev_ao_atom = ao_atom
 
     # Step 3: Track smoothing and disambiguated role labeling
+    _CALC_PROGRESS.update({
+        "stage": "saving",
+        "percent": 98,
+        "message": "Saving orbital store and registry...",
+    })
     registry_tracks = smooth_and_label_tracks(track_records, N)
 
     # Step 4: Serialization to .npz and registry.json
@@ -302,10 +363,28 @@ def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any
 
     megajson["global_electron_tracks"] = registry_tracks
 
+    _CALC_PROGRESS.update({
+        "is_calculating": False,
+        "completed_frames": N,
+        "total_frames": N,
+        "stage": "done",
+        "percent": 100,
+        "message": f"Completed orbital calculation for all {N} frames.",
+    })
+
     return {
         "pathway_hash": p_hash,
         "total_frames": N,
         "registry": registry_json,
         "npz": npz_data,
     }
+
+
+def _build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any]:
+    global _CALC_PROGRESS
+    try:
+        return _do_build_orbital_store(megajson, p_hash)
+    finally:
+        if _CALC_PROGRESS.get("stage") != "done":
+            _CALC_PROGRESS["is_calculating"] = False
 

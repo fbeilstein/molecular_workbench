@@ -152,26 +152,8 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
         return _SURFACE_CACHE[cache_key]
 
     root_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-    bundle_zip = os.path.join(root_dir, "irc_cache", "bundles", "reaction_cascade_bundle.zip")
-    if os.path.exists(bundle_zip):
-        try:
-            with zipfile.ZipFile(bundle_zip, "r") as zf:
-                zip_iso = 0.035
-                if "bundle.json" in zf.namelist():
-                    try:
-                        zip_iso = float(json.loads(zf.read("bundle.json").decode("utf-8")).get("orbital_isovalue") or 0.035)
-                    except Exception:
-                        pass
-                if abs(iso_val - zip_iso) <= 0.003:
-                    p_fn, n_fn = f"orbitals/{frame_idx}_{ok}_pos.json", f"orbitals/{frame_idx}_{ok}_neg.json"
-                    pos = json.loads(zf.read(p_fn).decode("utf-8")) if p_fn in zf.namelist() else None
-                    neg = json.loads(zf.read(n_fn).decode("utf-8")) if n_fn in zf.namelist() else None
-                    if pos or neg:
-                        _SURFACE_CACHE[cache_key] = (pos, neg)
-                        return pos, neg
-        except Exception:
-            pass
 
+    # 1. Prioritize live volumetric cubes from highres cache, memory cache, or disk
     from .highres_engine import get_cached_highres_cube
     cube_text = get_cached_highres_cube(frame_idx, ok, megajson)
     if not cube_text:
@@ -182,16 +164,13 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
             pass
 
     if not cube_text:
-        try:
-            from ..step_6_orbitals import Step6Orbitals
-            res = Step6Orbitals().custom_action({"action_type": "get_orbital_mesh", "frame_index": frame_idx, "track_id": ok, "orbital": ok, "isovalue": iso_val}, global_state or {"step_6_orbitals": {"megajson": megajson}})
-            if isinstance(res, dict):
-                if res.get("cube"): cube_text = res["cube"]
-                elif res.get("pos") or res.get("neg"):
-                    _SURFACE_CACHE[cache_key] = (res.get("pos"), res.get("neg"))
-                    return res.get("pos"), res.get("neg")
-        except Exception:
-            pass
+        disk_cube = os.path.join(root_dir, "irc_cache", "cubes", f"{frame_idx}_{ok}.cube")
+        if os.path.exists(disk_cube):
+            try:
+                with open(disk_cube, "r", encoding="utf-8") as cf:
+                    cube_text = cf.read()
+            except Exception:
+                pass
 
     if cube_text:
         try:
@@ -202,6 +181,58 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
             return pos, neg
         except Exception:
             pass
+
+    # 2. Check bundle zip only if it strictly matches the current reaction and frame count
+    bundle_zip = os.path.join(root_dir, "irc_cache", "bundles", "reaction_cascade_bundle.zip")
+    if os.path.exists(bundle_zip):
+        try:
+            with zipfile.ZipFile(bundle_zip, "r") as zf:
+                b_meta = None
+                if "bundle.json" in zf.namelist():
+                    try:
+                        b_meta = json.loads(zf.read("bundle.json").decode("utf-8"))
+                    except Exception:
+                        b_meta = None
+
+                if b_meta:
+                    zip_iso = float(b_meta.get("orbital_isovalue") or 0.035)
+                    zip_rxn = b_meta.get("reaction_smiles")
+                    cur_rxn = megajson.get("reaction_smiles") or (global_state and global_state.get("step_1_input", {}).get("raw_smiles"))
+                    zip_frames = b_meta.get("total_frames") or len(b_meta.get("frames", []))
+                    cur_frames = len(megajson.get("frames", []))
+
+                    # Strict match validation: reaction smiles and frame count must align
+                    if cur_rxn and zip_rxn == cur_rxn and (not zip_frames or not cur_frames or zip_frames == cur_frames):
+                        if abs(iso_val - zip_iso) <= 0.003:
+                            p_fn, n_fn = f"orbitals/{frame_idx}_{ok}_pos.json", f"orbitals/{frame_idx}_{ok}_neg.json"
+                            pos = json.loads(zf.read(p_fn).decode("utf-8")) if p_fn in zf.namelist() else None
+                            neg = json.loads(zf.read(n_fn).decode("utf-8")) if n_fn in zf.namelist() else None
+                            if pos or neg:
+                                _SURFACE_CACHE[cache_key] = (pos, neg)
+                                return pos, neg
+        except Exception:
+            pass
+
+    # 3. Dynamic evaluation via Step6Orbitals if cube has not yet been computed
+    try:
+        from ..step_6_orbitals import Step6Orbitals
+        res = Step6Orbitals().custom_action(
+            {"action_type": "get_orbital_mesh", "frame_index": frame_idx, "track_id": ok, "orbital": ok, "isovalue": iso_val},
+            global_state or {"step_6_orbitals": {"megajson": megajson}}
+        )
+        if isinstance(res, dict):
+            if res.get("cube"):
+                cube_text = res["cube"]
+                vol, origin, step = CubeConverter.read_cube(cube_text)
+                pos = CubeConverter.extract_mesh(vol, origin, step, iso_val)
+                neg = CubeConverter.extract_mesh(vol, origin, step, -iso_val)
+                _SURFACE_CACHE[cache_key] = (pos, neg)
+                return pos, neg
+            elif res.get("pos") or res.get("neg"):
+                _SURFACE_CACHE[cache_key] = (res.get("pos"), res.get("neg"))
+                return res.get("pos"), res.get("neg")
+    except Exception:
+        pass
 
     return None, None
 

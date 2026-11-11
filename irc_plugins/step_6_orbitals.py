@@ -24,6 +24,7 @@ from .orbital_cube_mesher import (
 )
 from .orbital_tracker import (
     clear_orbital_store,
+    get_calc_progress,
     get_existing_orbital_store,
     get_or_build_orbital_store,
     get_frame_pool_payload,
@@ -119,6 +120,9 @@ class Step6Orbitals(PipelineStep):
             return {"error": "Pathway data is missing. Please complete Step 5."}
 
         action = user_input.get("action_type") or user_input.get("action")
+        if action in ["get_calc_progress", "get_progress"]:
+            return {"success": True, "progress": get_calc_progress()}
+
         if action in ["clear_cache", "purge_cache"]:
             clear_orbital_store()
             clear_orbital_caches()

@@ -147,7 +147,7 @@ export class Bundle3DViewer extends MoleculeViewer3D {
             }
         }
 
-        const mesh = this.meshCache[isoKey] || this.meshCache[mKey];
+        const mesh = this.meshCache[isoKey] || (isDefaultIso ? this.meshCache[mKey] : null);
         if (mesh) {
             const pV = mesh.pos?.vertices || mesh.pos?.vertexArr;
             const pF = mesh.pos?.faces || mesh.pos?.faceArr;
@@ -191,14 +191,25 @@ export class Bundle3DViewer extends MoleculeViewer3D {
                 const orbKey = orb.orbital_key || orb.key || orb;
                 if (orbKey === 'track_esp_charge') continue;
                 const cacheKey = `${frameIdx}_${orbKey}`;
+                const isDefaultIso = Math.abs(isovalue - 0.035) < 0.003;
                 const isoKey = `${cacheKey}_${Math.round(isovalue * 1000)}`;
-                if (!this.cubeCache[cacheKey] && !this.meshCache[isoKey] && !this.meshCache[cacheKey]) {
+                const hasData = this.cubeCache[cacheKey] || this.meshCache[isoKey] || (isDefaultIso && this.meshCache[cacheKey]);
+                if (!hasData) {
                     missing.push(fetchCubeFn(frameIdx, orbKey, orb.chem_key || null, isovalue).then(res => {
                         if (res?.success) {
                             if (res.cube) this.cubeCache[cacheKey] = res.cube;
-                            if (res.pos || res.neg) this.meshCache[cacheKey] = this.meshCache[isoKey] = { pos: res.pos, neg: res.neg };
-                        } else { this.meshCache[isoKey] = this.meshCache[cacheKey] = null; }
-                    }).catch(() => { this.meshCache[isoKey] = this.meshCache[cacheKey] = null; }));
+                            if (res.pos || res.neg) {
+                                this.meshCache[isoKey] = { pos: res.pos, neg: res.neg };
+                                if (isDefaultIso) this.meshCache[cacheKey] = this.meshCache[isoKey];
+                            }
+                        } else {
+                            this.meshCache[isoKey] = null;
+                            if (isDefaultIso) this.meshCache[cacheKey] = null;
+                        }
+                    }).catch(() => {
+                        this.meshCache[isoKey] = null;
+                        if (isDefaultIso) this.meshCache[cacheKey] = null;
+                    }));
                 }
             }
         }

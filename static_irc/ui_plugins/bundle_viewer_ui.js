@@ -232,15 +232,17 @@ export const BundleViewerUI = {
         for (const orb of moTracks) {
             const ok = (orb.orbital_key === 'track_esp_charge' || orb.track_id === 'trk_esp') ? 'track_esp_charge' : (orb.track_id || orb.orbital_key || orb.key || orb);
             const ck = orb.chem_key || ok;
+            const isDefaultIso = Math.abs(this.state.isovalue - 0.035) < 0.003;
             const isoKey = `${f}_${ok}_${Math.round(this.state.isovalue * 1000)}`;
-            const hasData = this.state.viewer3D.cubeCache[`${f}_${ok}`] || this.state.viewer3D.meshCache[isoKey] || (Math.abs(this.state.isovalue - 0.035) < 0.003 && this.state.viewer3D.meshCache[`${f}_${ok}`]);
+            const hasData = this.state.viewer3D.cubeCache[`${f}_${ok}`] || this.state.viewer3D.meshCache[isoKey] || (isDefaultIso && this.state.viewer3D.meshCache[`${f}_${ok}`]);
 
             if (!hasData) {
                 fetchCube(this.state, f, ok, ck, this.state.isovalue).then(res => {
                     if (res?.success) {
                         if (res.cube) this.state.viewer3D.cubeCache[`${f}_${ok}`] = res.cube;
                         if (res.pos || res.neg) {
-                            this.state.viewer3D.meshCache[`${f}_${ok}`] = this.state.viewer3D.meshCache[isoKey] = { pos: res.pos, neg: res.neg };
+                            this.state.viewer3D.meshCache[isoKey] = { pos: res.pos, neg: res.neg };
+                            if (isDefaultIso) this.state.viewer3D.meshCache[`${f}_${ok}`] = this.state.viewer3D.meshCache[isoKey];
                         }
                         if (this.state.currentFrame === f) doRender();
                     }

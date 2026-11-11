@@ -194,12 +194,18 @@ class Step7Bundle(PipelineStep):
             frames, tracks, iso = [int(x) for x in user_input.get("frames", [])], user_input.get("tracks", []), float(user_input.get("isovalue", 0.035))
             megajson["orbital_isovalue"] = megajson["isovalue"] = iso
             meshes = {}
+            iso_sfx = round(iso * 1000)
+            is_default = abs(iso - 0.035) < 0.003
             for fi in frames:
                 for trk in tracks:
                     ok = trk.get("orbital_key") if isinstance(trk, dict) else str(trk)
                     if ok != "track_esp_charge":
                         p, n = get_or_extract_surface_mesh(fi, ok, iso, megajson, global_state)
-                        if p or n: meshes[f"{fi}_{ok}"] = meshes[f"{fi}_{ok}_{round(iso * 1000)}"] = {"pos": p, "neg": n}
+                        if p or n:
+                            m_obj = {"pos": p, "neg": n}
+                            meshes[f"{fi}_{ok}_{iso_sfx}"] = m_obj
+                            if is_default:
+                                meshes[f"{fi}_{ok}"] = m_obj
             if meshes: return {"success": True, "meshes": meshes, "is_mesh": True}
             res = Step6Orbitals().custom_action(user_input, global_state)
             if isinstance(res, dict) and res.get("success"):

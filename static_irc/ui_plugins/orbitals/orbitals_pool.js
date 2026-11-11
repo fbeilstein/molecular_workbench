@@ -22,9 +22,40 @@ export class OrbitalsPool {
         this.render();
     }
 
-    setCalculating(isCalc) {
+    setCalculating(isCalc, progress = null) {
         this.isCalculating = isCalc;
+        this.calcProgress = progress || (isCalc ? { percent: 0, completed_frames: 0, total_frames: 0, message: 'Initializing parallel PySCF SCF + IBO calculations...' } : null);
         this.render();
+    }
+
+    updateProgress(progress) {
+        if (!progress) return;
+        this.calcProgress = progress;
+        if (!this.isCalculating) {
+            this.isCalculating = true;
+            this.render();
+            return;
+        }
+        const bar = this.containerEl.querySelector('#pool-calc-bar');
+        const pctEl = this.containerEl.querySelector('#pool-calc-pct');
+        const stageEl = this.containerEl.querySelector('#pool-calc-stage');
+        const msgEl = this.containerEl.querySelector('#pool-calc-msg');
+        const pct = Math.min(100, Math.max(0, progress.percent || 0));
+
+        if (bar) bar.style.width = `${pct}%`;
+        if (pctEl) pctEl.textContent = `${pct}%`;
+        if (stageEl) {
+            if (progress.completed_frames && progress.total_frames) {
+                stageEl.textContent = `Frame ${progress.completed_frames} / ${progress.total_frames}`;
+            } else if (progress.stage === 'tracking') {
+                stageEl.textContent = 'Propagating Tracks';
+            } else if (progress.stage === 'saving') {
+                stageEl.textContent = 'Finalizing';
+            } else {
+                stageEl.textContent = 'Computing';
+            }
+        }
+        if (msgEl && progress.message) msgEl.textContent = progress.message;
     }
 
     setNotComputed(notComputed) {
@@ -157,10 +188,20 @@ export class OrbitalsPool {
         });
 
         if (this.isCalculating) {
+            const p = this.calcProgress || { percent: 0, completed_frames: 0, total_frames: 0, message: 'Starting parallel PySCF calculations...' };
+            const pct = Math.min(100, Math.max(0, p.percent || 0));
+            const frameTxt = (p.completed_frames && p.total_frames) ? `Frame ${p.completed_frames} / ${p.total_frames}` : (p.stage === 'tracking' ? 'Propagating Tracks' : 'Initializing');
             this.containerEl.innerHTML = `<div class="empty-state" style="padding: 2rem 1rem; text-align: center; color: #0284c7; font-size: 0.85rem;">
                 <div style="font-size: 1.6rem; margin-bottom: 0.5rem; animation: pulse 1.5s infinite;">⚡</div>
-                <strong>Calculating Solvated Orbitals (PySCF ddCOSMO)...</strong>
-                <div style="font-size: 0.72rem; color: #64748b; margin-top: 0.35rem;">Computing localized IBOs and tracking across frames. Please wait...</div>
+                <strong style="color: #0369a1; font-size: 0.9rem;">Calculating Solvated Orbitals (PySCF ddCOSMO)...</strong>
+                <div style="margin: 0.9rem 1.2rem 0.4rem 1.2rem; background: #e2e8f0; border-radius: 9999px; height: 10px; overflow: hidden; position: relative;">
+                    <div id="pool-calc-bar" style="background: linear-gradient(90deg, #0284c7, #38bdf8); height: 100%; width: ${pct}%; transition: width 0.3s ease;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.74rem; font-weight: 600; color: #0369a1; padding: 0 1.3rem;">
+                    <span id="pool-calc-stage">${frameTxt}</span>
+                    <span id="pool-calc-pct">${pct}%</span>
+                </div>
+                <div id="pool-calc-msg" style="font-size: 0.72rem; color: #64748b; margin-top: 0.5rem; line-height: 1.4; padding: 0 0.5rem;">${p.message || 'Computing localized IBOs and tracking across frames. Please wait...'}</div>
             </div>`;
             return;
         }
