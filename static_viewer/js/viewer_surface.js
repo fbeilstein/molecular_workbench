@@ -138,6 +138,84 @@ function renderActiveOrbitals(glViewer, bundle, activeOrbitals, frameIdx, isoval
   }
 }
 
+// Patch 3Dmol once to support ambient lighting on ESP semi-transparent surfaces
+function ensureEspLightingSupport(glViewer) {
+  if (window.$3Dmol && window.$3Dmol.GLShape && !window.$3Dmol.GLShape._espPatchApplied) {
+    window.$3Dmol.GLShape._espPatchApplied = true;
+    const origGlobj = window.$3Dmol.GLShape.prototype.globj;
+    window.$3Dmol.GLShape.prototype.globj = function(e) {
+      const ret = origGlobj.call(this, e);
+      if (this.stylespec && this.stylespec.isEsp && this.shapeObj) {
+        const mesh = this.shapeObj.children && this.shapeObj.children[0];
+        if (mesh && mesh.material) {
+          mesh.material.isEsp = true;
+        }
+      }
+      return ret;
+    };
+  }
+
+  if (glViewer && glViewer.renderer && !glViewer.renderer._espPatchApplied) {
+    glViewer.renderer._espPatchApplied = true;
+    const origInit = glViewer.renderer.initMaterial;
+    glViewer.renderer.initMaterial = function(mat, t, i, r) {
+      origInit.call(this, mat, t, i, r);
+      if (mat.isEsp && mat.vertexShader) {
+        mat.vertexShader = mat.vertexShader
+          .replace(
+            'vec3 directionalLightWeighting = vec3( max( dotProduct, 0.0 ) );',
+            'vec3 directionalLightWeighting = vec3( 0.65 + 0.35 * max( dotProduct, 0.0 ) );'
+          )
+          .replace(
+            'vec3 directionalLightWeightingBack = vec3( max( -dotProduct, 0.0 ) );',
+            'vec3 directionalLightWeightingBack = vec3( 0.65 + 0.35 * max( -dotProduct, 0.0 ) );'
+          );
+        const n = { wireframe: mat.wireframe, fragdepth: mat.imposter, volumetric: mat.volumetric, shaded: mat.shaded };
+        mat.program = this.buildProgram(mat.fragmentShader, mat.vertexShader, mat.uniforms, n);
+      }
+    };
+  }
+}
+
+function getGlobalEspRange(bundle) {
+  if (!bundle) return { min: -30, max: 30, isCharged: false };
+  if (bundle._globalEspRange) return bundle._globalEspRange;
+
+  let gMin = Infinity;
+  let gMax = -Infinity;
+  let hasValues = false;
+
+  if (bundle.espMeshes) {
+    const keys = Object.keys(bundle.espMeshes);
+    for (const key of keys) {
+      const mesh = bundle.espMeshes[key];
+      if (!mesh) continue;
+      if (mesh.esp_min !== undefined && mesh.esp_max !== undefined) {
+        gMin = Math.min(gMin, mesh.esp_min);
+        gMax = Math.max(gMax, mesh.esp_max);
+        hasValues = true;
+      } else if (mesh.esp_values && mesh.esp_values.length > 0) {
+        for (let i = 0; i < mesh.esp_values.length; i++) {
+          const v = mesh.esp_values[i];
+          if (v < gMin) gMin = v;
+          if (v > gMax) gMax = v;
+        }
+        hasValues = true;
+      }
+    }
+  }
+
+  if (!hasValues || !isFinite(gMin) || !isFinite(gMax)) {
+    gMin = -30.0;
+    gMax = 30.0;
+  }
+
+  const isCharged = (gMax < -10) || (gMin > 10);
+  const result = { min: gMin, max: gMax, isCharged };
+  bundle._globalEspRange = result;
+  return result;
+}
+
 function renderEspLayer(glViewer, bundle, frame, symbols, coords, natoms, frameIdx) {
   let espMesh = bundle.espMeshes ? (
     bundle.espMeshes[frameIdx] ||
@@ -162,18 +240,131 @@ function renderEspLayer(glViewer, bundle, frame, symbols, coords, natoms, frameI
   const eN = espMesh?.normals || espMesh?.normalArr;
 
   if (eV && eF) {
+    ensureEspLightingSupport(glViewer);
+
+    if (!espMesh._orientedMesh) {
+      // 1. Calculate centroid
+      let cx = 0, cy = 0, cz = 0;
+      const vLen = eV.length;
+      for (let i = 0; i < vLen; i++) {
+        cx += eV[i].x; cy += eV[i].y; cz += eV[i].z;
+      }
+      cx /= vLen; cy /= vLen; cz /= vLen;
+
+      // 2. Check face winding: if inward (CW from outside), reverse so CCW outward
+      let faceDotSum = 0;
+      const fLen = eF.length;
+      const sampleStepF = Math.max(3, Math.floor(fLen / 300) * 3);
+      for (let i = 0; i < fLen; i += sampleStepF) {
+        const v0 = eV[eF[i]], v1 = eV[eF[i+1]], v2 = eV[eF[i+2]];
+        if (!v0 || !v1 || !v2) continue;
+        const ax = v0.x - v1.x, ay = v0.y - v1.y, az = v0.z - v1.z;
+        const hx = v2.x - v1.x, hy = v2.y - v1.y, hz = v2.z - v1.z;
+        const nx = hy * az - hz * ay, ny = hz * ax - hx * az, nz = hx * ay - hy * ax;
+        const mx = (v0.x + v1.x + v2.x) / 3 - cx;
+        const my = (v0.y + v1.y + v2.y) / 3 - cy;
+        const mz = (v0.z + v1.z + v2.z) / 3 - cz;
+        faceDotSum += nx * mx + ny * my + nz * mz;
+      }
+
+      let finalFaces = eF;
+      if (faceDotSum < 0) {
+        finalFaces = new (eF.constructor)(fLen);
+        for (let i = 0; i < fLen; i += 3) {
+          finalFaces[i] = eF[i];
+          finalFaces[i+1] = eF[i+2];
+          finalFaces[i+2] = eF[i+1];
+        }
+      }
+
+      // 3. Check vertex normals: if inward, negate to point outward
+      let finalNormals = eN;
+      if (eN && eN.length === vLen) {
+        let normDotSum = 0;
+        const sampleStepN = Math.max(1, Math.floor(vLen / 100));
+        for (let i = 0; i < vLen; i += sampleStepN) {
+          normDotSum += (eV[i].x - cx) * eN[i].x + (eV[i].y - cy) * eN[i].y + (eV[i].z - cz) * eN[i].z;
+        }
+        if (normDotSum < 0) {
+          finalNormals = eN.map(n => ({ x: -n.x, y: -n.y, z: -n.z }));
+        }
+      }
+
+      espMesh._orientedMesh = { faces: finalFaces, normals: finalNormals };
+    }
+
+    const finalFaces = espMesh._orientedMesh.faces;
+    const finalNormals = espMesh._orientedMesh.normals;
+
+    // 4. Adaptive colormapping
     let colorParam = 0x10b981;
     if (espMesh.esp_values && espMesh.esp_values.length === eV.length) {
-      const absMax = Math.max(Math.abs(espMesh.esp_min || -30), Math.abs(espMesh.esp_max || 30), 20);
+      let minVal, maxVal, isCharged;
+      if (!bundle.isSingleMolecule) {
+        const gRange = getGlobalEspRange(bundle);
+        minVal = gRange.min;
+        maxVal = gRange.max;
+        isCharged = gRange.isCharged;
+      } else {
+        minVal = espMesh.esp_min !== undefined ? espMesh.esp_min : Math.min(...espMesh.esp_values);
+        maxVal = espMesh.esp_max !== undefined ? espMesh.esp_max : Math.max(...espMesh.esp_values);
+        isCharged = (maxVal < -10) || (minVal > 10);
+      }
+      const span = Math.max(1e-5, maxVal - minVal);
+      const absMax = Math.max(Math.abs(minVal || -30), Math.abs(maxVal || 30), 20);
+
       colorParam = espMesh.esp_values.map(v => {
-        const t = Math.max(-1, Math.min(1, v / absMax));
-        return t < 0 ? { r: 1.0, g: 1.0 + t, b: 1.0 + t } : { r: 1.0 - t, g: 1.0 - t, b: 1.0 };
+        let t;
+        if (isCharged) {
+          t = -1.0 + 2.0 * ((v - minVal) / span);
+        } else {
+          t = Math.max(-1, Math.min(1, v / absMax));
+        }
+        if (t < 0) {
+          const f = 1.0 + t;
+          return {
+            r: 1.0,
+            g: Math.min(1, Math.max(0.04, 0.04 + 0.96 * f)),
+            b: Math.min(1, Math.max(0.04, 0.04 + 0.96 * f))
+          };
+        } else {
+          const f = 1.0 - t;
+          return {
+            r: Math.min(1, Math.max(0.04, 0.04 + 0.96 * f)),
+            g: Math.min(1, Math.max(0.20, 0.20 + 0.80 * f)),
+            b: 1.0
+          };
+        }
       });
     } else if (espMesh.color && Array.isArray(espMesh.color)) {
-      colorParam = espMesh.color;
+      // Enhance vividness and saturation of precomputed mesh colors
+      colorParam = espMesh.color.map(c => {
+        const r = typeof c.r === 'number' ? c.r : (c[0] !== undefined ? c[0] : 1);
+        const g = typeof c.g === 'number' ? c.g : (c[1] !== undefined ? c[1] : 1);
+        const b = typeof c.b === 'number' ? c.b : (c[2] !== undefined ? c[2] : 1);
+        const minC = Math.min(r, g, b);
+        const maxC = Math.max(r, g, b);
+        const span = maxC - minC;
+        if (span < 0.005 || maxC < 0.01) return c;
+        const s = span / maxC;
+        const sNew = Math.min(1.0, Math.pow(s, 0.60));
+        const f = sNew / s;
+        return {
+          r: Math.max(0, Math.min(1, maxC - (maxC - r) * f)),
+          g: Math.max(0, Math.min(1, maxC - (maxC - g) * f)),
+          b: Math.max(0, Math.min(1, maxC - (maxC - b) * f))
+        };
+      });
     }
-    const customObj = { vertexArr: eV, faceArr: eF, color: colorParam, opacity: 0.65 };
-    if (eN && eN.length === eV.length) customObj.normalArr = eN;
+
+    const customObj = {
+      vertexArr: eV,
+      faceArr: finalFaces,
+      color: colorParam,
+      opacity: 0.85,
+      isEsp: true
+    };
+    if (finalNormals && finalNormals.length === eV.length) customObj.normalArr = finalNormals;
     glViewer.addCustom(customObj);
   } else if (window.$3Dmol) {
     try {
@@ -244,20 +435,50 @@ function renderAtomCharges(glViewer, bundle, frame, symbols, coords, natoms, fra
 }
 
 function updateEspColorbar(container, active, bundle, frameIdx) {
-  const colorbar = container.parentElement?.querySelector('#esp-colorbar') || document.getElementById('esp-colorbar');
+  const colorbar = container?.parentElement?.querySelector('.esp-colorbar') ||
+                   container?.parentElement?.querySelector('#esp-colorbar') ||
+                   document.querySelector('#modal-esp-colorbar') ||
+                   document.getElementById('esp-colorbar');
   if (!colorbar) return;
   colorbar.style.display = active ? 'flex' : 'none';
   if (active && bundle) {
-    const espMesh = bundle.espMeshes ? (
-      bundle.espMeshes[frameIdx] ||
-      bundle.espMeshes[String(frameIdx)] ||
-      (bundle.isSingleMolecule ? (bundle.espMeshes['0'] || Object.values(bundle.espMeshes)[0]) : null)
-    ) : null;
-    const absMax = Math.max(Math.abs(espMesh?.esp_min || -30), Math.abs(espMesh?.esp_max || 30), 20);
     const minEl = colorbar.querySelector('#esp-colorbar-min') || document.getElementById('esp-colorbar-min');
+    const midEl = colorbar.querySelector('#esp-colorbar-mid') || document.getElementById('esp-colorbar-mid');
     const maxEl = colorbar.querySelector('#esp-colorbar-max') || document.getElementById('esp-colorbar-max');
-    if (minEl) minEl.textContent = `${(-absMax).toFixed(1)}`;
-    if (maxEl) maxEl.textContent = `+${absMax.toFixed(1)}`;
+
+    let minVal, maxVal, isCharged;
+    if (!bundle.isSingleMolecule) {
+      const gRange = getGlobalEspRange(bundle);
+      minVal = gRange.min;
+      maxVal = gRange.max;
+      isCharged = gRange.isCharged;
+    } else {
+      const espMesh = bundle.espMeshes ? (
+        bundle.espMeshes[frameIdx] ||
+        bundle.espMeshes[String(frameIdx)] ||
+        (bundle.espMeshes['0'] || Object.values(bundle.espMeshes)[0])
+      ) : null;
+      if (espMesh && espMesh.esp_values && espMesh.esp_values.length > 0) {
+        minVal = espMesh.esp_min !== undefined ? espMesh.esp_min : Math.min(...espMesh.esp_values);
+        maxVal = espMesh.esp_max !== undefined ? espMesh.esp_max : Math.max(...espMesh.esp_values);
+        isCharged = (maxVal < -10) || (minVal > 10);
+      } else {
+        minVal = -30.0;
+        maxVal = 30.0;
+        isCharged = false;
+      }
+    }
+
+    if (isCharged) {
+      if (minEl) minEl.textContent = `${minVal.toFixed(1)}`;
+      if (midEl) midEl.textContent = `${((minVal + maxVal) / 2).toFixed(1)}`;
+      if (maxEl) maxEl.textContent = `${maxVal > 0 ? '+' : ''}${maxVal.toFixed(1)}`;
+    } else {
+      const absMax = Math.max(Math.abs(minVal || -30), Math.abs(maxVal || 30), 20);
+      if (minEl) minEl.textContent = `${(-absMax).toFixed(1)}`;
+      if (midEl) midEl.textContent = '0';
+      if (maxEl) maxEl.textContent = `+${absMax.toFixed(1)}`;
+    }
   }
 }
 
@@ -348,5 +569,6 @@ window.findOrbitalMesh = findOrbitalMesh;
 window.renderActiveOrbitals = renderActiveOrbitals;
 window.renderEspLayer = renderEspLayer;
 window.renderAtomCharges = renderAtomCharges;
+window.getGlobalEspRange = getGlobalEspRange;
 window.updateEspColorbar = updateEspColorbar;
 window.prewarmViewerEspCache = prewarmViewerEspCache;

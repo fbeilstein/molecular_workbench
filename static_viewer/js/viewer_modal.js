@@ -47,6 +47,18 @@ class ViewerMoleculeModal {
         </div>
         <div class="modal-viewport-container">
           <div id="modal-gl-canvas" class="modal-gl-canvas"></div>
+          
+          <!-- ESP Colorbar Overlay (Hidden by default) -->
+          <div id="modal-esp-colorbar" class="esp-colorbar" style="display: none;">
+            <div class="colorbar-header">Electrostatic Potential (kcal/mol)</div>
+            <div id="modal-esp-colorbar-gradient" class="colorbar-gradient"></div>
+            <div class="colorbar-labels">
+              <span id="esp-colorbar-min">-30.0</span>
+              <span id="esp-colorbar-mid">0</span>
+              <span id="esp-colorbar-max">+30.0</span>
+            </div>
+          </div>
+
           <div class="viewport-overlay-controls">
             <button class="btn-panel-toggle" id="modal-btn-toggle-orbitals">Orbitals ▾</button>
           </div>
