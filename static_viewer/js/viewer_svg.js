@@ -36,12 +36,15 @@ class ViewerSvgMechanism {
     }
 
     // Convert black strokes/fills to crisp white #f1f5f9 directly in SVG markup.
-    // This preserves colored arrows/heteroatoms while allowing vibrant, unclashed CSS hover effects.
+    // Strictly isolate #000000 and #000 tokens so #0000ff (blue push arrows) is never corrupted.
+    // Brighten pure blue strokes (#0000ff) to vibrant sky blue (#60a5fa) for dark viewport contrast.
     text = text
-      .replace(/stroke:\s*(#000000|#000|black|rgb\(0,\s*0,\s*0\))/gi, 'stroke:#f1f5f9')
-      .replace(/fill:\s*(#000000|#000|black|rgb\(0,\s*0,\s*0\))/gi, 'fill:#f1f5f9')
-      .replace(/stroke=["'](#000000|#000|black|rgb\(0,\s*0,\s*0\))["']/gi, 'stroke="#f1f5f9"')
-      .replace(/fill=["'](#000000|#000|black|rgb\(0,\s*0,\s*0\))["']/gi, 'fill="#f1f5f9"');
+      .replace(/stroke:\s*(#(?:000000|000)(?![0-9a-fA-F])|black|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))/gi, 'stroke:#f1f5f9')
+      .replace(/fill:\s*(#(?:000000|000)(?![0-9a-fA-F])|black|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))/gi, 'fill:#f1f5f9')
+      .replace(/stroke=["'](#(?:000000|000)(?![0-9a-fA-F])|black|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))["']/gi, 'stroke="#f1f5f9"')
+      .replace(/fill=["'](#(?:000000|000)(?![0-9a-fA-F])|black|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))["']/gi, 'fill="#f1f5f9"')
+      .replace(/stroke:\s*(#(?:0000ff|00f)(?![0-9a-fA-F])|blue|rgb\(\s*0\s*,\s*0\s*,\s*255\s*\))/gi, 'stroke:#60a5fa')
+      .replace(/stroke=["'](#(?:0000ff|00f)(?![0-9a-fA-F])|blue|rgb\(\s*0\s*,\s*0\s*,\s*255\s*\))["']/gi, 'stroke="#60a5fa"');
 
     // Fix Inkscape text glyph groups: ensure g[aria-label] and g[id^="text"] have solid white fill and no stroke outline
     text = text.replace(/<g([^>]*aria-label=[^>]*)>/gi, (match) => {
