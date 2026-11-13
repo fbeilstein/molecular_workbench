@@ -27,10 +27,18 @@ def find_optimal_overlap_window(
     ts_n = step_next.get("ts_frame_index", n_n - 1)
 
     p_min_idx = max(ts_p + 1, n_p - max_window) if n_p > ts_p + 1 else max(0, n_p - max_window)
-    candidate_p = list(range(p_min_idx, n_p)) or [n_p - 1]
+    e_p_last = float(frames_p[-1].get("free_energy_kcal", frames_p[-1].get("rel_energy_kcal", 0.0)))
+    candidate_p = [
+        idx for idx in range(p_min_idx, n_p)
+        if abs(float(frames_p[idx].get("free_energy_kcal", frames_p[idx].get("rel_energy_kcal", 0.0))) - e_p_last) <= 0.10
+    ] or [n_p - 1]
 
     n_max_idx = min(ts_n, max_window - 1) if ts_n > 0 else min(n_n - 1, max_window - 1)
-    candidate_n = list(range(0, n_max_idx + 1)) or [0]
+    e_n_first = float(frames_n[0].get("free_energy_kcal", frames_n[0].get("rel_energy_kcal", 0.0)))
+    candidate_n = [
+        idx for idx in range(0, n_max_idx + 1)
+        if abs(float(frames_n[idx].get("free_energy_kcal", frames_n[idx].get("rel_energy_kcal", 0.0))) - e_n_first) <= 0.10
+    ] or [0]
 
     best_p, best_n = n_p - 1, 0
     best_rmsd, default_rmsd = 999.0, 999.0

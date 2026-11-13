@@ -39,14 +39,15 @@ This guarantees zero cliffs, zero artificial jumps, and strict derivative contin
 across the entire reaction coordinate s.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 import numpy as np
-from ase import Atoms
-from rdkit import Chem
-from rdkit.Chem import AllChem
 
-from .common import EV_TO_KCAL
-from .calculators import make_xtb
+from .common import (
+    EV_TO_KCAL,
+    clean_smiles,
+    compute_isolated_fragment_energies,
+    get_formal_charge,
+)
 
 # Standard-state association free energy penalty in solution (kcal/mol at 298.15 K, 1 M)
 # References: Whiting & Pacey (1974); Amzel & Eckstein (1979); J. Am. Chem. Soc. 1998, 120, 24, 6032-6040
@@ -68,89 +69,6 @@ def smooth_switching_function(d: float, d_contact: float, d_inf: float) -> float
         return 0.0 if d <= d_contact else 1.0
     u = float(np.clip((d - d_contact) / (d_inf - d_contact), 0.0, 1.0))
     return float(np.sin(0.5 * np.pi * u) ** 2)
-
-
-def clean_smiles(smiles: str) -> str:
-    """Normalize SMILES representation removing arbitrary stereochemical flags."""
-    if not smiles:
-        return ""
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        if mol:
-            Chem.RemoveStereochemistry(mol)
-            return Chem.MolToSmiles(mol, isomericSmiles=False)
-    except Exception:
-        pass
-    try:
-        return Chem.CanonSmiles(smiles)
-    except Exception:
-        return smiles
-
-
-def get_formal_charge(smiles: str) -> int:
-    """Extract molecular formal charge from SMILES."""
-    if not smiles:
-        return 0
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        return Chem.GetFormalCharge(mol) if mol else 0
-    except Exception:
-        return 0
-
-
-def compute_isolated_fragment_energies(
-    fragments: List[Dict[str, Any]],
-    solvent: str = "water",
-    relax: bool = True
-) -> Dict[str, float]:
-    """
-    Calculate electronic ground-state potential energy (eV) of isolated fragments in solvent.
-    Uses geometry relaxation (BFGS) with xTB.
-    """
-    from ase.optimize import BFGS
-
-    cache: Dict[str, float] = {}
-    for fr in fragments:
-        smi = fr.get("smiles", "")
-        if not smi:
-            continue
-        c_smi = clean_smiles(smi)
-        if c_smi in cache:
-            continue
-
-        syms = list(fr.get("symbols", []))
-        pos = list(fr.get("positions", []))
-        chg = fr.get("charge", get_formal_charge(smi))
-
-        # Fallback 3D embed if positions are absent or mismatched
-        if (not syms or not pos or len(syms) != len(pos)) and c_smi:
-            try:
-                mol = Chem.AddHs(Chem.MolFromSmiles(c_smi))
-                AllChem.EmbedMolecule(mol, AllChem.ETKDGv3())
-                syms = [a.GetSymbol() for a in mol.GetAtoms()]
-                pos = mol.GetConformer().GetPositions().tolist()
-                chg = Chem.GetFormalCharge(mol)
-            except Exception:
-                pass
-
-        if not syms or not pos or len(syms) != len(pos):
-            cache[c_smi] = 0.0
-            continue
-
-        try:
-            atoms = Atoms(symbols=syms, positions=np.array(pos, dtype=float))
-            atoms.calc = make_xtb(charge=chg, multiplicity=1, solvent=solvent)
-            if relax and len(syms) > 1:
-                try:
-                    opt = BFGS(atoms, logfile=None)
-                    opt.run(fmax=0.03, steps=35)
-                except Exception:
-                    pass
-            cache[c_smi] = float(atoms.get_potential_energy())
-        except Exception:
-            cache[c_smi] = 0.0
-
-    return cache
 
 
 def measure_interfragment_distance(
@@ -203,9 +121,8 @@ def compute_pathway_free_energy(
         log("  [Free Energy Engine] Trajectory already possesses ab initio Gibbs free energies (from ORCA Freq). Preserving.")
         return trajectory
 
-    ts_idx = trajectory.get("ts_frame_index", len(frames) // 2)
     n_frames = len(frames)
-    symbols = trajectory.get("symbols", getattr(model, "symbols", []))
+    ts_idx = int(np.clip(trajectory.get("ts_frame_index", len(frames) // 2), 0, n_frames - 1))
 
     # Identify reactant and product molecularity
     r_mols = getattr(model, "r_mols", [])
@@ -215,35 +132,14 @@ def compute_pathway_free_energy(
 
     log(f"  [Free Energy Engine] Molecularity: {n_r} reactant(s) -> [TS]‡ -> {n_p} product(s)")
 
-    # Build fragment descriptors for isolated energy evaluation
-    r_frags = []
-    for fi, pm in enumerate(r_mols):
-        f_idxs = [k for k in range(model.n_atoms) if model.frag_of[k] == fi]
-        f_syms = [symbols[k] for k in f_idxs]
-        f_pos0 = [frames[0]["positions"][k] for k in f_idxs]
-        smi = model.r_smiles[fi] if fi < len(model.r_smiles) else ""
-        r_frags.append({
-            "smiles": smi, "symbols": f_syms, "positions": f_pos0,
-            "charge": get_formal_charge(smi), "indices": f_idxs
-        })
-
-    p_frags = []
-    for fi, pm in enumerate(p_mols):
-        f_idxs = [k for k in range(model.n_atoms) if model.r2p.get(k, (-1, -1))[0] == fi]
-        f_syms = [symbols[k] for k in f_idxs]
-        f_pos_end = [frames[-1]["positions"][k] for k in f_idxs]
-        smi = model.p_smiles[fi] if fi < len(model.p_smiles) else ""
-        p_frags.append({
-            "smiles": smi, "symbols": f_syms, "positions": f_pos_end,
-            "charge": get_formal_charge(smi), "indices": f_idxs
-        })
-
-    # Evaluate isolated ground-state energies
-    all_frags = r_frags + p_frags
-    iso_cache = compute_isolated_fragment_energies(all_frags, solvent=solvent, relax=True)
-
-    e_iso_r = sum(iso_cache.get(clean_smiles(f["smiles"]), 0.0) for f in r_frags)
-    e_iso_p = sum(iso_cache.get(clean_smiles(f["smiles"]), 0.0) for f in p_frags)
+    r_frag_indices = [
+        [k for k in range(model.n_atoms) if model.frag_of[k] == fi]
+        for fi in range(len(r_mols))
+    ]
+    p_frag_indices = [
+        [k for k in range(model.n_atoms) if model.r2p.get(k, (-1, -1))[0] == fi]
+        for fi in range(len(p_mols))
+    ]
 
     raw_e_list = []
     for f in frames:
@@ -256,39 +152,38 @@ def compute_pathway_free_energy(
         else:
             raw_e_list.append(0.0)
     raw_e = np.array(raw_e_list)
-    e_ts_raw = raw_e[ts_idx]
     e_r_raw = raw_e[0]
-    e_p_raw = raw_e[-1]
-
-    # Baseline thermodynamic delta G for isolated endpoints
-    has_iso = (e_iso_r != 0.0 and e_iso_p != 0.0)
-    if has_iso:
-        # Standard-state Hess's Law delta G between infinitely separated products and reactants
-        delta_g_rxn_kcal = (e_iso_p - e_iso_r) * EV_TO_KCAL + (n_r - n_p) * DELTA_G_ASSOC_KCAL
-        e_ref_baseline = e_iso_r
-    else:
-        delta_g_rxn_kcal = (e_p_raw - e_r_raw) * EV_TO_KCAL + (n_r - n_p) * DELTA_G_ASSOC_KCAL
-        e_ref_baseline = e_r_raw
 
     # Contact distance parameters based on formed/broken reacting bonds
-    if model.formed:
-        i_f, j_f = model.formed[0]
+    formed = getattr(model, "formed", [])
+    broken = getattr(model, "broken", [])
+    if formed:
+        i_f, j_f = formed[0]
         d0_form = model.d0(i_f, j_f)
     else:
         i_f, j_f = 0, 1
         d0_form = 1.50
 
-    if model.broken:
-        i_b, j_b = model.broken[0]
+    if broken:
+        i_b, j_b = broken[0]
         d0_brk = model.d0(i_b, j_b)
     else:
         i_b, j_b = 0, 1
         d0_brk = 1.50
 
-    d_contact_r = d0_form + DEFAULT_D_CONTACT_MARGIN
+    pos_ts = np.array(frames[ts_idx]["positions"])
+    d_ts_r = 0.0
+    if n_r > 1 and len(r_frag_indices) >= 2:
+        d_ts_r = float(np.linalg.norm(pos_ts[i_f] - pos_ts[j_f])) if formed else measure_interfragment_distance(pos_ts, r_frag_indices[0], r_frag_indices[1])
+    d_ts_p = 0.0
+    if n_p > 1 and len(p_frag_indices) >= 2:
+        d_ts_p = float(np.linalg.norm(pos_ts[i_b] - pos_ts[j_b])) if broken else measure_interfragment_distance(pos_ts, p_frag_indices[0], p_frag_indices[1])
+
+    # Anchor contact radius to >= TS separation so λ(TS) == 0 naturally without a cliff
+    d_contact_r = max(d0_form + DEFAULT_D_CONTACT_MARGIN, d_ts_r)
     d_inf_r = max(5.40, d_contact_r + DEFAULT_D_INF_MARGIN)
 
-    d_contact_p = d0_brk + DEFAULT_D_CONTACT_MARGIN
+    d_contact_p = max(d0_brk + DEFAULT_D_CONTACT_MARGIN, d_ts_p)
     d_inf_p = max(5.40, d_contact_p + DEFAULT_D_INF_MARGIN)
 
     # Compute continuous switching progress λ_R and λ_P across frames
@@ -299,20 +194,19 @@ def compute_pathway_free_energy(
         pos = np.array(frames[k]["positions"])
         # Reactant branch (k <= ts_idx)
         if k <= ts_idx:
-            if n_r > 1 and len(r_frags) >= 2:
-                d_val = float(np.linalg.norm(pos[i_f] - pos[j_f])) if model.formed else measure_interfragment_distance(pos, r_frags[0]["indices"], r_frags[1]["indices"])
+            if n_r > 1 and len(r_frag_indices) >= 2:
+                d_val = float(np.linalg.norm(pos[i_f] - pos[j_f])) if formed else measure_interfragment_distance(pos, r_frag_indices[0], r_frag_indices[1])
                 lambda_r[k] = smooth_switching_function(d_val, d_contact_r, d_inf_r)
             else:
                 lambda_r[k] = 0.0
         # Product branch (k >= ts_idx)
         if k >= ts_idx:
-            if n_p > 1 and len(p_frags) >= 2:
-                d_val = float(np.linalg.norm(pos[i_b] - pos[j_b])) if model.broken else measure_interfragment_distance(pos, p_frags[0]["indices"], p_frags[1]["indices"])
+            if n_p > 1 and len(p_frag_indices) >= 2:
+                d_val = float(np.linalg.norm(pos[i_b] - pos[j_b])) if broken else measure_interfragment_distance(pos, p_frag_indices[0], p_frag_indices[1])
                 lambda_p[k] = smooth_switching_function(d_val, d_contact_p, d_inf_p)
             else:
                 lambda_p[k] = 0.0
 
-    # Ensure TS frame has exact zero switching (pure bound complex)
     lambda_r[ts_idx] = 0.0
     lambda_p[ts_idx] = 0.0
 

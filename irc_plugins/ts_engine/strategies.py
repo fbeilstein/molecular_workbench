@@ -30,6 +30,36 @@ def _polish_with_sella(atoms, model, log, max_steps=60):
 # ---------------------------------------------------------------------------
 # Strategy 1: Constrained Coordinate Drive across barrier peak -> Sella
 # ---------------------------------------------------------------------------
+def _shift_pair_distance(pos: np.ndarray, i: int, j: int, target: float, model) -> None:
+    """Shift atom or intact fragment along (i -> j) so distance(i, j) matches target."""
+    vec = pos[j] - pos[i]
+    norm = float(np.linalg.norm(vec))
+    if norm <= 1e-6:
+        return
+    u = vec / norm
+    delta = float(target) - norm
+    frag_of = getattr(model, "frag_of", None)
+    if frag_of is not None and len(frag_of) == len(pos) and frag_of[i] != frag_of[j]:
+        atoms_i = [k for k, fid in enumerate(frag_of) if fid == frag_of[i]]
+        atoms_j = [k for k, fid in enumerate(frag_of) if fid == frag_of[j]]
+        if len(atoms_j) <= len(atoms_i):
+            pos[atoms_j] += delta * u
+        else:
+            pos[atoms_i] -= delta * u
+        return
+
+    r_bonds = getattr(model, "r_bonds", ()) or ()
+    deg_i = sum(1 for a, b in r_bonds if a == i or b == i)
+    deg_j = sum(1 for a, b in r_bonds if a == j or b == j)
+    if deg_j <= 1 and deg_i > 1:
+        pos[j] += delta * u
+    elif deg_i <= 1 and deg_j > 1:
+        pos[i] -= delta * u
+    else:
+        pos[j] += 0.5 * delta * u
+        pos[i] -= 0.5 * delta * u
+
+
 def _build_drive_targets(model, pos, pairs, scan_start=None, scan_end=None):
     d_cur = np.array([np.linalg.norm(pos[i] - pos[j]) for i, j in pairs])
     d_start, d_end = [], []
@@ -47,23 +77,24 @@ def _build_drive_targets(model, pos, pairs, scan_start=None, scan_end=None):
         d_start.append(d_s)
         d_end.append(d_e)
 
-    if scan_start is not None:
+    # Apply 1D UI scan overrides only to the primary scanned pair (pairs[0])
+    if len(pairs) > 0 and scan_start is not None:
         try:
             val = float(scan_start)
             if val > 0.2:
-                d_start = np.array([val] * len(pairs))
+                d_start[0] = val
         except (ValueError, TypeError):
             pass
 
-    if scan_end is not None:
+    if len(pairs) > 0 and scan_end is not None:
         try:
             val = float(scan_end)
             if val > 0.2:
-                d_end = np.array([val] * len(pairs))
+                d_end[0] = val
         except (ValueError, TypeError):
             pass
 
-    return np.array(d_start), np.array(d_end)
+    return np.array(d_start, dtype=float), np.array(d_end, dtype=float)
 
 
 def run_drive_sella_ts(atoms, model, log, n_points=None, k=60.0, scan_start=None, scan_end=None):
@@ -72,7 +103,8 @@ def run_drive_sella_ts(atoms, model, log, n_points=None, k=60.0, scan_start=None
     solvent = getattr(model, "solvent", "water")
     log(f"\n=== Strategy: Constrained Coordinate Drive in {solvent.upper()} -> Sella ===")
 
-    pairs = model.formed + model.broken
+    # Keep pairs[0] aligned with ReactionModel.compute_recommended_scan (broken + formed)
+    pairs = list(model.broken) + list(model.formed)
     pos = atoms.get_positions()
     d_start, d_end = _build_drive_targets(model, pos, pairs, scan_start=scan_start, scan_end=scan_end)
     if not n_points or int(n_points) <= 0:
@@ -90,47 +122,43 @@ def run_drive_sella_ts(atoms, model, log, n_points=None, k=60.0, scan_start=None
     frames, energies, lams, dist_list = [], [], [], []
     i_max = 0
 
-    # Ensure current starting positions match d_start on reacting pairs
-    init_pos = atoms.get_positions().copy()
-    for idx, (i, j) in enumerate(pairs):
-        vec = init_pos[j] - init_pos[i]
-        norm = np.linalg.norm(vec)
-        if norm > 1e-6:
-            init_pos[j] = init_pos[i] + (vec / norm) * d_start[idx]
-    atoms.set_positions(init_pos)
-
-    log(f"  Scanning reaction coordinate across {n_points} points (d: {d_start[0]:.2f} -> {d_end[0]:.2f} A)...")
+    if pairs:
+        init_pos = atoms.get_positions().copy()
+        _shift_pair_distance(init_pos, pairs[0][0], pairs[0][1], d_start[0], model)
+        atoms.set_positions(init_pos)
+        log(f"  Scanning reaction coordinate across {n_points} points (d: {d_start[0]:.2f} -> {d_end[0]:.2f} A)...")
+    else:
+        log(f"  Scanning across {n_points} points (no reacting bond pairs detected)...")
 
     from ase.constraints import FixBondLength
 
     for n, lam in enumerate(np.linspace(0.0, 1.0, n_points)):
         targets = d_start + lam * (d_end - d_start)
 
-        # Clear prior constraints to allow setting new distance
+        # Clear prior constraints to allow setting new distance cleanly
         atoms.set_constraint(None)
 
-        # Enforce exact target distances along reacting coordinate(s)
-        cur_pos = atoms.get_positions().copy()
-        for idx, (i, j) in enumerate(pairs):
-            vec = cur_pos[j] - cur_pos[i]
-            norm = np.linalg.norm(vec)
-            if norm > 1e-6:
-                cur_pos[j] = cur_pos[i] + (vec / norm) * targets[idx]
-        atoms.set_positions(cur_pos)
+        if pairs:
+            cur_pos = atoms.get_positions().copy()
+            _shift_pair_distance(cur_pos, pairs[0][0], pairs[0][1], targets[0], model)
+            atoms.set_positions(cur_pos)
 
-        # Fix reacting bond lengths rigidly while relaxing all orthogonal DOFs
+        # Constrain only the primary scan coordinate rigidly (avoids multi-bond SHAKE
+        # singularities on shared atoms), while softly guiding secondary reactive pairs.
+        sec_restraints = [(i, j, float(targets[idx])) for idx, (i, j) in enumerate(pairs[1:], start=1)]
         calc = _make_restrained_calc(
             base,
-            [],
-            0.0,
+            sec_restraints,
+            5.0 if sec_restraints else 0.0,
             spectator_restraints=spec_restraints,
         )
         atoms.calc = calc
-        atoms.set_constraint([FixBondLength(i, j) for i, j in pairs])
+        if pairs:
+            atoms.set_constraint(FixBondLength(pairs[0][0], pairs[0][1]))
         opt = LBFGS(atoms, logfile=None, maxstep=0.08)
         opt.run(fmax=0.04, steps=45)
 
-        e = calc.e_base
+        e = float(calc.e_base) if calc.e_base is not None else float(atoms.get_potential_energy())
         cur_p = atoms.get_positions().copy()
         frames.append(cur_p)
         energies.append(e)
@@ -149,14 +177,26 @@ def run_drive_sella_ts(atoms, model, log, n_points=None, k=60.0, scan_start=None
             log("  ✓ Passed barrier maximum - stopping scan early.")
             break
 
-    # Identify saddle peak and reactant minimum well
+    # Identify saddle peak and reactant minimum well, preferring interior local maxima
+    # with real prominence above an encounter well (essential for submerged barriers)
+    interior_peaks = [
+        k for k in range(1, len(energies) - 1)
+        if energies[k] >= energies[k - 1]
+        and energies[k] >= energies[k + 1]
+        and (energies[k] - min(energies[:k])) * EV_TO_KCAL > 0.02
+    ]
+    if interior_peaks:
+        i_max = max(interior_peaks, key=lambda k: (energies[k] - min(energies[:k]), energies[k]))
+    elif energies:
+        i_max = int(np.argmax(energies))
+
     i_min = int(np.argmin(energies[:i_max + 1])) if i_max > 0 else 0
     barrier_kcal = (energies[i_max] - energies[i_min]) * EV_TO_KCAL
     d_peak = dist_list[i_max] if dist_list else d_start[0]
     d_well = dist_list[i_min] if dist_list else d_start[0]
 
-    atoms.set_positions(frames[i_max])
     atoms.set_constraint(None)
+    atoms.set_positions(frames[i_max])
     log(f"  ✓ Saddle point located at d = {d_peak:.3f} A (Well at {d_well:.3f} A, ΔE‡ = {barrier_kcal:.2f} kcal/mol).")
     log("  Polishing saddle point with guarded Sella (max drift 0.05 A)...")
 

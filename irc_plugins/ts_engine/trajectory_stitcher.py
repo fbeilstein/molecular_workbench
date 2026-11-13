@@ -255,7 +255,7 @@ def stitch_multistep_trajectories(
         k_bonds = step.get("bonds", [])
         raw_s = [float(fr.get("s_arc", idx * 0.1)) for idx, fr in enumerate(s_frames)]
         s_base, step_start_s = raw_s[0], (0.0 if k == 0 else accum_s + 0.15)
-        raw_e = [float(fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0))) for fr in s_frames]
+        raw_e = [float(fr.get("free_energy_kcal", fr.get("rel_energy_kcal", fr.get("energy_kcal", 0.0)))) for fr in s_frames]
         e_base = raw_e[0] if raw_e else 0.0
 
         for f_i, fr in enumerate(s_frames):

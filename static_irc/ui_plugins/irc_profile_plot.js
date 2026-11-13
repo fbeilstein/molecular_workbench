@@ -162,20 +162,36 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
     ctx.fillText(`s: ${minS.toFixed(1)}`, padLeft, h - 8);
 
     const endX = padLeft + plotW;
-    ctx.fillText(`s: +${maxS.toFixed(1)}`, endX - 45, h - 8);
+    const endLabel = `s: +${maxS.toFixed(1)}`;
+    const endW = ctx.measureText(endLabel).width;
+    const endLabelX = endX - endW;
+    ctx.fillText(endLabel, endLabelX, h - 8);
 
     if (trajectory.step_boundaries && trajectory.step_boundaries.length > 1) {
+        let prevRight = padLeft + ctx.measureText(`s: ${minS.toFixed(1)}`).width + 8;
         trajectory.step_boundaries.forEach(sb => {
             const tsF = frames[sb.ts_frame];
             if (tsF) {
                 const tsS = tsF.s_arc !== undefined ? tsF.s_arc : tsF.step;
                 const tsX = toX(tsS);
-                ctx.fillText(`TS ${sb.step_index}`, tsX - 14, h - 8);
+                const lbl = `TS ${sb.step_index}`;
+                const lblW = ctx.measureText(lbl).width;
+                const drawX = Math.max(prevRight, Math.min(tsX - lblW / 2, endLabelX - lblW - 8));
+                if (drawX + lblW + 6 <= endLabelX) {
+                    ctx.fillText(lbl, drawX, h - 8);
+                    prevRight = drawX + lblW + 8;
+                }
             }
         });
     } else {
+        const startRight = padLeft + ctx.measureText(`s: ${minS.toFixed(1)}`).width + 8;
         const tsX = toX(0);
-        ctx.fillText(`s: 0 (TS)`, Math.min(tsX - 22, endX - 55), h - 8);
+        const tsLabel = `s: 0 (TS)`;
+        const tsW = ctx.measureText(tsLabel).width;
+        const drawX = Math.max(startRight, Math.min(tsX - tsW / 2, endLabelX - tsW - 8));
+        if (drawX >= startRight && drawX + tsW + 6 <= endLabelX) {
+            ctx.fillText(tsLabel, drawX, h - 8);
+        }
     }
 
     // Interactive Click

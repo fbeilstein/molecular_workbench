@@ -1,34 +1,13 @@
 import numpy as np
 from typing import Any, Dict, List, Optional
 from rdkit import Chem
-from ase import Atoms
-from .calculators import make_xtb
-from .common import rcov
-
-
-def get_formal_charge(smiles: str) -> int:
-    """Calculate formal charge from SMILES string using RDKit."""
-    if not smiles:
-        return 0
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        return Chem.GetFormalCharge(mol) if mol else 0
-    except Exception:
-        return 0
-
-
-def _clean_smiles(smiles: str) -> str:
-    """Normalize SMILES without stereochemistry for robust intermediate matching."""
-    if not smiles:
-        return ""
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        if mol:
-            Chem.RemoveStereochemistry(mol)
-            return Chem.MolToSmiles(mol, isomericSmiles=False)
-    except Exception:
-        pass
-    return Chem.CanonSmiles(smiles) if smiles else ""
+from .common import (
+    EV_TO_KCAL,
+    clean_smiles as _clean_smiles,
+    compute_isolated_fragment_energies,
+    get_formal_charge,
+    rcov,
+)
 
 
 def analyze_pathway_stoichiometry(
@@ -123,62 +102,6 @@ def analyze_pathway_stoichiometry(
     return {"steps": step_info, "all_external_reactants": all_external_reactants, "all_external_byproducts": all_external_byproducts}
 
 
-def compute_isolated_fragment_energies(
-    fragments: List[Dict[str, Any]], solvent: str = "water", relax: bool = True
-) -> Dict[str, float]:
-    """Compute isolated electronic energy (eV) for fully relaxed ground-state fragments in chosen solvent using xTB."""
-    from ase.optimize import BFGS
-    from rdkit import Chem
-    from rdkit.Chem import AllChem
-
-    cache = {}
-    for fr in fragments:
-        smi = fr.get("smiles", "")
-        if not smi:
-            continue
-        clean_s = _clean_smiles(smi)
-        if clean_s in cache:
-            continue
-
-        syms = list(fr.get("symbols", []))
-        pos = list(fr.get("positions", []))
-        chg = fr.get("charge", 0)
-
-        # If 3D coordinates are missing, embed a clean 3D conformer with RDKit
-        if (not syms or not pos or len(syms) != len(pos)) and clean_s:
-            try:
-                mol = Chem.AddHs(Chem.MolFromSmiles(clean_s))
-                AllChem.EmbedMolecule(mol, AllChem.ETKDGv3())
-                syms = [a.GetSymbol() for a in mol.GetAtoms()]
-                pos = mol.GetConformer().GetPositions().tolist()
-                chg = Chem.GetFormalCharge(mol)
-            except Exception:
-                pass
-
-        if not syms or not pos or len(syms) != len(pos):
-            cache[clean_s] = 0.0
-            continue
-
-        try:
-            atoms = Atoms(symbols=syms, positions=np.array(pos, dtype=float))
-            atoms.calc = make_xtb(charge=chg, multiplicity=1, solvent=solvent)
-            if relax and len(syms) > 1:
-                try:
-                    opt = BFGS(atoms, logfile=None)
-                    opt.run(fmax=0.03, steps=40)
-                except Exception:
-                    pass
-            cache[clean_s] = float(atoms.get_potential_energy())
-        except Exception:
-            try:
-                atoms = Atoms(symbols=syms, positions=np.array(pos, dtype=float))
-                atoms.calc = make_xtb(charge=chg, multiplicity=1, solvent=solvent)
-                cache[clean_s] = float(atoms.get_potential_energy())
-            except Exception:
-                cache[clean_s] = 0.0
-    return cache
-
-
 def _smoothstep(x: float) -> float:
     x = float(np.clip(x, 0.0, 1.0))
     return x * x * (3.0 - 2.0 * x)
@@ -235,14 +158,37 @@ def balance_pathway_energies(
         valid_steps = 0
         from .free_energy_engine import DELTA_G_ASSOC_KCAL
         for k, s in enumerate(stoich["steps"]):
+            traj = trajectories[k] if k < len(trajectories) else {}
+            barriers = traj.get("barriers", {})
             e_r = sum(frag_energies.get(_clean_smiles(r["smiles"]), 0.0) for r in s.get("reactants", []))
             e_p = sum(frag_energies.get(_clean_smiles(p["smiles"]), 0.0) for p in s.get("products", []))
-            if e_r != 0.0 and e_p != 0.0:
+            e_r_traj = barriers.get("e_reactant_ev")
+            e_p_traj = barriers.get("e_product_ev")
+            cross_engine = (
+                (e_r_traj is not None and e_r != 0.0 and abs(float(e_r_traj) - e_r) > 20.0)
+                or (e_p_traj is not None and e_p != 0.0 and abs(float(e_p_traj) - e_p) > 20.0)
+                or str(traj.get("engine", "")).lower() == "orca"
+            )
+            if not cross_engine and e_r != 0.0 and e_p != 0.0:
                 valid_steps += 1
-            n_r_k = max(1, len(s.get("reactants", [])))
-            n_p_k = max(1, len(s.get("products", [])))
-            delta_n_entropy = (n_r_k - n_p_k) * DELTA_G_ASSOC_KCAL
-            step_delta_kcal.append((e_p - e_r) * eV_to_kcal + delta_n_entropy)
+                n_r_k = max(1, len(s.get("reactants", [])))
+                n_p_k = max(1, len(s.get("products", [])))
+                delta_n_entropy = (n_r_k - n_p_k) * DELTA_G_ASSOC_KCAL
+                step_delta_kcal.append((e_p - e_r) * eV_to_kcal + delta_n_entropy)
+            else:
+                # Preserve the step trajectory's native ΔG_rxn when it comes from a different level
+                # of theory (e.g. ORCA DFT mixed with xTB steps) or lacks matching xTB fragments.
+                frs_k = traj.get("frames", [])
+                if barriers.get("energy_type") == "gibbs" and barriers.get("reaction_energy_kcal") is not None:
+                    step_delta_kcal.append(float(barriers["reaction_energy_kcal"]))
+                    valid_steps += 1
+                elif len(frs_k) >= 2:
+                    e0 = float(frs_k[0].get("free_energy_kcal", frs_k[0].get("rel_energy_kcal", 0.0)))
+                    e1 = float(frs_k[-1].get("free_energy_kcal", frs_k[-1].get("rel_energy_kcal", 0.0)))
+                    step_delta_kcal.append(e1 - e0)
+                    valid_steps += 1
+                else:
+                    step_delta_kcal.append(0.0)
         if valid_steps == len(stoich["steps"]) and len(boundaries) == len(stoich["steps"]):
             has_thermo = True
 
@@ -292,25 +238,26 @@ def balance_pathway_energies(
                     for fr_i in range(start, end + 1):
                         master_frames[fr_i]["is_ts"] = (fr_i == b["ts_frame"])
 
+                scale_idx = peak_rel_idx if raw_barrier > 1e-4 else ts_rel_idx
                 e_ts_target = e_start_target + barrier
-                raw_ts = raw[ts_rel_idx] if ts_rel_idx < len(raw) else raw_barrier
+                raw_ts = raw[scale_idx] if scale_idx < len(raw) else raw_barrier
                 raw_denom_prod = raw[-1] - raw_ts
 
                 for local_i, global_i in enumerate(range(start, end + 1)):
-                    if local_i <= ts_rel_idx:
-                        # Follow authentic quantum IRC barrier curve up to TS
+                    if local_i <= scale_idx:
+                        # Follow authentic quantum IRC barrier curve up to apex
                         if raw_ts > 1e-4:
                             f = raw[local_i] / raw_ts
                         else:
-                            f = local_i / max(1, ts_rel_idx)
+                            f = local_i / max(1, scale_idx)
                         rel_kcal[global_i] = e_start_target + f * (e_ts_target - e_start_target)
                     else:
-                        # Follow authentic quantum IRC descent curve from TS down to product
+                        # Follow authentic quantum IRC descent curve from apex down to product
                         if abs(raw_denom_prod) > 1e-4:
                             f = (raw[local_i] - raw_ts) / raw_denom_prod
                         else:
-                            denom_frames = max(1, s_len - 1 - ts_rel_idx)
-                            f = (local_i - ts_rel_idx) / denom_frames
+                            denom_frames = max(1, s_len - 1 - scale_idx)
+                            f = (local_i - scale_idx) / denom_frames
                         rel_kcal[global_i] = e_ts_target + f * (e_end_target - e_ts_target)
 
             cum_baseline = e_end_target

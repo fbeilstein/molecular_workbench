@@ -90,11 +90,11 @@ def run_orca_neb_ci(atoms: Any, model: Any, solvent: str, log: Any, n_images: in
 
     if r_pos is None or p_pos is None:
         try:
-            from ..irc_runner import _integrate_reaction_branch
-            rev_frames = _integrate_reaction_branch(atoms, model, -1.0, 15, log, "Reverse")
-            fwd_frames = _integrate_reaction_branch(atoms, model, +1.0, 15, log, "Forward")
-            r_pos = np.array(rev_frames[-1]["positions"]) if rev_frames else atoms.get_positions()
-            p_pos = np.array(fwd_frames[-1]["positions"]) if fwd_frames else atoms.get_positions()
+            from ..irc_runner import run_irc_path
+            base_traj = run_irc_path(atoms.copy(), model, log, max_steps=15, relax_fragments=True)
+            b_frames = base_traj.get("frames", []) if base_traj else []
+            r_pos = np.array(b_frames[0]["positions"]) if b_frames else atoms.get_positions()
+            p_pos = np.array(b_frames[-1]["positions"]) if b_frames else atoms.get_positions()
         except Exception:
             r_pos = atoms.get_positions()
             p_pos = atoms.get_positions()

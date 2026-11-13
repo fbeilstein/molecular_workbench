@@ -35,7 +35,10 @@ class XtbCalculator(Calculator):
         if self.solvent:
             cmd += ["--alpb", self.solvent]
 
-        res = subprocess.run(cmd, cwd=self._workdir, capture_output=True, text=True)
+        env = os.environ.copy()
+        env.setdefault("OMP_NUM_THREADS", "4")
+        env.setdefault("MKL_NUM_THREADS", "1")
+        res = subprocess.run(cmd, cwd=self._workdir, env=env, capture_output=True, text=True)
         e = None
         for line in res.stdout.splitlines():
             if "TOTAL ENERGY" in line:
