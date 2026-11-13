@@ -263,8 +263,9 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         dur = time.time() - t0
         if dur > 0.3:
             print(f"[{plugin.step_id}] custom action '{action}' took {dur:.2f}s")
-        if result_data.get("success") and "molblocks" in result_data:
-            pipeline_state.setdefault(plugin.step_id, {})["docked_reactants"] = result_data["molblocks"]
+        mbs = result_data.get("molblocks") or result_data.get("optimized_molblocks")
+        if result_data.get("success") and mbs:
+            pipeline_state.setdefault(plugin.step_id, {})["docked_reactants"] = mbs
             save_current_state()
         if result_data.get("success") and "trajectory" in result_data:
             pipeline_state.setdefault(plugin.step_id, {})["trajectory"] = result_data["trajectory"]

@@ -152,7 +152,7 @@ export class TSEditorActions {
     _handleOptResult(result) {
         if (result.success) {
             this.setStatus(result.message, '#18a558');
-            this.state.molblocks = result.optimized_molblocks;
+            this.state.molblocks = result.molblocks || result.optimized_molblocks;
             this.viewer.buildMolecules(this.state.molblocks);
             this.viewer.updateDynamicBonds(this.state.rxnBonds);
             this.viewer.flashAtoms(0x22c55e);

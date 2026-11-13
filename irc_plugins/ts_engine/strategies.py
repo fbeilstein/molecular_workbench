@@ -39,8 +39,11 @@ def _build_drive_targets(model, pos, pairs, scan_start=None, scan_end=None):
             d_s = round(min(max(dc, d0 + 1.0), d0 + 2.5), 3)
             d_e = round(d0, 3)
         else:
+            is_pure_dissociation = (len(model.formed) == 0)
             d_s = round(dc if dc < 1.35 * d0 else d0, 3)
-            d_e = round(max(d_s + 0.42 * d0, 1.55 * d0), 3)
+            min_mult = 1.95 if is_pure_dissociation else 1.55
+            add_mult = 0.85 if is_pure_dissociation else 0.42
+            d_e = round(max(d_s + add_mult * d0, min_mult * d0), 3)
         d_start.append(d_s)
         d_end.append(d_e)
 

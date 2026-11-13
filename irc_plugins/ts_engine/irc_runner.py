@@ -213,11 +213,15 @@ def run_irc_path(
     if str(engine).lower() == "orca":
         from .orca_runner import eval_orca_dft_profile
         full_raw = eval_orca_dft_profile(full_raw, model, solvent, log, ts_index=ts_index)
-        peak_rel = int(np.argmax([full_raw[k]["energy_ev"] for k in range(max(0, ts_index - 2), min(len(full_raw), ts_index + 7))]))
-        ts_index = max(0, ts_index - 2) + peak_rel
-        e_ts = full_raw[ts_index]["energy_ev"]
-    else:
-        e_ts = full_raw[ts_index]["energy_ev"]
+
+    # Locate barrier maximum along the integrated pathway and auto-center TS saddle point
+    raw_energies = [fr["energy_ev"] for fr in full_raw]
+    peak_idx = int(np.argmax(raw_energies))
+    peak_barrier_kcal = (raw_energies[peak_idx] - full_raw[ts_index]["energy_ev"]) * EV_TO_KCAL
+    if peak_barrier_kcal > 0.5:
+        log(f"  ℹ️ Auto-centering TS saddle point: nominal input was frame {ts_index}, real barrier maximum is at frame {peak_idx} (+{peak_barrier_kcal:.2f} kcal/mol).")
+        ts_index = peak_idx
+    e_ts = full_raw[ts_index]["energy_ev"]
 
     # Compute mass-weighted arc length coordinate s with s=0 at TS saddle point
     masses = atoms.get_masses()

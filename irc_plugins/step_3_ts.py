@@ -436,6 +436,7 @@ class Step3TS(PipelineStep):
             return {
                 "success": True,
                 "optimized_molblocks": opt_blocks,
+                "molblocks": opt_blocks,
                 "profile": profile,
                 "ts_report": ts_report,
                 "message": f"TS optimization finished ({strategy}). E = {e_ts:.3f} eV{verdict}",

@@ -284,6 +284,14 @@ def balance_pathway_energies(
             else:
                 # Step possesses an authentic TS barrier
                 ts_rel_idx = ts - start if start <= ts <= end else int(np.argmax(raw))
+                peak_rel_idx = int(np.argmax(raw))
+                raw_at_ts = raw[ts_rel_idx] if 0 <= ts_rel_idx < len(raw) else 0.0
+                if raw_barrier > 1.0 and (raw_at_ts < 0.75 * raw_barrier or raw_at_ts <= 1e-4):
+                    ts_rel_idx = peak_rel_idx
+                    b["ts_frame"] = start + ts_rel_idx
+                    for fr_i in range(start, end + 1):
+                        master_frames[fr_i]["is_ts"] = (fr_i == b["ts_frame"])
+
                 e_ts_target = e_start_target + barrier
                 raw_ts = raw[ts_rel_idx] if ts_rel_idx < len(raw) else raw_barrier
                 raw_denom_prod = raw[-1] - raw_ts
