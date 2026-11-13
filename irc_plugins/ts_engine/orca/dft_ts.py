@@ -101,7 +101,9 @@ def eval_orca_dft_profile(full_raw: List[Dict[str, Any]], model: Any, solvent: s
 
     rev_anchors = [int(round(k)) for k in np.linspace(0, ts_index, 5)]
     fwd_anchors = [int(round(k)) for k in np.linspace(ts_index, n_frames - 1, 4)]
-    eval_indices = sorted(list(set(rev_anchors + fwd_anchors)))
+    # Dense sampling around TS region to accurately capture DFT saddle point
+    ts_dense = [int(k) for k in (ts_index - 2, ts_index - 1, ts_index, ts_index + 1, ts_index + 2) if 0 <= k < n_frames]
+    eval_indices = sorted(list(set(rev_anchors + fwd_anchors + ts_dense)))
 
     energies_ev: Dict[int, float] = {}
     tmpdir = tempfile.mkdtemp(prefix="orca_irc_")

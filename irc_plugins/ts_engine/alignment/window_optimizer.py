@@ -23,17 +23,26 @@ def find_optimal_overlap_window(
 
     n_p = len(frames_p)
     n_n = len(frames_n)
-    ts_p = step_prev.get("ts_frame_index", 0)
-    ts_n = step_next.get("ts_frame_index", n_n - 1)
+    ts_p = step_prev.get("ts_frame_index")
+    ts_n = step_next.get("ts_frame_index")
 
-    p_min_idx = max(ts_p + 1, n_p - max_window) if n_p > ts_p + 1 else max(0, n_p - max_window)
+    if ts_p is not None:
+        p_min_idx = max(ts_p + 1, n_p - max_window) if n_p > ts_p + 1 else max(0, n_p - max_window)
+    else:
+        # Barrierless exit: allow candidate scan in tail 25% of step
+        p_min_idx = max(int(0.75 * n_p), max(0, n_p - max_window))
+
     e_p_last = float(frames_p[-1].get("free_energy_kcal", frames_p[-1].get("rel_energy_kcal", 0.0)))
     candidate_p = [
         idx for idx in range(p_min_idx, n_p)
         if abs(float(frames_p[idx].get("free_energy_kcal", frames_p[idx].get("rel_energy_kcal", 0.0))) - e_p_last) <= 0.10
     ] or [n_p - 1]
 
-    n_max_idx = min(ts_n, max_window - 1) if ts_n > 0 else min(n_n - 1, max_window - 1)
+    if ts_n is not None and ts_n > 0:
+        n_max_idx = min(ts_n, max_window - 1)
+    else:
+        # Barrierless entry: allow candidate scan in first 25% of step
+        n_max_idx = min(max(1, int(0.25 * n_n)), max_window - 1)
     e_n_first = float(frames_n[0].get("free_energy_kcal", frames_n[0].get("rel_energy_kcal", 0.0)))
     candidate_n = [
         idx for idx in range(0, n_max_idx + 1)

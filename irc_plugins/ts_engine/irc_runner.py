@@ -90,8 +90,8 @@ def _prepare_ts_and_mode(atoms: Atoms, model, solvent: str, dx: float, log):
 
     # Gentle Sella refinement when TS still has significant residual gradient
     if fmax_ts > 0.015:
-        steps_lim = 15 if fmax_ts <= 0.25 else 25
-        target_f = 0.015 if fmax_ts <= 0.25 else 0.03
+        steps_lim = 30 if fmax_ts <= 0.25 else 50
+        target_f = 0.015 if fmax_ts <= 0.25 else 0.025
         log("  Refining Transition State saddle geometry (Sella order=1)...")
         try:
             import sella
@@ -101,7 +101,7 @@ def _prepare_ts_and_mode(atoms: Atoms, model, solvent: str, dx: float, log):
             opt_sella.run(fmax=target_f, steps=steps_lim)
             pos_opt = at_opt.get_positions().copy()
             fmax_opt = float(np.max(np.linalg.norm(at_opt.get_forces(), axis=1)))
-            converged_or_local = fmax_opt <= 0.04 or (fmax_ts <= 0.20 and fmax_opt < fmax_ts)
+            converged_or_local = fmax_opt <= 0.035 or (fmax_ts <= 0.20 and fmax_opt < fmax_ts)
             if converged_or_local and _topology_preserved(pos_ts, pos_opt, model):
                 pos_ts = pos_opt
                 e_ts = float(at_opt.get_potential_energy())
@@ -195,6 +195,8 @@ def _integrate_sella_branch(
         irc.v0ts = v_step.copy()
 
         prev_e = e_ts
+        d_max_sep = 0.0
+        flat_count = 0
         for step_i, _ in enumerate(irc.irun(fmax=polish_fmax, steps=n_irc_steps, direction=direction)):
             if step_i == 0:
                 continue  # skip duplicate TS point
@@ -204,12 +206,31 @@ def _integrate_sella_branch(
                 break
             e = float(at.get_potential_energy())
             fm = float(np.max(np.linalg.norm(at.get_forces(), axis=1)))
-            if (e - prev_e) * EV_TO_KCAL > 0.05:
+            de_kcal = (e - prev_e) * EV_TO_KCAL
+            if de_kcal > 0.05:
                 break
             pts.append({"positions": p, "energy_ev": e, "fmax": fm})
             prev_e = e
+
             if is_fragmented and pair_i is not None:
                 d_cur = float(np.linalg.norm(p[pair_i] - p[pair_j]))
+                if d_cur > d_max_sep:
+                    d_max_sep = d_cur
+
+                # If fragment cleaved (>2.8 A) and starts drifting back, terminate branch
+                if d_max_sep > 2.80 and d_cur < (d_max_sep - 0.10):
+                    log(f"  [{branch_name}] Stopped sella.IRC: fragment reached maximum separation ({d_max_sep:.2f} A) and began curling back.")
+                    break
+
+                # If energy flattens in asymptotic dissociation region, terminate branch
+                if d_cur > 2.80 and abs(de_kcal) < 0.02:
+                    flat_count += 1
+                    if flat_count >= 3:
+                        log(f"  [{branch_name}] Stopped sella.IRC: energy plateaued in asymptotic dissociation region (d = {d_cur:.2f} A).")
+                        break
+                else:
+                    flat_count = 0
+
                 if d_cur >= d_target - 0.1:
                     break
     except Exception as err:
@@ -234,14 +255,13 @@ def _integrate_sella_branch(
         except Exception:
             pass
 
-    # Polish bound minimum or progressed tight encounter complex (< 3.5 A) to converged gradient
-    if pts:
+    # Polish bound unimolecular basin to converged gradient. Disconnected fragments must
+    # NOT be polished unconstrained here (they are relaxed independently via fragment_relax).
+    if pts and not is_fragmented:
         end_pos = pts[-1]["positions"].copy()
         end_e = pts[-1]["energy_ev"]
         end_fmax = pts[-1]["fmax"]
-        d_end_cur = float(np.linalg.norm(end_pos[pair_i] - end_pos[pair_j])) if pair_i is not None else 0.0
-        prog_end = direction_sign * _branch_progress(pos_ts, end_pos, model)
-        allow_polish = (not is_fragmented) or (d_end_cur < 3.5 and prog_end > 0.05)
+        allow_polish = (end_fmax > polish_fmax)
 
         if allow_polish and end_fmax > polish_fmax:
             at_end = Atoms(symbols=model.symbols, positions=end_pos)

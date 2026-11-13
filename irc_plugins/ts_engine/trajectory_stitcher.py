@@ -214,7 +214,8 @@ def stitch_multistep_trajectories(
             prev_step["frames"] = prev_step["frames"][:p_cut + 1]
         if n_cut > 0:
             out_next["frames"] = out_next["frames"][n_cut:]
-            out_next["ts_frame_index"] = max(0, out_next.get("ts_frame_index", 0) - n_cut)
+            if out_next.get("ts_frame_index") is not None:
+                out_next["ts_frame_index"] = max(0, out_next["ts_frame_index"] - n_cut)
 
         prev_pos = np.array(prev_step["frames"][-1].get("coords", prev_step["frames"][-1].get("positions", [])))
         align_pos = np.array(out_next["frames"][0].get("coords", out_next["frames"][0].get("positions", [])))
@@ -246,11 +247,16 @@ def stitch_multistep_trajectories(
     max_energy, final_energy = 0.0, 0.0
 
     for k, step in enumerate(aligned_steps):
-        s_frames, ts_idx = step.get("frames", []), step.get("ts_frame_index", 0)
+        s_frames = step.get("frames", [])
+        ts_idx = step.get("ts_frame_index")
+        is_barrierless = bool(step.get("is_barrierless", False) or (ts_idx is None))
+        ts_frame = (curr_idx + int(ts_idx)) if (ts_idx is not None and not is_barrierless) else None
+
         step_boundaries.append({
             "step_index": k + 1, "step_name": step.get("reaction_smiles", f"Step {k + 1}"),
             "reaction_smiles": step.get("reaction_smiles", f"Step {k + 1}"),
-            "start_frame": curr_idx, "end_frame": curr_idx + len(s_frames) - 1, "ts_frame": curr_idx + ts_idx
+            "start_frame": curr_idx, "end_frame": curr_idx + len(s_frames) - 1, "ts_frame": ts_frame,
+            "is_barrierless": is_barrierless
         })
         k_bonds = step.get("bonds", [])
         raw_s = [float(fr.get("s_arc", idx * 0.1)) for idx, fr in enumerate(s_frames)]
@@ -260,7 +266,8 @@ def stitch_multistep_trajectories(
 
         for f_i, fr in enumerate(s_frames):
             c = fr.get("coords", fr.get("positions", []))
-            fr["coords"], fr["positions"], fr["step_index"], fr["is_ts"] = c, c, k + 1, (f_i == ts_idx)
+            is_ts_pt = bool(ts_idx is not None and not is_barrierless and f_i == ts_idx)
+            fr["coords"], fr["positions"], fr["step_index"], fr["is_ts"] = c, c, k + 1, is_ts_pt
             fr["symbols"] = step.get("symbols", [])
             fr["atom_labels"] = list(step.get("atom_labels", []))
             fr["global_atom_ids"] = list(step.get("global_atom_ids", []))
@@ -272,7 +279,7 @@ def stitch_multistep_trajectories(
                 b_type = b.get("type")
                 r_ord = 0 if b_type == "forming" else b.get("r_order", 1)
                 p_ord = 0 if b_type == "breaking" else b.get("p_order", 1)
-                b_ord = r_ord if f_i <= ts_idx else p_ord
+                b_ord = r_ord if (ts_idx is None or f_i <= ts_idx) else p_ord
                 if b_ord > 0:
                     step_bonds.append({"from": b.get("from", 0), "to": b.get("to", 0), "order": b_ord})
             fr["bonds"] = step_bonds

@@ -197,23 +197,16 @@ def run_orca_thermo_profile(atoms: Any, model: Any, solvent: str, log: Any, max_
     barrier_rev_kcal = (g_ts - g_prod) * HARTREE_TO_KCAL
     delta_g_rxn_kcal = (g_prod - g_reac) * HARTREE_TO_KCAL
 
-    n_frames = len(base_traj["frames"])
-    for k in range(n_frames):
-        if k <= ts_idx:
-            w = (k / max(1, ts_idx)) ** 2 * (3.0 - 2.0 * (k / max(1, ts_idx)))
-            rel_kcal = w * barrier_fwd_kcal
-        else:
-            denom = max(1, n_frames - 1 - ts_idx)
-            u = ((k - ts_idx) / denom) ** 2 * (3.0 - 2.0 * ((k - ts_idx) / denom))
-            rel_kcal = barrier_fwd_kcal - u * barrier_rev_kcal
-        base_traj["frames"][k]["rel_energy_kcal"] = round(float(rel_kcal), 3)
-        base_traj["frames"][k]["energy_ev"] = round(float(rel_kcal / EV_TO_KCAL), 5)
+    # Evaluate true DFT electronic energies across the IRC frames instead of synthesizing smoothstep curves
+    eval_orca_dft_profile(base_traj["frames"], model, solvent, log, ts_index=ts_idx, nprocs=nprocs)
+    from ..free_energy_engine import compute_pathway_free_energy
+    base_traj = compute_pathway_free_energy(base_traj, model, solvent=solvent, log_fn=log)
 
     thermo_info = {
         "energy_type": "gibbs",
-        "forward_barrier_kcal": round(float(barrier_fwd_kcal), 2),
-        "reverse_barrier_kcal": round(float(barrier_rev_kcal), 2),
-        "reaction_energy_kcal": round(float(delta_g_rxn_kcal), 2),
+        "forward_barrier_kcal": round(float(base_traj["barriers"].get("forward_barrier_kcal", barrier_fwd_kcal)), 2),
+        "reverse_barrier_kcal": round(float(base_traj["barriers"].get("reverse_barrier_kcal", barrier_rev_kcal)), 2),
+        "reaction_energy_kcal": round(float(base_traj["barriers"].get("reaction_energy_kcal", delta_g_rxn_kcal)), 2),
         "g_ts_eh": round(float(g_ts), 6),
         "g_reactant_eh": round(float(g_reac), 6),
         "g_product_eh": round(float(g_prod), 6),

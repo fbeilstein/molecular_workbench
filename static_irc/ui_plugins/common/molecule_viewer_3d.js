@@ -196,7 +196,7 @@ export class MoleculeViewer3D {
         this.currentTraj = traj;
         this.symbols = traj.symbols || [];
         this.bondTable = traj.bonds || null;
-        const tsIdx = traj.ts_frame_index || 0;
+        const tsIdx = (traj.is_barrierless || traj.ts_frame_index == null) ? 0 : traj.ts_frame_index;
         this.setFrame(tsIdx);
         this.viewer.zoomTo();
     }

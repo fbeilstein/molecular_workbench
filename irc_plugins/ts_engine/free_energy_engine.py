@@ -1,62 +1,26 @@
 """
 Free Energy and Thermodynamics Engine for Chemical Reactions.
 
-Provides mathematically rigorous, physically continuous Free Energy (G) profiles
-for single-step IRC pathways and multistep reaction cascades in solution.
-
-Physical Theory:
-----------------
-Along a reaction path on the Born-Oppenheimer potential energy surface, electronic structure
-methods (xTB, DFT, etc.) compute the raw electronic potential energy E_elec.
-In solution (standard state: 298.15 K, 1 M, 1 atm):
-  G°_solv = E_elec + ΔG_solv + G_vib - T·ΔS_trans/rot
-
-For an elementary step R -> [TS]‡ -> P:
-1. Association (N_R > 1 -> N_P = 1, e.g. A + B -> C):
-   N_R independent molecules condense into 1 transition state complex.
-   Translational & rotational entropy loss:
-     ΔG_assoc° = (N_R - 1) × 13.76 kcal/mol  (Whiting-Pacey / Amzel-Eckstein model)
-   The resulting adduct (C) is ALSO 1 bound molecule and maintains this identical
-   entropic baseline. Hence, no discontinuity exists between TS and bound intermediates.
-
-2. Dissociation (N_R = 1 -> N_P > 1, e.g. A -> B + C or A -> B + C + D):
-   1 bound reactant forms 1 bound TS, which subsequently fragments into N_P free particles.
-   Entropy gain upon asymptotic separation:
-     ΔG_dissoc° = -(N_P - 1) × 13.76 kcal/mol
-   As fragment separation d increases beyond contact distance, free energy smoothly decreases
-   into the fully dissociated asymptotic limit.
-
-3. Spectators / Catalysts (A + B -> C + A):
-   Spectator species present on both reactant and product sides cancel identically in net ΔG_rxn°
-   via Hess's Law. If the spectator coordinates to the TS, it pays association entropy at TS
-   which is smoothly restored upon product departure.
-
-Continuity Guarantee:
----------------------
-Energy transitions are modulated by an analytic switching function λ(d) with C¹ smoothness:
-  λ(d) = sin²((π / 2) · clip((d - d_contact) / (d_inf - d_contact), 0, 1))
-This guarantees zero cliffs, zero artificial jumps, and strict derivative continuity
-across the entire reaction coordinate s.
+Provides rigorous, physically sound solution-phase Gibbs free energy (ΔG°_soln)
+profiles based on Grimme qRRHO thermochemistry, variational transition state
+alignment, and barrierless reaction coordinate handling.
 """
 
 from typing import Any, Dict, List, Optional
 import numpy as np
+from ase import Atoms
 
-from .common import (
-    EV_TO_KCAL,
-    clean_smiles,
-    compute_isolated_fragment_energies,
-    get_formal_charge,
+from .common import EV_TO_KCAL
+from .thermo import (
+    compute_species_gibbs_free_energy,
+    split_into_independent_fragments,
+    compute_fragment_charges_and_multiplicities,
+    STANDARD_STATE_COMPRESSION_KCAL,
 )
 
-# Standard-state association free energy penalty in solution (kcal/mol at 298.15 K, 1 M)
-# References: Whiting & Pacey (1974); Amzel & Eckstein (1979); J. Am. Chem. Soc. 1998, 120, 24, 6032-6040
-DELTA_G_ASSOC_KCAL: float = 13.76
-DELTA_G_ASSOC_EV: float = DELTA_G_ASSOC_KCAL / EV_TO_KCAL
-
-# Interaction distance thresholds (Angstrom)
-DEFAULT_D_CONTACT_MARGIN: float = 0.60   # Contact radius beyond covalent equilibrium d0
-DEFAULT_D_INF_MARGIN: float = 3.20       # Asymptotic separation distance threshold
+# Interaction distance margins for smooth fragment approach/departure (Angstrom)
+DEFAULT_D_CONTACT_MARGIN: float = 0.60
+DEFAULT_D_INF_MARGIN: float = 3.20
 
 
 def smooth_switching_function(d: float, d_contact: float, d_inf: float) -> float:
@@ -76,7 +40,7 @@ def measure_interfragment_distance(
     frag_indices_a: List[int],
     frag_indices_b: List[int]
 ) -> float:
-    """Measure minimum inter-atomic or center-of-mass distance between two fragments."""
+    """Measure minimum inter-atomic distance between two fragments."""
     if not frag_indices_a or not frag_indices_b:
         return 0.0
     sub_a = pos[frag_indices_a]
@@ -87,173 +51,274 @@ def measure_interfragment_distance(
 
 def compute_pathway_free_energy(
     trajectory: Dict[str, Any],
-    model: Any,
+    model: Optional[Any] = None,
     solvent: str = "water",
     log_fn: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
-    Equip an IRC trajectory with rigorous, smooth Free Energy (ΔG) metrics.
-    
-    Parameters:
-    -----------
-    trajectory : dict
-        Raw IRC trajectory dict containing 'frames', 'ts_frame_index', 'symbols', etc.
-    model : ReactionModel
-        Model defining reactants, products, bonds formed/broken, fragments, and charges.
-    solvent : str
-        Implicit solvent name (e.g. 'water').
-    log_fn : callable, optional
-        Logging callback.
-        
-    Returns:
-    --------
-    dict
-        Updated trajectory with continuous 'rel_free_energy_kcal', 'free_energy_ev',
-        and thermodynamically consistent forward/reverse barriers.
+    Equip an IRC trajectory with rigorous solution-phase Gibbs Free Energy (ΔG°_soln) metrics,
+    relocate ts_frame_index to the true variational ΔG maximum (or mark as barrierless),
+    and guarantee continuity across the reaction coordinate s.
     """
     log = log_fn or (lambda msg: None)
     frames = trajectory.get("frames", [])
     if not frames:
         return trajectory
 
-    # If ab initio Gibbs free energies were already computed by ORCA frequency analysis, preserve them
-    if trajectory.get("barriers", {}).get("energy_type") == "gibbs" and trajectory.get("thermo_data"):
-        log("  [Free Energy Engine] Trajectory already possesses ab initio Gibbs free energies (from ORCA Freq). Preserving.")
-        return trajectory
-
     n_frames = len(frames)
-    ts_idx = int(np.clip(trajectory.get("ts_frame_index", len(frames) // 2), 0, n_frames - 1))
+    symbols = trajectory.get("symbols") or (getattr(model, "symbols", None) if model else None)
+    if not symbols and frames and "symbols" in frames[0]:
+        symbols = frames[0]["symbols"]
+    if not symbols and frames and "positions" in frames[0]:
+        symbols = ["C"] * len(frames[0]["positions"])
 
-    # Identify reactant and product molecularity
-    r_mols = getattr(model, "r_mols", [])
-    p_mols = getattr(model, "p_mols", [])
-    n_r = max(1, len(r_mols))
-    n_p = max(1, len(p_mols))
+    chem_start = int(trajectory.get("approach_frames") or trajectory.get("asymp_r_count") or 0)
+    chem_end = n_frames - int(trajectory.get("departure_frames") or trajectory.get("asymp_p_count") or 0) - 1
+    chem_start = max(0, min(chem_start, n_frames - 1))
+    chem_end = max(chem_start, min(chem_end, n_frames - 1))
 
-    log(f"  [Free Energy Engine] Molecularity: {n_r} reactant(s) -> [TS]‡ -> {n_p} product(s)")
-
-    r_frag_indices = [
-        [k for k in range(model.n_atoms) if model.frag_of[k] == fi]
-        for fi in range(len(r_mols))
-    ]
-    p_frag_indices = [
-        [k for k in range(model.n_atoms) if model.r2p.get(k, (-1, -1))[0] == fi]
-        for fi in range(len(p_mols))
-    ]
-
-    raw_e_list = []
+    # Extract electronic potential energies across trajectory
+    raw_e_ev = []
     for f in frames:
         if "energy_ev" in f:
-            raw_e_list.append(float(f["energy_ev"]))
+            raw_e_ev.append(float(f["energy_ev"]))
         elif "energy_kcal" in f:
-            raw_e_list.append(float(f["energy_kcal"]) / EV_TO_KCAL)
+            raw_e_ev.append(float(f["energy_kcal"]) / EV_TO_KCAL)
         elif "rel_energy_kcal" in f:
-            raw_e_list.append(float(f["rel_energy_kcal"]) / EV_TO_KCAL)
+            raw_e_ev.append(float(f["rel_energy_kcal"]) / EV_TO_KCAL)
         else:
-            raw_e_list.append(0.0)
-    raw_e = np.array(raw_e_list)
+            raw_e_ev.append(0.0)
+    raw_e = np.array(raw_e_ev)
+
+    sella_idx = trajectory.get("sella_ts_frame_index")
+    ts_idx = trajectory.get("ts_frame_index")
+    if sella_idx is not None and 0 <= sella_idx < n_frames:
+        orig_ts_idx = int(sella_idx)
+    elif ts_idx is not None and 0 <= ts_idx < n_frames:
+        orig_ts_idx = int(ts_idx)
+    elif len(raw_e) > 0 and chem_end > chem_start:
+        orig_ts_idx = int(chem_start + np.argmax(raw_e[chem_start:chem_end + 1]))
+    else:
+        orig_ts_idx = n_frames // 2
+
+    # Guard against corrupted midpoint defaults when a clear electronic peak exists in chemical region
+    if orig_ts_idx == n_frames // 2 and len(raw_e) > 0 and chem_end > chem_start:
+        e_peak_idx = int(chem_start + np.argmax(raw_e[chem_start:chem_end + 1]))
+        if (raw_e[e_peak_idx] - raw_e[orig_ts_idx]) * EV_TO_KCAL > 0.05:
+            orig_ts_idx = e_peak_idx
+
+    orig_ts_idx = int(np.clip(orig_ts_idx, 0, n_frames - 1))
+    trajectory["sella_ts_frame_index"] = orig_ts_idx
+
+    charge = int(getattr(model, "charge", 0) if model else trajectory.get("charge", 0))
+    mult = int(getattr(model, "multiplicity", 1) if model else trajectory.get("multiplicity", 1))
+
     e_r_raw = raw_e[0]
+    e_ts_raw = raw_e[orig_ts_idx]
+    e_p_raw = raw_e[-1]
 
-    # Contact distance parameters based on formed/broken reacting bonds
-    formed = getattr(model, "formed", [])
-    broken = getattr(model, "broken", [])
-    if formed:
-        i_f, j_f = formed[0]
-        d0_form = model.d0(i_f, j_f)
+    # Identify reactant and product molecularity & fragments
+    pos_r = np.array(frames[0]["positions"])
+    pos_ts = np.array(frames[orig_ts_idx]["positions"])
+    pos_p = np.array(frames[-1]["positions"])
+
+    atoms_r = Atoms(symbols=symbols, positions=pos_r)
+    atoms_ts = Atoms(symbols=symbols, positions=pos_ts)
+    atoms_p = Atoms(symbols=symbols, positions=pos_p)
+
+    r_mols = getattr(model, "r_mols", None) if model else None
+    p_mols = getattr(model, "p_mols", None) if model else None
+
+    # Fragment identification
+    if r_mols and len(r_mols) > 1 and hasattr(model, "frag_of"):
+        r_frags = [[k for k in range(len(symbols)) if model.frag_of[k] == fi] for fi in range(len(r_mols))]
     else:
-        i_f, j_f = 0, 1
-        d0_form = 1.50
+        r_frags = split_into_independent_fragments(atoms_r)
 
-    if broken:
-        i_b, j_b = broken[0]
-        d0_brk = model.d0(i_b, j_b)
+    if p_mols and len(p_mols) > 1 and hasattr(model, "r2p"):
+        p_frags = [[k for k in range(len(symbols)) if model.r2p.get(k, (-1, -1))[0] == fi] for fi in range(len(p_mols))]
     else:
-        i_b, j_b = 0, 1
-        d0_brk = 1.50
+        p_frags = split_into_independent_fragments(atoms_p)
 
-    pos_ts = np.array(frames[ts_idx]["positions"])
-    d_ts_r = 0.0
-    if n_r > 1 and len(r_frag_indices) >= 2:
-        d_ts_r = float(np.linalg.norm(pos_ts[i_f] - pos_ts[j_f])) if formed else measure_interfragment_distance(pos_ts, r_frag_indices[0], r_frag_indices[1])
-    d_ts_p = 0.0
-    if n_p > 1 and len(p_frag_indices) >= 2:
-        d_ts_p = float(np.linalg.norm(pos_ts[i_b] - pos_ts[j_b])) if broken else measure_interfragment_distance(pos_ts, p_frag_indices[0], p_frag_indices[1])
+    n_r = len(r_frags)
+    n_p = len(p_frags)
+    log(f"  [Free Energy Engine] Molecularity: {n_r} reactant fragment(s) -> supermolecule -> {n_p} product fragment(s)")
 
-    # Anchor contact radius to >= TS separation so λ(TS) == 0 naturally without a cliff
-    d_contact_r = max(d0_form + DEFAULT_D_CONTACT_MARGIN, d_ts_r)
-    d_inf_r = max(5.40, d_contact_r + DEFAULT_D_INF_MARGIN)
+    # 1. Compute rigorous qRRHO free energy of TS supermolecule
+    thermo_ts = compute_species_gibbs_free_energy(
+        atoms_ts, charge=charge, mult=mult, solvent=solvent, is_ts=True,
+        e_el_override_kcal=e_ts_raw * EV_TO_KCAL
+    )
+    g_corr_ts = thermo_ts.get("G_corr_kcal", 0.0)
 
-    d_contact_p = max(d0_brk + DEFAULT_D_CONTACT_MARGIN, d_ts_p)
-    d_inf_p = max(5.40, d_contact_p + DEFAULT_D_INF_MARGIN)
+    # 2. Compute qRRHO free energy of Reactant state
+    if n_r > 1:
+        frag_props_r = compute_fragment_charges_and_multiplicities(atoms_r, r_frags, charge, mult, solvent=solvent)
+        g_corr_r_sum = 0.0
+        for f_idx, (f_chg, f_mult) in zip(r_frags, frag_props_r):
+            sub_atoms = Atoms(symbols=[symbols[i] for i in f_idx], positions=pos_r[f_idx])
+            sub_thermo = compute_species_gibbs_free_energy(sub_atoms, charge=f_chg, mult=f_mult, solvent=solvent, is_ts=False)
+            g_corr_r_sum += sub_thermo.get("G_corr_kcal", 0.0)
+        g_corr_r = g_corr_r_sum
+    else:
+        thermo_r = compute_species_gibbs_free_energy(
+            atoms_r, charge=charge, mult=mult, solvent=solvent, is_ts=False,
+            e_el_override_kcal=e_r_raw * EV_TO_KCAL
+        )
+        g_corr_r = thermo_r.get("G_corr_kcal", 0.0)
 
-    # Compute continuous switching progress λ_R and λ_P across frames
-    lambda_r = np.zeros(n_frames)
-    lambda_p = np.zeros(n_frames)
+    # 3. Compute qRRHO free energy of Product state
+    if n_p > 1:
+        frag_props_p = compute_fragment_charges_and_multiplicities(atoms_p, p_frags, charge, mult, solvent=solvent)
+        g_corr_p_sum = 0.0
+        for f_idx, (f_chg, f_mult) in zip(p_frags, frag_props_p):
+            sub_atoms = Atoms(symbols=[symbols[i] for i in f_idx], positions=pos_p[f_idx])
+            sub_thermo = compute_species_gibbs_free_energy(sub_atoms, charge=f_chg, mult=f_mult, solvent=solvent, is_ts=False)
+            g_corr_p_sum += sub_thermo.get("G_corr_kcal", 0.0)
+        g_corr_p = g_corr_p_sum
+    else:
+        thermo_p = compute_species_gibbs_free_energy(
+            atoms_p, charge=charge, mult=mult, solvent=solvent, is_ts=False,
+            e_el_override_kcal=e_p_raw * EV_TO_KCAL
+        )
+        g_corr_p = thermo_p.get("G_corr_kcal", 0.0)
 
-    for k in range(n_frames):
-        pos = np.array(frames[k]["positions"])
-        # Reactant branch (k <= ts_idx)
-        if k <= ts_idx:
-            if n_r > 1 and len(r_frag_indices) >= 2:
-                d_val = float(np.linalg.norm(pos[i_f] - pos[j_f])) if formed else measure_interfragment_distance(pos, r_frag_indices[0], r_frag_indices[1])
-                lambda_r[k] = smooth_switching_function(d_val, d_contact_r, d_inf_r)
-            else:
-                lambda_r[k] = 0.0
-        # Product branch (k >= ts_idx)
-        if k >= ts_idx:
-            if n_p > 1 and len(p_frag_indices) >= 2:
-                d_val = float(np.linalg.norm(pos[i_b] - pos[j_b])) if broken else measure_interfragment_distance(pos, p_frag_indices[0], p_frag_indices[1])
-                lambda_p[k] = smooth_switching_function(d_val, d_contact_p, d_inf_p)
-            else:
-                lambda_p[k] = 0.0
+    # 4. Construct continuous G_corr(k) along the path
+    bonds = trajectory.get("bonds", [])
+    forming_pairs = [(b["from"], b["to"]) for b in bonds if b.get("type") == "forming"]
+    breaking_pairs = [(b["from"], b["to"]) for b in bonds if b.get("type") == "breaking"]
+    if not forming_pairs and model and hasattr(model, "formed") and model.formed:
+        forming_pairs = list(model.formed)
+    if not breaking_pairs and model and hasattr(model, "broken") and model.broken:
+        breaking_pairs = list(model.broken)
 
-    lambda_r[ts_idx] = 0.0
-    lambda_p[ts_idx] = 0.0
+    if forming_pairs:
+        active_pair = forming_pairs[0]
+    elif breaking_pairs:
+        active_pair = breaking_pairs[0]
+    elif n_r > 1 and r_frags and len(r_frags) > 1:
+        sub_a = pos_ts[r_frags[0]]
+        sub_b = pos_ts[r_frags[1]]
+        dists = np.linalg.norm(sub_a[:, None, :] - sub_b[None, :, :], axis=-1)
+        min_idx = np.unravel_index(np.argmin(dists), dists.shape)
+        active_pair = (r_frags[0][min_idx[0]], r_frags[1][min_idx[1]])
+    elif n_p > 1 and p_frags and len(p_frags) > 1:
+        sub_a = pos_ts[p_frags[0]]
+        sub_b = pos_ts[p_frags[1]]
+        dists = np.linalg.norm(sub_a[:, None, :] - sub_b[None, :, :], axis=-1)
+        min_idx = np.unravel_index(np.argmin(dists), dists.shape)
+        active_pair = (p_frags[0][min_idx[0]], p_frags[1][min_idx[1]])
+    else:
+        active_pair = (0, 1)
 
-    # Assemble smooth continuous Free Energy curve G(k)
-    # At any point k:
-    # 1. Reverse branch (k <= ts_idx):
-    #    ΔG(k) = (E_raw(k) - e_r_raw) * EV_TO_KCAL + (1.0 - lambda_r[k]) * (n_r - 1) * DELTA_G_ASSOC_KCAL
-    # 2. Forward branch (k >= ts_idx):
-    #    ΔG(k) = (E_raw(k) - e_r_raw) * EV_TO_KCAL + (n_r - 1) * DELTA_G_ASSOC_KCAL - lambda_p[k] * (n_p - 1) * DELTA_G_ASSOC_KCAL
+    i_act, j_act = active_pair
+    d_ts = float(np.linalg.norm(pos_ts[i_act] - pos_ts[j_act]))
+    d_p = float(np.linalg.norm(pos_p[i_act] - pos_p[j_act]))
+    d_inf = max(5.00, d_ts + 2.50)
+
+    # Build continuous G(k) = E_el(k) + G_corr(k)
     g_kcal = np.zeros(n_frames)
+    for k in range(n_frames):
+        pos_k = np.array(frames[k]["positions"])
+        d_val = float(np.linalg.norm(pos_k[i_act] - pos_k[j_act]))
+        e_el_k = (raw_e[k] - e_r_raw) * EV_TO_KCAL
 
-    for k in range(ts_idx + 1):
-        lam_r = lambda_r[k]
-        g_kcal[k] = (raw_e[k] - e_r_raw) * EV_TO_KCAL + (1.0 - lam_r) * (n_r - 1) * DELTA_G_ASSOC_KCAL
+        if k <= orig_ts_idx:
+            if n_r > 1:
+                u = np.clip((d_inf - d_val) / max(0.1, d_inf - d_ts), 0.0, 1.0)
+                w = np.sin(0.5 * np.pi * u) ** 2
+            else:
+                u = k / max(1, orig_ts_idx)
+                w = np.sin(0.5 * np.pi * u) ** 2
+            g_corr_k = g_corr_r + w * (g_corr_ts - g_corr_r)
+        else:
+            if n_p > 1:
+                u = np.clip((d_val - d_ts) / max(0.1, d_inf - d_ts), 0.0, 1.0)
+                w = np.sin(0.5 * np.pi * u) ** 2
+            else:
+                denom = abs(d_ts - d_p)
+                if denom > 0.1:
+                    u = np.clip((d_ts - d_val) / denom, 0.0, 1.0)
+                else:
+                    u = (k - orig_ts_idx) / max(1, n_frames - 1 - orig_ts_idx)
+                w = np.sin(0.5 * np.pi * u) ** 2
+            g_corr_k = g_corr_ts + w * (g_corr_p - g_corr_ts)
 
-    for k in range(ts_idx, n_frames):
-        lam_p = lambda_p[k]
-        g_kcal[k] = (raw_e[k] - e_r_raw) * EV_TO_KCAL + (n_r - 1) * DELTA_G_ASSOC_KCAL - lam_p * (n_p - 1) * DELTA_G_ASSOC_KCAL
+        g_kcal[k] = e_el_k + (g_corr_k - g_corr_r)
 
-    # Exact value match at TS saddle point
-    g_kcal[ts_idx] = (raw_e[ts_idx] - e_r_raw) * EV_TO_KCAL + (n_r - 1) * DELTA_G_ASSOC_KCAL
-
-    # Normalize relative to initial reactant state G(0) = 0.0
+    # Re-normalize so reactant baseline G(0) = 0.0
     rel_g_kcal = g_kcal - g_kcal[0]
 
-    # Compute thermodynamically consistent barriers
-    min_reac_g = float(np.min(rel_g_kcal[:ts_idx + 1])) if ts_idx > 0 else 0.0
-    barrier_fwd = max(0.0, float(rel_g_kcal[ts_idx] - min_reac_g))
-    barrier_rev = max(0.0, float(rel_g_kcal[ts_idx] - rel_g_kcal[-1]))
+    # 5. Variational TS Relocation & Barrierless Step Detection
+    # Search for peak in chemical region
+    k_star = int(chem_start + np.argmax(rel_g_kcal[chem_start:chem_end + 1]))
+    g_peak = float(rel_g_kcal[k_star])
     rxn_g = float(rel_g_kcal[-1])
 
-    log(f"  [Free Energy Engine] ΔG‡_fwd = {barrier_fwd:.2f} kcal/mol, ΔG‡_rev = {barrier_rev:.2f} kcal/mol, ΔG_rxn = {rxn_g:+.2f} kcal/mol")
+    min_reac_g = float(np.min(rel_g_kcal[:k_star + 1])) if k_star > 0 else 0.0
+    barrier_fwd = max(0.0, float(g_peak - min_reac_g))
+    barrier_rev = max(0.0, float(g_peak - rxn_g))
+
+    # A step is only truly barrierless if it is downhill/thermoneutral AND has no significant forward barrier
+    is_barrierless = bool(barrier_fwd <= 0.50 and rxn_g <= 0.50)
+
+    # Reaction coordinate s_arc alignment
+    orig_s = [float(f.get("s_arc", float(k - orig_ts_idx))) for k, f in enumerate(frames)]
+
+    if not is_barrierless:
+        # Activated step: relocate ts_frame_index to true variational maximum k_star
+        ts_frame_idx = k_star
+        trajectory["is_barrierless"] = False
+        trajectory["ts_frame_index"] = ts_frame_idx
+        trajectory["sella_ts_frame_index"] = orig_ts_idx
+
+        # Re-zero s_arc at true TS peak
+        s_offset = orig_s[ts_frame_idx]
+        new_s = [round(s - s_offset, 2) for s in orig_s]
+
+        min_reac_g = float(np.min(rel_g_kcal[:ts_frame_idx + 1])) if ts_frame_idx > 0 else 0.0
+        barrier_fwd = max(0.0, float(rel_g_kcal[ts_frame_idx] - min_reac_g))
+        barrier_rev = max(0.0, float(rel_g_kcal[ts_frame_idx] - rel_g_kcal[-1]))
+        rxn_g = float(rel_g_kcal[-1])
+        log(f"  [Free Energy Engine] Activated Step: Variational TS relocated to frame {ts_frame_idx} (was {orig_ts_idx}).")
+        log(f"  [Free Energy Engine] ΔG‡_fwd = {barrier_fwd:.2f} kcal/mol, ΔG‡_rev = {barrier_rev:.2f} kcal/mol, ΔG_rxn = {rxn_g:+.2f} kcal/mol")
+    else:
+        # Barrierless / diffusion-limited step: no artificial saddle peak
+        ts_frame_idx = None
+        trajectory["is_barrierless"] = True
+        trajectory["ts_frame_index"] = None
+        trajectory["sella_ts_frame_index"] = orig_ts_idx
+
+        # Re-zero s_arc at frame 0
+        s_offset = orig_s[0]
+        new_s = [round(s - s_offset, 2) for s in orig_s]
+
+        barrier_fwd = max(0.0, float(rel_g_kcal[-1]))
+        barrier_rev = max(0.0, float(-rel_g_kcal[-1]))
+        rxn_g = float(rel_g_kcal[-1])
+        log(f"  [Free Energy Engine] Step is BARRIERLESS (ΔG‡_fwd = {barrier_fwd:.2f} <= 0.5 kcal/mol, ΔG_rxn = {rxn_g:+.2f} <= 0.5 kcal/mol). Suppressing fake TS.")
+        log(f"  [Free Energy Engine] ΔG‡_fwd = {barrier_fwd:.2f} kcal/mol, ΔG_rxn = {rxn_g:+.2f} kcal/mol")
 
     # Update frame records
     for k, fr in enumerate(frames):
         fr["free_energy_kcal"] = round(float(rel_g_kcal[k]), 3)
         fr["rel_free_energy_kcal"] = round(float(rel_g_kcal[k]), 3)
-        # Update rel_energy_kcal to display Free Energy by default in frontend
         fr["rel_energy_kcal"] = round(float(rel_g_kcal[k]), 3)
+        fr["s_arc"] = new_s[k]
+        if ts_frame_idx is not None:
+            fr["is_ts"] = bool(k == ts_frame_idx)
+        else:
+            fr["is_ts"] = False
 
     trajectory["barriers"].update({
         "energy_type": "gibbs",
         "forward_barrier_kcal": round(barrier_fwd, 2),
         "reverse_barrier_kcal": round(barrier_rev, 2),
         "reaction_energy_kcal": round(rxn_g, 2),
-        "delta_g_assoc_applied_kcal": round((n_r - 1) * DELTA_G_ASSOC_KCAL, 2),
-        "delta_g_dissoc_applied_kcal": round((n_p - 1) * DELTA_G_ASSOC_KCAL, 2)
+        "is_barrierless": is_barrierless,
+        "delta_g_corr_ts_kcal": round(g_corr_ts, 2),
+        "delta_g_corr_r_kcal": round(g_corr_r, 2),
+        "delta_g_corr_p_kcal": round(g_corr_p, 2),
     })
     trajectory["frames"] = frames
     return trajectory

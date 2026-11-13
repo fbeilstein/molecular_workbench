@@ -86,8 +86,12 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
 
     const tsIndices = new Set(
         trajectory.step_boundaries && trajectory.step_boundaries.length > 0
-            ? trajectory.step_boundaries.map(b => b.ts_frame)
-            : [trajectory.ts_frame_index]
+            ? trajectory.step_boundaries
+                .filter(b => !b.is_barrierless && b.ts_frame !== null && b.ts_frame !== undefined)
+                .map(b => b.ts_frame)
+            : (!trajectory.is_barrierless && trajectory.ts_frame_index !== null && trajectory.ts_frame_index !== undefined
+                ? [trajectory.ts_frame_index]
+                : [])
     );
 
     // Points on curve
@@ -183,15 +187,20 @@ export function renderEnergyProfile(canvas, trajectory, currentIdx, onPointClick
                 }
             }
         });
-    } else {
+    } else if (!trajectory.is_barrierless && trajectory.ts_frame_index !== null && trajectory.ts_frame_index !== undefined) {
         const startRight = padLeft + ctx.measureText(`s: ${minS.toFixed(1)}`).width + 8;
-        const tsX = toX(0);
-        const tsLabel = `s: 0 (TS)`;
+        const tsF = frames[trajectory.ts_frame_index];
+        const tsS = tsF ? (tsF.s_arc !== undefined ? tsF.s_arc : 0) : 0;
+        const tsX = toX(tsS);
+        const tsLabel = `s: ${tsS.toFixed(1)} (TS)`;
         const tsW = ctx.measureText(tsLabel).width;
         const drawX = Math.max(startRight, Math.min(tsX - tsW / 2, endLabelX - tsW - 8));
         if (drawX >= startRight && drawX + tsW + 6 <= endLabelX) {
             ctx.fillText(tsLabel, drawX, h - 8);
         }
+    } else if (trajectory.is_barrierless) {
+        ctx.fillStyle = '#059669';
+        ctx.fillText(`⚡ Barrierless`, padLeft + plotW / 2 - 30, h - 8);
     }
 
     // Interactive Click

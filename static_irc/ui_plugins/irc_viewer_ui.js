@@ -29,8 +29,11 @@ export const IRCViewerUI = {
             dom.frameSlider.value = currentFrameIndex.toString();
             dom.frameCountLabel.textContent = `Frame ${currentFrameIndex + 1}/${n}`;
 
-            const dirTag = currentFrameIndex === currentTrajectory.ts_frame_index ? '🔴 Transition State' :
-                           currentFrameIndex < currentTrajectory.ts_frame_index ? '🔵 Reactant Basin' : '🟢 Product Basin';
+            const isBarrierless = currentTrajectory.is_barrierless === true || currentTrajectory.ts_frame_index === null || currentTrajectory.ts_frame_index === undefined;
+            const dirTag = isBarrierless
+                ? '⚡ Barrierless Path'
+                : (currentFrameIndex === currentTrajectory.ts_frame_index ? '🔴 Transition State' :
+                   currentFrameIndex < currentTrajectory.ts_frame_index ? '🔵 Reactant Basin' : '🟢 Product Basin');
             const isGibbs = currentTrajectory.barriers && currentTrajectory.barriers.energy_type === 'gibbs';
             const eUnit = isGibbs ? 'ΔG' : 'ΔE';
             dom.hudOverlay.textContent = `${dirTag} | s = ${frame.s_arc.toFixed(2)} amu½·Å | ${eUnit} = ${frame.rel_energy_kcal >= 0 ? '+' : ''}${frame.rel_energy_kcal.toFixed(2)} kcal/mol`;
@@ -66,7 +69,7 @@ export const IRCViewerUI = {
                 }
             }
 
-            const tsIdx = traj.ts_frame_index || 0;
+            const tsIdx = (traj.is_barrierless || traj.ts_frame_index == null) ? 0 : traj.ts_frame_index;
             activeViewer.loadTrajectory(traj);
             setFrame(tsIdx);
         }
