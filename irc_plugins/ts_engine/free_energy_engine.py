@@ -152,6 +152,7 @@ def compute_pathway_free_energy(
     g_corr_ts = thermo_ts.get("G_corr_kcal", 0.0)
 
     # 2. Compute qRRHO free energy of Reactant state
+    frag_props_r = None
     if n_r > 1:
         frag_props_r = compute_fragment_charges_and_multiplicities(atoms_r, r_frags, charge, mult, solvent=solvent)
         g_corr_r_sum = 0.0
@@ -192,56 +193,74 @@ def compute_pathway_free_energy(
     if not breaking_pairs and model and hasattr(model, "broken") and model.broken:
         breaking_pairs = list(model.broken)
 
+    # Pre-TS active pair (forming bond or closest reactant inter-fragment pair)
     if forming_pairs:
-        active_pair = forming_pairs[0]
-    elif breaking_pairs:
-        active_pair = breaking_pairs[0]
+        pair_r = forming_pairs[0]
     elif n_r > 1 and r_frags and len(r_frags) > 1:
-        sub_a = pos_ts[r_frags[0]]
-        sub_b = pos_ts[r_frags[1]]
+        sub_a, sub_b = pos_ts[r_frags[0]], pos_ts[r_frags[1]]
         dists = np.linalg.norm(sub_a[:, None, :] - sub_b[None, :, :], axis=-1)
         min_idx = np.unravel_index(np.argmin(dists), dists.shape)
-        active_pair = (r_frags[0][min_idx[0]], r_frags[1][min_idx[1]])
-    elif n_p > 1 and p_frags and len(p_frags) > 1:
-        sub_a = pos_ts[p_frags[0]]
-        sub_b = pos_ts[p_frags[1]]
-        dists = np.linalg.norm(sub_a[:, None, :] - sub_b[None, :, :], axis=-1)
-        min_idx = np.unravel_index(np.argmin(dists), dists.shape)
-        active_pair = (p_frags[0][min_idx[0]], p_frags[1][min_idx[1]])
+        pair_r = (r_frags[0][min_idx[0]], r_frags[1][min_idx[1]])
+    elif breaking_pairs:
+        pair_r = breaking_pairs[0]
     else:
-        active_pair = (0, 1)
+        pair_r = (0, 1)
 
-    i_act, j_act = active_pair
-    d_ts = float(np.linalg.norm(pos_ts[i_act] - pos_ts[j_act]))
-    d_p = float(np.linalg.norm(pos_p[i_act] - pos_p[j_act]))
-    d_inf = max(5.00, d_ts + 2.50)
+    # Post-TS active pair (breaking bond or closest product inter-fragment pair)
+    if breaking_pairs:
+        pair_p = breaking_pairs[0]
+    elif n_p > 1 and p_frags and len(p_frags) > 1:
+        sub_a, sub_b = pos_ts[p_frags[0]], pos_ts[p_frags[1]]
+        dists = np.linalg.norm(sub_a[:, None, :] - sub_b[None, :, :], axis=-1)
+        min_idx = np.unravel_index(np.argmin(dists), dists.shape)
+        pair_p = (p_frags[0][min_idx[0]], p_frags[1][min_idx[1]])
+    elif forming_pairs:
+        pair_p = forming_pairs[0]
+    else:
+        pair_p = (0, 1)
 
-    # Build continuous G(k) = E_el(k) + G_corr(k)
+    d_ts_r = float(np.linalg.norm(pos_ts[pair_r[0]] - pos_ts[pair_r[1]]))
+    d_r_0 = float(np.linalg.norm(pos_r[pair_r[0]] - pos_r[pair_r[1]]))
+    d_inf_r = max(5.00, d_ts_r + 2.50)
+
+    d_ts_p = float(np.linalg.norm(pos_ts[pair_p[0]] - pos_ts[pair_p[1]]))
+    d_p_end = float(np.linalg.norm(pos_p[pair_p[0]] - pos_p[pair_p[1]]))
+    d_inf_p = max(5.00, d_ts_p + 2.50)
+
+    # Precompute screened electronic energies
+    e_el_raw_kcal = (raw_e - e_r_raw) * EV_TO_KCAL
+    e_el_screened = e_el_raw_kcal.copy()
+
+    # Screen unphysical uphill Coulomb cavity drag on forced asymptotic separation arms
+    for k in range(chem_end + 1, n_frames):
+        e_el_screened[k] = min(e_el_screened[k], e_el_screened[k - 1])
+    if n_r > 1 and frag_props_r and len(frag_props_r) >= 2 and (frag_props_r[0][0] * frag_props_r[1][0] < 0):
+        for k in range(chem_start - 1, -1, -1):
+            e_el_screened[k] = min(e_el_screened[k], e_el_screened[k + 1])
+
+    # Build continuous G(k) = E_el(k) + G_corr(k) with exact mirror symmetry
     g_kcal = np.zeros(n_frames)
     for k in range(n_frames):
         pos_k = np.array(frames[k]["positions"])
-        d_val = float(np.linalg.norm(pos_k[i_act] - pos_k[j_act]))
-        e_el_k = (raw_e[k] - e_r_raw) * EV_TO_KCAL
+        e_el_k = float(e_el_screened[k])
 
         if k <= orig_ts_idx:
+            d_val = float(np.linalg.norm(pos_k[pair_r[0]] - pos_k[pair_r[1]]))
             if n_r > 1:
-                u = np.clip((d_inf - d_val) / max(0.1, d_inf - d_ts), 0.0, 1.0)
-                w = np.sin(0.5 * np.pi * u) ** 2
+                u = np.clip((d_inf_r - d_val) / max(0.1, d_inf_r - d_ts_r), 0.0, 1.0)
             else:
-                u = k / max(1, orig_ts_idx)
-                w = np.sin(0.5 * np.pi * u) ** 2
+                denom = abs(d_ts_r - d_r_0)
+                u = np.clip((d_val - d_r_0) / denom, 0.0, 1.0) if denom > 0.1 else (k / max(1, orig_ts_idx))
+            w = float(np.sin(0.5 * np.pi * u) ** 2)
             g_corr_k = g_corr_r + w * (g_corr_ts - g_corr_r)
         else:
+            d_val = float(np.linalg.norm(pos_k[pair_p[0]] - pos_k[pair_p[1]]))
             if n_p > 1:
-                u = np.clip((d_val - d_ts) / max(0.1, d_inf - d_ts), 0.0, 1.0)
-                w = np.sin(0.5 * np.pi * u) ** 2
+                u = np.clip((d_val - d_ts_p) / max(0.1, d_inf_p - d_ts_p), 0.0, 1.0)
             else:
-                denom = abs(d_ts - d_p)
-                if denom > 0.1:
-                    u = np.clip((d_ts - d_val) / denom, 0.0, 1.0)
-                else:
-                    u = (k - orig_ts_idx) / max(1, n_frames - 1 - orig_ts_idx)
-                w = np.sin(0.5 * np.pi * u) ** 2
+                denom = abs(d_ts_p - d_p_end)
+                u = np.clip((d_ts_p - d_val) / denom, 0.0, 1.0) if denom > 0.1 else ((k - orig_ts_idx) / max(1, n_frames - 1 - orig_ts_idx))
+            w = float(np.sin(0.5 * np.pi * u) ** 2)
             g_corr_k = g_corr_ts + w * (g_corr_p - g_corr_ts)
 
         g_kcal[k] = e_el_k + (g_corr_k - g_corr_r)
@@ -251,7 +270,8 @@ def compute_pathway_free_energy(
 
     # 5. Variational TS Relocation & Barrierless Step Detection
     # Search for peak in chemical region
-    k_star = int(chem_start + np.argmax(rel_g_kcal[chem_start:chem_end + 1]))
+    search_end = max(1, chem_end)
+    k_star = int(np.argmax(rel_g_kcal[:search_end + 1]))
     g_peak = float(rel_g_kcal[k_star])
     rxn_g = float(rel_g_kcal[-1])
 
