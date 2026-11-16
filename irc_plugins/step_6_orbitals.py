@@ -124,9 +124,8 @@ class Step6Orbitals(PipelineStep):
             return {"success": True, "progress": get_calc_progress()}
 
         if action in ["clear_cache", "purge_cache"]:
-            clear_orbital_store()
             clear_orbital_caches()
-            return {"success": True, "message": "Orbital store and cube caches cleared."}
+            return {"success": True, "message": "Orbital cube caches cleared."}
 
         if action in ["calculate_orbitals", "build_orbital_store"]:
             force = bool(user_input.get("force", False))

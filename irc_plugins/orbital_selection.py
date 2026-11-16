@@ -181,8 +181,10 @@ def enrich_timeline_tracks(
     catalog = megajson.get("global_electron_tracks")
     if not catalog or len(catalog) <= 3:
         try:
-            from .orbital_tracker import get_existing_orbital_store
+            from .orbital_tracker import get_existing_orbital_store, get_or_build_orbital_store
             store = get_existing_orbital_store(megajson)
+            if not store:
+                store = get_or_build_orbital_store(megajson, force_rebuild=False)
             catalog = store.get("registry", {}).get("tracks", {}) if store else {}
         except Exception:
             catalog = {}
@@ -238,6 +240,6 @@ def enrich_timeline_tracks(
             trk["orbital_class"] = migrated["orbital_class"]
             trk["atoms"] = migrated.get("atoms", [])
         else:
-            trk["frame_map"] = [tid if trk.get("ref_frame") == f else None for f in range(n_frames)]
+            trk.setdefault("frame_map", [tid if trk.get("ref_frame") == f else None for f in range(n_frames)])
 
     return tracks

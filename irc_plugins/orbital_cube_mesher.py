@@ -16,6 +16,7 @@ from .constants import ROOT_DIR, OUT_DIR, CUBES_DIR
 
 _GRID_CACHE: Dict[str, Any] = {}
 _CUBE_CACHE: Dict[str, str] = {}
+_VOL_CACHE: Dict[str, np.ndarray] = {}
 _CACHE_LOCK = threading.Lock()
 
 
@@ -24,6 +25,7 @@ def clear_orbital_caches():
     with _CACHE_LOCK:
         _CUBE_CACHE.clear()
         _GRID_CACHE.clear()
+        _VOL_CACHE.clear()
         if os.path.exists(CUBES_DIR):
             for cf in os.listdir(CUBES_DIR):
                 if cf.endswith(".cube"):
@@ -31,6 +33,19 @@ def clear_orbital_caches():
                         os.remove(os.path.join(CUBES_DIR, cf))
                     except Exception:
                         pass
+
+
+def _get_pathway_hash(megajson: Dict[str, Any]) -> str:
+    """Resolve pathway hash from megajson or compute SHA-256 fingerprint."""
+    h = megajson.get("pathway_hash")
+    if not h:
+        try:
+            from .orbital_tracker.store import compute_pathway_fingerprint
+            h = compute_pathway_fingerprint(megajson)
+            megajson["pathway_hash"] = h
+        except Exception:
+            h = ""
+    return str(h or "")
 
 
 def get_grid(megajson: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -72,10 +87,11 @@ def get_or_compute_cube(
     if not tid or tid in ("track_esp_charge", "trk_esp"):
         return {"success": False, "available": False, "track_id": tid}
 
-    cache_key = f"{frame_idx}_{tid}"
+    p_hash = _get_pathway_hash(megajson)
+    cache_key = f"{p_hash}_{frame_idx}_{tid}"
     coords = megajson["frames"][frame_idx].get("coords", megajson["frames"][frame_idx].get("positions", []))
     disk_cube_path = os.path.join(CUBES_DIR, f"{cache_key}.cube")
-    header_expected = f"F{frame_idx}_{tid}"
+    header_expected = f"F{frame_idx}_{tid}_{p_hash}"
 
     # 1. Check memory cache
     if cache_key in _CUBE_CACHE:
@@ -108,6 +124,17 @@ def get_or_compute_cube(
     # 4. Evaluate volumetric grid and serialize cube text
     lo, step, npts = get_grid(megajson)
     v = orbital_engine.evaluate_mo_grid(mol, vec, lo, step, npts)
+
+    # Enforce volumetric phase continuity with preceding frame for the same track
+    prev_vol_key = f"{p_hash}_{frame_idx - 1}_{tid}"
+    if prev_vol_key in _VOL_CACHE:
+        dot = float(np.sum(_VOL_CACHE[prev_vol_key] * v))
+        if dot < 0.0:
+            v = -v
+    norm_v = float(np.linalg.norm(v))
+    if norm_v > 1e-9:
+        _VOL_CACHE[cache_key] = v / norm_v
+
     fr = megajson["frames"][frame_idx]
     syms = fr.get("symbols") or megajson.get("symbols", [])
     cube_text = orbital_engine.generate_cube_text(header_expected, syms, coords, v, lo, step, npts)
@@ -139,6 +166,7 @@ def batch_precompute_cubes(
     n_frames = len(megajson.get("frames", []))
     ef = min(n_frames - 1, sf + sz - 1)
     lo, step, npts = get_grid(megajson)
+    p_hash = _get_pathway_hash(megajson)
     batch_cubes = {}
 
     os.makedirs(CUBES_DIR, exist_ok=True)
@@ -152,18 +180,19 @@ def batch_precompute_cubes(
             if not tid or tid in ("track_esp_charge", "trk_esp"):
                 continue
 
-            cache_key = f"{fi}_{tid}"
+            cache_key = f"{p_hash}_{fi}_{tid}"
+            pub_key = f"{fi}_{tid}"
             disk_cube_path = os.path.join(CUBES_DIR, f"{cache_key}.cube")
-            header_expected = f"F{fi}_{tid}"
+            header_expected = f"F{fi}_{tid}_{p_hash}"
 
             if not force:
                 if cache_key in _CUBE_CACHE and _CUBE_CACHE[cache_key].startswith(header_expected):
-                    batch_cubes[cache_key] = _CUBE_CACHE[cache_key]
+                    batch_cubes[pub_key] = _CUBE_CACHE[cache_key]
                     continue
                 cached_disk = _read_cached_disk_cube(disk_cube_path, header_expected)
                 if cached_disk:
                     _CUBE_CACHE[cache_key] = cached_disk
-                    batch_cubes[cache_key] = cached_disk
+                    batch_cubes[pub_key] = cached_disk
                     continue
 
             mol, vec, meta = get_track_vector_and_mol(megajson, fi, tid)
@@ -171,9 +200,20 @@ def batch_precompute_cubes(
                 continue
 
             v = orbital_engine.evaluate_mo_grid(mol, vec, lo, step, npts)
+
+            # Enforce volumetric phase continuity with preceding frame for the same track
+            prev_vol_key = f"{p_hash}_{fi - 1}_{tid}"
+            if prev_vol_key in _VOL_CACHE:
+                dot = float(np.sum(_VOL_CACHE[prev_vol_key] * v))
+                if dot < 0.0:
+                    v = -v
+            norm_v = float(np.linalg.norm(v))
+            if norm_v > 1e-9:
+                _VOL_CACHE[cache_key] = v / norm_v
+
             cube_text = orbital_engine.generate_cube_text(header_expected, syms_i, coords, v, lo, step, npts)
             _CUBE_CACHE[cache_key] = cube_text
-            batch_cubes[cache_key] = cube_text
+            batch_cubes[pub_key] = cube_text
 
             try:
                 with open(disk_cube_path, "w") as cf:
@@ -196,20 +236,23 @@ def get_cached_cubes(
     megajson: Optional[Dict[str, Any]] = None
 ) -> Dict[str, str]:
     """Retrieve pre-existing cached cubes across requested frames and tracks."""
+    mj = megajson or (megajson_or_cache if isinstance(megajson_or_cache, dict) else {})
+    p_hash = _get_pathway_hash(mj)
     found = {}
     for fi in frames:
         for trk in tracks:
             tid = trk.get("track_id") if isinstance(trk, dict) else (trk.get("orbital_key") if isinstance(trk, dict) else str(trk))
             if not tid or tid in ("track_esp_charge", "trk_esp"):
                 continue
-            cache_key = f"{fi}_{tid}"
-            header_expected = f"F{fi}_{tid}"
+            cache_key = f"{p_hash}_{fi}_{tid}"
+            pub_key = f"{fi}_{tid}"
+            header_expected = f"F{fi}_{tid}_{p_hash}"
             if cache_key in _CUBE_CACHE and _CUBE_CACHE[cache_key].startswith(header_expected):
-                found[cache_key] = _CUBE_CACHE[cache_key]
+                found[pub_key] = _CUBE_CACHE[cache_key]
                 continue
             disk_cube_path = os.path.join(CUBES_DIR, f"{cache_key}.cube")
             cached_disk = _read_cached_disk_cube(disk_cube_path, header_expected)
             if cached_disk:
                 _CUBE_CACHE[cache_key] = cached_disk
-                found[cache_key] = cached_disk
+                found[pub_key] = cached_disk
     return found
