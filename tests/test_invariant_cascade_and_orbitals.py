@@ -140,13 +140,13 @@ class TestPathwayAndOrbitalInvariants(unittest.TestCase):
             self.assertEqual(t_c6_cl7_star["frame_map"][fi], "trk_0046", f"trk_0046 broken at frame {fi}")
         self.assertIsNone(t_c6_cl7_star["frame_map"][29], "trk_0046 must die at frame 29 upon cleavage")
 
-        # 3. Nucleophilic attack: LP(O24) -> sigma(C6-O24) (trk_0080) born as nucleophile attacks
-        self.assertIn("trk_0080", reg)
-        t_c6_o24 = reg["trk_0080"]
+        # 3. Nucleophilic attack: LP(O24) -> sigma(C6-O24) (trk_0082) born as nucleophile attacks
+        self.assertIn("trk_0082", reg)
+        t_c6_o24 = reg["trk_0082"]
         self.assertEqual(t_c6_o24["label"], "LP(O24) → σ(C6-O24)")
         self.assertEqual((t_c6_o24["start_frame"], t_c6_o24["end_frame"]), (66, 188))
         for fi in range(66, 189):
-            self.assertEqual(t_c6_o24["frame_map"][fi], "trk_0080", f"trk_0080 broken at frame {fi}")
+            self.assertEqual(t_c6_o24["frame_map"][fi], "trk_0082", f"trk_0082 broken at frame {fi}")
 
         # 4. Persistent spectator carbonyl pi(C6-O8) -> LP(O8) (trk_0029) continuous across all 189 frames
         self.assertIn("trk_0029", reg)
@@ -168,16 +168,24 @@ class TestPathwayAndOrbitalInvariants(unittest.TestCase):
         self.assertIn("trk_0057", reg)
         t_pistar_lumo = reg["trk_0057"]
         self.assertEqual((t_pistar_lumo["start_frame"], t_pistar_lumo["end_frame"]), (0, 188))
-        self.assertEqual(t_pistar_lumo["label"], "π*_deloc(Ar) [π*1] → π*_deloc(C1..C11) [π*1] → π*_deloc(Ar) [π*2]")
+        self.assertEqual(t_pistar_lumo["label"], "π*_deloc(Ar) [π*1] → π*_deloc(Ar) [π*2]")
         for fi in range(0, 189):
             self.assertEqual(t_pistar_lumo["frame_map"][fi], "trk_0057", f"trk_0057 broken at frame {fi}")
 
-        # 7. Water proton-transfer channel: LP(O29) -> sigma(O29-H28) (trk_0086) continuous across 120..188
-        self.assertIn("trk_0086", reg)
-        t_h2o = reg["trk_0086"]
+        # 7. Localized spectator carbonyl pi*(C6-O8) (trk_0056)
+        self.assertIn("trk_0056", reg)
+        t_pistar_loc = reg["trk_0056"]
+        self.assertEqual(t_pistar_loc["label"], "π*₁(C6-O8)")
+        self.assertEqual((t_pistar_loc["start_frame"], t_pistar_loc["end_frame"]), (0, 55))
+        for fi in range(0, 56):
+            self.assertEqual(t_pistar_loc["frame_map"][fi], "trk_0056", f"trk_0056 broken at frame {fi}")
+
+        # 8. Water proton-transfer channel: LP(O29) -> sigma(O29-H28) (trk_0088) continuous across 120..188
+        self.assertIn("trk_0088", reg)
+        t_h2o = reg["trk_0088"]
         self.assertEqual((t_h2o["start_frame"], t_h2o["end_frame"]), (120, 188))
         for fi in range(120, 189):
-            self.assertEqual(t_h2o["frame_map"][fi], "trk_0086", f"trk_0086 broken at frame {fi}")
+            self.assertEqual(t_h2o["frame_map"][fi], "trk_0088", f"trk_0088 broken at frame {fi}")
 
     def test_invariant_4_ui_single_visibility_and_exact_meshing(self):
         """Frontend files must enforce single visibility set and exact key mesh resolution."""

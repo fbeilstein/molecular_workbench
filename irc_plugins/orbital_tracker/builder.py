@@ -156,6 +156,7 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
     active_core: List[Dict[str, Any]] = []
     active_valence: List[Dict[str, Any]] = []
     active_antibond: List[Dict[str, Any]] = []
+    active_deloc_pi: List[Dict[str, Any]] = []
     prev_frontier_vecs: Dict[str, np.ndarray] = {}
 
     next_seq = 1
@@ -320,26 +321,37 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
         )
 
         # ----------------------------------------------------
-        # Subspace D: Virtual Space (Localized Antibonds + Step-0 Conjugated Pi*)
+        # Subspace D: Localized Antibonds
         # ----------------------------------------------------
         star_keys = list(star_dict.keys())
-        curr_virt_list = []
+        curr_star_list = []
         for k in star_keys:
             v = vecs_dict[k].copy()
             meta = star_dict[k]
             p_arr = _calc_pop(v, is_virt=True)
-            curr_virt_list.append({"vec": v, "pop": p_arr, "meta": meta})
+            curr_star_list.append({"vec": v, "pop": p_arr, "meta": meta})
+
+        active_antibond, next_seq = match_subspace_orbitals(
+            active_antibond, curr_star_list, s_cross, t,
+            subspace="antibond", threshold=0.45, next_seq=next_seq,
+            record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
+            pi_type_keyword="pi_star"
+        )
+
+        # ----------------------------------------------------
+        # Subspace E: Delocalized Virtual Pi* Systems
+        # ----------------------------------------------------
+        curr_deloc_list = []
         for k, meta in c_meta.items():
             if k in f_vecs and "pistar" in meta.get("type", ""):
                 v = f_vecs[k].copy()
                 p_arr = _calc_pop(v, is_virt=True)
-                curr_virt_list.append({"vec": v, "pop": p_arr, "meta": meta})
+                curr_deloc_list.append({"vec": v, "pop": p_arr, "meta": meta})
 
-        active_antibond, next_seq = match_subspace_orbitals(
-            active_antibond, curr_virt_list, s_cross, t,
-            subspace="antibond", threshold=0.45, next_seq=next_seq,
-            record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
-            pi_type_keyword="pi_star"
+        active_deloc_pi, next_seq = match_subspace_orbitals(
+            active_deloc_pi, curr_deloc_list, s_cross, t,
+            subspace="deloc_pi", threshold=0.45, next_seq=next_seq,
+            record_fn=_record_track_instance, prefix="trk_", pad_zeros=4
         )
 
         frame_outputs.append({

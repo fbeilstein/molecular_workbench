@@ -178,16 +178,20 @@ def enrich_timeline_tracks(
     """Enrich orbital timeline tracks with exact track metadata, role transitions, and frame maps."""
     if not tracks:
         return tracks
-    catalog = megajson.get("global_electron_tracks")
-    if not catalog or len(catalog) <= 3:
-        try:
-            from .orbital_tracker import get_existing_orbital_store, get_or_build_orbital_store
-            store = get_existing_orbital_store(megajson)
-            if not store:
-                store = get_or_build_orbital_store(megajson, force_rebuild=False)
-            catalog = store.get("registry", {}).get("tracks", {}) if store else {}
-        except Exception:
-            catalog = {}
+    catalog = None
+    try:
+        from .orbital_tracker import get_existing_orbital_store, get_or_build_orbital_store
+        store = get_existing_orbital_store(megajson)
+        if not store:
+            store = get_or_build_orbital_store(megajson, force_rebuild=False)
+        catalog = store.get("registry", {}).get("tracks", {}) if store else {}
+    except Exception:
+        catalog = {}
+
+    if not catalog:
+        catalog = megajson.get("global_electron_tracks") or {}
+    else:
+        megajson["global_electron_tracks"] = catalog
 
     n_frames = len(megajson.get("frames", []))
     for trk in tracks:
