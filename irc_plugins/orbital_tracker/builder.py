@@ -63,41 +63,6 @@ def _worker_compute_frame(
     return (t, mull, ibos_dict, star_dict, vecs_dict, pops, f_meta, c_meta, f_vecs)
 
 
-def _deduplicate_candidates(cand_list: List[Dict[str, Any]], ovlp: np.ndarray, threshold: float = 0.75) -> List[Dict[str, Any]]:
-    """
-    Remove redundant collinear/duplicate candidates (overlap > threshold).
-    Prioritizes canonical delocalized pi/pi* over localized, and for collinear localized
-    antibonds on the same reacting center, prioritizes sigma* reaction coordinates
-    (e.g. C-Cl, C-O) over in-plane pi* to avoid shadowing the forming/breaking bond.
-    """
-    if not cand_list:
-        return cand_list
-    sorted_cands = sorted(
-        cand_list,
-        key=lambda x: (
-            0 if ("deloc" in x["meta"].get("type", "") or "DELOC" in str(x["meta"].get("key", "")))
-            else (1 if "sigma" in x["meta"].get("type", "") else 2)
-        )
-    )
-    kept: List[Dict[str, Any]] = []
-    for cand in sorted_cands:
-        v = cand["vec"]
-        is_dup = False
-        ats1 = {a for a in cand["meta"].get("atoms", []) if not a.startswith("H")}
-        for k_item in kept:
-            ats2 = {a for a in k_item["meta"].get("atoms", []) if not a.startswith("H")}
-            if not (ats1 & ats2 or (len(ats1) > 2 and len(ats2) > 2)):
-                continue
-            vk = k_item["vec"]
-            ov = abs(float(v.T @ ovlp @ vk))
-            if ov > threshold:
-                is_dup = True
-                break
-        if not is_dup:
-            kept.append(cand)
-    return kept
-
-
 def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, Any]:
     """Run parallel frame SCF and sequential tracking to build persistent store."""
     global _CALC_PROGRESS
@@ -327,9 +292,8 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
 
         active_core, next_core_seq = match_subspace_orbitals(
             active_core, curr_core_list, s_cross, t,
-            subspace="core", threshold=0.01, next_seq=next_core_seq,
-            record_fn=_record_track_instance, prefix="trk_core_", pad_zeros=2,
-            curr_atom_labels=curr_atom_labels,
+            subspace="core", threshold=0.60, next_seq=next_core_seq,
+            record_fn=_record_track_instance, prefix="trk_core_", pad_zeros=2
         )
 
         # ----------------------------------------------------
@@ -352,8 +316,7 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
             active_valence, curr_val_list, s_cross, t,
             subspace="valence_ibo", threshold=0.45, next_seq=next_seq,
             record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
-            pi_type_keyword="pi",
-            curr_atom_labels=curr_atom_labels,
+            pi_type_keyword="pi"
         )
 
         # ----------------------------------------------------
@@ -371,14 +334,12 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
                 v = f_vecs[k].copy()
                 p_arr = _calc_pop(v, is_virt=True)
                 curr_virt_list.append({"vec": v, "pop": p_arr, "meta": meta})
-        curr_virt_list = _deduplicate_candidates(curr_virt_list, ovlp, threshold=0.75)
 
         active_antibond, next_seq = match_subspace_orbitals(
             active_antibond, curr_virt_list, s_cross, t,
             subspace="antibond", threshold=0.45, next_seq=next_seq,
             record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
-            pi_type_keyword="pi_star",
-            curr_atom_labels=curr_atom_labels,
+            pi_type_keyword="pi_star"
         )
 
         frame_outputs.append({
@@ -399,7 +360,7 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
         "percent": 98,
         "message": "Saving orbital store and registry...",
     })
-    registry_tracks = smooth_and_label_tracks(track_records, N, frame_outputs=frame_outputs)
+    registry_tracks = smooth_and_label_tracks(track_records, N)
 
     # Step 4: Serialization to .npz and registry.json
     os.makedirs(TRAJECTORIES_DIR, exist_ok=True)

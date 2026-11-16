@@ -78,7 +78,6 @@ def match_subspace_orbitals(
     prefix: str = "trk_",
     pad_zeros: int = 4,
     pi_type_keyword: Optional[str] = None,
-    curr_atom_labels: Optional[List[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
     Subspace-specific Hungarian cross-overlap assignment and track propagation.
@@ -91,10 +90,6 @@ def match_subspace_orbitals(
         return f"{prefix}{num:0{pad_zeros}d}"
 
     next_active: List[Dict[str, Any]] = []
-
-    if s_cross is not None and len(active_items) > 0:
-        expected_len = s_cross.shape[0]
-        active_items = [item for item in active_items if len(item["vec"]) == expected_len]
 
     if t == 0 or s_cross is None or len(active_items) == 0:
         for item in curr_items:
@@ -115,35 +110,16 @@ def match_subspace_orbitals(
     prev_mat = np.column_stack([item["vec"] for item in active_items])
     curr_mat = np.column_stack([item["vec"] for item in curr_items])
 
+    if pi_type_keyword is not None:
+        _align_degenerate_subspace_pairs(active_items, curr_items, prev_mat, curr_mat, s_cross, pi_type_keyword)
+
     Omega = prev_mat.T @ s_cross @ curr_mat
-    cost_matrix = -np.abs(Omega).copy()
-
-    # Apply symmetry bonus to Hungarian cost matrix:
-    # Favor matching pi with pi and sigma/lp with sigma/lp to prevent cross-symmetry channel swaps
-    def _is_pi_type(typ: Any) -> bool:
-        return "pi" in str(typ).lower()
-
-    def _is_sigma_or_lp(typ: Any) -> bool:
-        t_str = str(typ).lower()
-        return "sigma" in t_str or "lp" in t_str or "lone_pair" in t_str
-
-    for r in range(len(active_items)):
-        t_typ = active_items[r].get("type", "")
-        for c in range(len(curr_items)):
-            c_typ = curr_items[c]["meta"].get("type", "")
-            if (_is_pi_type(t_typ) and _is_pi_type(c_typ)) or (_is_sigma_or_lp(t_typ) and _is_sigma_or_lp(c_typ)):
-                cost_matrix[r, c] *= 1.25
-
-    r_ind, c_ind = linear_sum_assignment(cost_matrix)
+    r_ind, c_ind = linear_sum_assignment(-np.abs(Omega))
     matched_curr: Set[int] = set()
-    matched_active: Set[int] = set()
 
     for r, c in zip(r_ind, c_ind):
-        # Slightly relaxed threshold for coasting tracks that missed a frame
-        eff_thresh = threshold * 0.85 if active_items[r].get("missed", 0) > 0 else threshold
-        if abs(Omega[r, c]) >= eff_thresh:
+        if abs(Omega[r, c]) >= threshold:
             matched_curr.add(c)
-            matched_active.add(r)
             tid = active_items[r]["tid"]
             v = curr_mat[:, c].copy()
             if Omega[r, c] < 0.0:
@@ -156,28 +132,8 @@ def match_subspace_orbitals(
             )
             next_active.append({
                 "tid": tid, "vec": v,
-                "atoms": meta.get("atoms", []), "type": meta.get("type", subspace),
-                "missed": 0,
+                "atoms": meta.get("atoms", []), "type": meta.get("type", subspace)
             })
-
-    # Coasting buffer: retain unassigned active tracks for up to 2 frames
-    MAX_MISSED = 2
-    for r in range(len(active_items)):
-        if r not in matched_active:
-            cur_missed = active_items[r].get("missed", 0)
-            if cur_missed < MAX_MISSED:
-                if len(active_items[r]["vec"]) != curr_mat.shape[0]:
-                    continue
-                if curr_atom_labels is not None and active_items[r].get("atoms"):
-                    if not set(active_items[r]["atoms"]).issubset(set(curr_atom_labels)):
-                        continue
-                next_active.append({
-                    "tid": active_items[r]["tid"],
-                    "vec": active_items[r]["vec"],
-                    "atoms": active_items[r].get("atoms", []),
-                    "type": active_items[r].get("type", subspace),
-                    "missed": cur_missed + 1,
-                })
 
     for c in range(len(curr_items)):
         if c not in matched_curr:
@@ -191,8 +147,7 @@ def match_subspace_orbitals(
             )
             next_active.append({
                 "tid": tid, "vec": curr_items[c]["vec"],
-                "atoms": meta.get("atoms", []), "type": meta.get("type", subspace),
-                "missed": 0,
+                "atoms": meta.get("atoms", []), "type": meta.get("type", subspace)
             })
 
     return next_active, next_seq
@@ -207,192 +162,8 @@ def _role_prefix(lbl: Optional[str]) -> str:
     return lbl.split("(")[0]
 
 
-def smooth_and_label_tracks(
-    track_records: Dict[str, Dict[str, Any]],
-    N: int,
-    frame_outputs: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Dict[str, Any]]:
-    """Construct smoothed role transitions, heal fragmented tracks, and generate disambiguated labels."""
-    # Pass 1: Reconnect fragmented and reacting tracks within the same subspace sharing reacting centers
-    merged_any = True
-    while merged_any:
-        merged_any = False
-        tids = sorted(list(track_records.keys()))
-        for i in range(len(tids)):
-            tid_a = tids[i]
-            rec_a = track_records.get(tid_a)
-            if not rec_a or not any(rec_a["frame_present"]):
-                continue
-            e_a = max(idx for idx, p in enumerate(rec_a["frame_present"]) if p)
-            s_a = min(idx for idx, p in enumerate(rec_a["frame_present"]) if p)
-            subsp_a = rec_a["subspace"]
-            atoms_a = rec_a["atoms_set"]
-
-            for j in range(len(tids)):
-                if i == j:
-                    continue
-                tid_b = tids[j]
-                rec_b = track_records.get(tid_b)
-                if not rec_b or not any(rec_b["frame_present"]):
-                    continue
-                s_b = min(idx for idx, p in enumerate(rec_b["frame_present"]) if p)
-                e_b = max(idx for idx, p in enumerate(rec_b["frame_present"]) if p)
-                subsp_b = rec_b["subspace"]
-                atoms_b = rec_b["atoms_set"]
-
-                if subsp_a != subsp_b:
-                    continue
-                if e_b <= e_a or s_b <= s_a:
-                    continue
-
-                heavy_a = {a for a in atoms_a if not a.startswith("H")}
-                heavy_b = {a for a in atoms_b if not a.startswith("H")}
-                if not (heavy_a & heavy_b or (len(heavy_a) > 2 and len(heavy_b) > 2)):
-                    continue
-
-                gap = s_b - e_a
-                if not (-10 <= gap <= 6):
-                    continue
-
-                can_merge = False
-                flip_b = False
-                if frame_outputs is not None:
-                    trans_f = max(s_a, min(e_a, s_b))
-                    fo = frame_outputs[trans_f]
-                    tids_arr = list(fo["tids"])
-                    if tid_a in tids_arr and tid_b in tids_arr:
-                        va = fo["vecs"][:, tids_arr.index(tid_a)]
-                        vb = fo["vecs"][:, tids_arr.index(tid_b)]
-                        ov_raw = float(va.T @ vb)
-                        if abs(ov_raw) > 0.45:
-                            can_merge = True
-                            if ov_raw < 0.0:
-                                flip_b = True
-                    elif gap > 0:
-                        fo_a = frame_outputs[e_a]
-                        fo_b = frame_outputs[s_b]
-                        tids_a = list(fo_a["tids"])
-                        tids_b = list(fo_b["tids"])
-                        if tid_a in tids_a and tid_b in tids_b:
-                            va = fo_a["vecs"][:, tids_a.index(tid_a)]
-                            vb = fo_b["vecs"][:, tids_b.index(tid_b)]
-                            if len(va) == len(vb):
-                                ov_raw = float(va.T @ vb)
-                                if ov_raw < 0.0:
-                                    flip_b = True
-                        can_merge = True
-                else:
-                    can_merge = True
-
-                if not can_merge:
-                    continue
-
-                # Merge rec_b into rec_a starting at switch frame
-                switch_f = max(s_b, e_a + 1) if gap > 0 else s_b
-                for f in range(switch_f, N):
-                    if rec_b["frame_present"][f]:
-                        rec_a["frame_present"][f] = True
-                        rec_a["frame_roles"][f] = rec_b["frame_roles"][f]
-                        rec_a["frame_types"][f] = rec_b["frame_types"][f]
-                        rec_a["frame_categories"][f] = rec_b["frame_categories"][f]
-                        rec_a["frame_atoms"][f] = rec_b["frame_atoms"][f]
-                        rec_a["frame_energies"][f] = rec_b["frame_energies"][f]
-                        rec_a["frame_pops"][f] = rec_b["frame_pops"][f]
-
-                rec_a["atoms_set"].update(rec_b["atoms_set"])
-
-                # Remap in frame_outputs if provided (and invert sign if needed for continuity)
-                if frame_outputs is not None:
-                    for f in range(switch_f, N):
-                        fo = frame_outputs[f]
-                        tids_arr = fo.get("tids")
-                        if tids_arr is not None:
-                            mask = (tids_arr == tid_b)
-                            if np.any(mask):
-                                if flip_b:
-                                    fo["vecs"][:, mask] = -fo["vecs"][:, mask]
-                                tids_arr[mask] = tid_a
-
-                del track_records[tid_b]
-                merged_any = True
-                break
-            if merged_any:
-                break
-
-    # Pass 2: Fill internal coasting gaps (e.g. 1-2 frames) within continuous tracks
-    for tid, rec in track_records.items():
-        present = rec["frame_present"]
-        if not any(present):
-            continue
-        s_f = min(idx for idx, p in enumerate(present) if p)
-        e_f = max(idx for idx, p in enumerate(present) if p)
-        for f in range(s_f + 1, e_f):
-            if not present[f]:
-                p_prev = max(k for k in range(s_f, f) if present[k])
-                p_next = min(k for k in range(f + 1, e_f + 1) if present[k])
-                if p_next - p_prev <= 4:
-                    present[f] = True
-                    rec["frame_roles"][f] = rec["frame_roles"][p_prev]
-                    rec["frame_types"][f] = rec["frame_types"][p_prev]
-                    rec["frame_categories"][f] = rec["frame_categories"][p_prev]
-                    rec["frame_atoms"][f] = list(rec["frame_atoms"][p_prev])
-                    alpha = (f - p_prev) / (p_next - p_prev)
-                    e0 = rec["frame_energies"][p_prev] or 0.0
-                    e1 = rec["frame_energies"][p_next] or 0.0
-                    rec["frame_energies"][f] = round((1 - alpha) * e0 + alpha * e1, 2)
-                    pop0 = np.array(rec["frame_pops"][p_prev] or [])
-                    pop1 = np.array(rec["frame_pops"][p_next] or [])
-                    if len(pop0) > 0 and len(pop0) == len(pop1):
-                        rec["frame_pops"][f] = ((1 - alpha) * pop0 + alpha * pop1).round(2).tolist()
-
-                    # In frame_outputs, interpolate vector
-                    if frame_outputs is not None:
-                        fo_f = frame_outputs[f]
-                        fo_prev = frame_outputs[p_prev]
-                        fo_next = frame_outputs[p_next]
-                        idx_prev = list(fo_prev["tids"]).index(tid) if tid in fo_prev["tids"] else -1
-                        idx_next = list(fo_next["tids"]).index(tid) if tid in fo_next["tids"] else -1
-                        if idx_prev >= 0 and idx_next >= 0:
-                            v0 = fo_prev["vecs"][:, idx_prev]
-                            v1 = fo_next["vecs"][:, idx_next]
-                            v1_aligned = v1.copy()
-                            if len(v0) == len(v1_aligned):
-                                if float(v0.T @ v1_aligned) < 0.0:
-                                    v1_aligned = -v1_aligned
-                            v_interp = (1 - alpha) * v0 + alpha * v1_aligned
-                            norm_v = np.linalg.norm(v_interp)
-                            if norm_v > 1e-6:
-                                v_interp /= norm_v
-                            fo_f["tids"] = np.append(fo_f["tids"], tid)
-                            fo_f["vecs"] = np.column_stack([fo_f["vecs"], v_interp.astype(np.float32)])
-                            p_interp = np.array(rec["frame_pops"][f], dtype=np.float32)
-                            fo_f["pops"] = np.vstack([fo_f["pops"], p_interp]) if len(fo_f["pops"]) > 0 else p_interp.reshape(1, -1)
-                            fo_f["energies"] = np.append(fo_f["energies"], rec["frame_energies"][f])
-
-    # Pass 3: Strict forward phase continuity across all adjacent frames for each track
-    if frame_outputs is not None:
-        for tid, rec in track_records.items():
-            pres = [f for f in range(N) if rec["frame_present"][f]]
-            for k in range(len(pres) - 1):
-                f_prev, f_curr = pres[k], pres[k + 1]
-                fo_p = frame_outputs[f_prev]
-                fo_c = frame_outputs[f_curr]
-                tids_p = list(fo_p["tids"])
-                tids_c = list(fo_c["tids"])
-                if tid in tids_p and tid in tids_c:
-                    idx_p = tids_p.index(tid)
-                    idx_c = tids_c.index(tid)
-                    vp = fo_p["vecs"][:, idx_p]
-                    vc = fo_c["vecs"][:, idx_c]
-                    if len(vp) == len(vc) and float(vp.T @ vc) < 0.0:
-                        # Invert current frame and all subsequent frames of this track
-                        for f_sub in pres[k + 1:]:
-                            fo_s = frame_outputs[f_sub]
-                            tids_s = list(fo_s["tids"])
-                            if tid in tids_s:
-                                s_idx = tids_s.index(tid)
-                                fo_s["vecs"][:, s_idx] = -fo_s["vecs"][:, s_idx]
-
+def smooth_and_label_tracks(track_records: Dict[str, Dict[str, Any]], N: int) -> Dict[str, Dict[str, Any]]:
+    """Construct smoothed role transitions and disambiguated labels for all tracks."""
     registry_tracks: Dict[str, Dict[str, Any]] = {}
 
     for tid, rec in track_records.items():
