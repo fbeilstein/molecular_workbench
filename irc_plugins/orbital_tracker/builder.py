@@ -351,7 +351,8 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
         active_deloc_pi, next_seq = match_subspace_orbitals(
             active_deloc_pi, curr_deloc_list, s_cross, t,
             subspace="deloc_pi", threshold=0.45, next_seq=next_seq,
-            record_fn=_record_track_instance, prefix="trk_", pad_zeros=4
+            record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
+            pi_type_keyword="delocalized_pistar"
         )
 
         frame_outputs.append({

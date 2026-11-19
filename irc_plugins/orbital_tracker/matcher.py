@@ -21,18 +21,26 @@ def _add_subscript(label: str, sub: str) -> str:
 def _align_degenerate_2d_pair(
     prev_pair: np.ndarray, curr_pair: np.ndarray, s_cross: np.ndarray
 ) -> np.ndarray:
-    """Compute optimal 2x2 Procrustes rotation aligning curr_pair to prev_pair."""
+    """Compute optimal O(2) Procrustes rotation aligning curr_pair to prev_pair."""
     W = prev_pair.T @ s_cross @ curr_pair
     U_w, s_w, Vt_w = np.linalg.svd(W)
     if s_w[0] > 0.50 and s_w[1] > 0.50:
-        d = np.linalg.det(Vt_w.T @ U_w.T)
-        if d < 0:
-            Vt_w_mod = Vt_w.copy()
-            Vt_w_mod[-1, :] *= -1.0
-            R_w = Vt_w_mod.T @ U_w.T
-        else:
-            R_w = Vt_w.T @ U_w.T
+        # Pure O(2) alignment (no det > 0 SO(2) restriction, since MO signs are arbitrary +/- gauges)
+        R_w = Vt_w.T @ U_w.T
         return curr_pair @ R_w
+    return curr_pair
+
+
+def _align_1to2_degenerate_pair(
+    prev_vec: np.ndarray, curr_pair: np.ndarray, s_cross: np.ndarray
+) -> np.ndarray:
+    """Align a splitting 1->2 cylindrical degenerate pair so col 0 follows prev_vec."""
+    w = (prev_vec.T @ s_cross @ curr_pair).ravel()
+    norm_w = float(np.linalg.norm(w))
+    if norm_w >= 0.75:
+        u0 = w / norm_w
+        u1 = np.array([-u0[1], u0[0]])
+        return curr_pair @ np.column_stack([u0, u1])
     return curr_pair
 
 
@@ -52,15 +60,29 @@ def _align_degenerate_subspace_pairs(
             if pi_type_keyword in m1.get("type", "") and pi_type_keyword in m2.get("type", ""):
                 ats1 = tuple(sorted(m1.get("atoms", [])))
                 ats2 = tuple(sorted(m2.get("atoms", [])))
-                if len(ats1) == 2 and ats1 == ats2:
-                    prev_matches = [
-                        pi_idx for pi_idx, av in enumerate(active_items)
-                        if pi_type_keyword in av.get("type", "") and tuple(sorted(av.get("atoms", []))) == ats1
-                    ]
-                    if len(prev_matches) == 2:
-                        p_pair = prev_mat[:, prev_matches]
-                        c_pair = curr_mat[:, [i1, i2]]
-                        c_pair_rot = _align_degenerate_2d_pair(p_pair, c_pair, s_cross)
+                if len(ats1) in (2, 6) and ats1 == ats2:
+                    e1 = float(m1.get("energy_ev", 0.0))
+                    e2 = float(m2.get("energy_ev", 0.0))
+                    dE = abs(e1 - e2)
+                    max_dE = 0.25 if len(ats1) == 6 else 0.18
+                    if dE < max_dE:
+                        e_mid = (e1 + e2) / 2.0
+                        prev_matches = [
+                            pi_idx for pi_idx, av in enumerate(active_items)
+                            if pi_type_keyword in av.get("type", "")
+                            and tuple(sorted(av.get("atoms", []))) == ats1
+                            and (len(ats1) == 2 or abs(float(av.get("energy_ev", 0.0)) - e_mid) < 1.0)
+                        ]
+                        if len(prev_matches) == 2 and (len(ats1) == 6 or dE < 0.08):
+                            c_pair_rot = _align_degenerate_2d_pair(
+                                prev_mat[:, prev_matches], curr_mat[:, [i1, i2]], s_cross
+                            )
+                        elif len(prev_matches) == 1 and len(ats1) == 2:
+                            c_pair_rot = _align_1to2_degenerate_pair(
+                                prev_mat[:, prev_matches[0]], curr_mat[:, [i1, i2]], s_cross
+                            )
+                        else:
+                            continue
                         curr_mat[:, [i1, i2]] = c_pair_rot
                         curr_items[i1]["vec"] = c_pair_rot[:, 0]
                         curr_items[i2]["vec"] = c_pair_rot[:, 1]
@@ -86,25 +108,27 @@ def match_subspace_orbitals(
     if not curr_items:
         return [], next_seq
 
-    def _fmt_tid(num: int) -> str:
-        return f"{prefix}{num:0{pad_zeros}d}"
-
     next_active: List[Dict[str, Any]] = []
+
+    def _emit(tid: str, vec: np.ndarray, item: Dict[str, Any]) -> None:
+        meta = item["meta"]
+        record_fn(
+            tid, vec, item["pop"], meta.get("energy_ev", 0.0), meta.get("label", ""),
+            meta.get("type", subspace), meta.get("category", subspace),
+            meta.get("orbital_class", "bonding"), meta.get("atoms", []), subspace
+        )
+        next_active.append({
+            "tid": tid, "vec": vec,
+            "atoms": meta.get("atoms", []), "type": meta.get("type", subspace),
+            "label": meta.get("label", ""),
+            "energy_ev": float(meta.get("energy_ev", 0.0))
+        })
 
     if t == 0 or s_cross is None or len(active_items) == 0:
         for item in curr_items:
-            tid = _fmt_tid(next_seq)
+            tid = f"{prefix}{next_seq:0{pad_zeros}d}"
             next_seq += 1
-            meta = item["meta"]
-            record_fn(
-                tid, item["vec"], item["pop"], meta.get("energy_ev", 0.0), meta.get("label", ""),
-                meta.get("type", subspace), meta.get("category", subspace),
-                meta.get("orbital_class", "bonding"), meta.get("atoms", []), subspace
-            )
-            next_active.append({
-                "tid": tid, "vec": item["vec"],
-                "atoms": meta.get("atoms", []), "type": meta.get("type", subspace)
-            })
+            _emit(tid, item["vec"], item)
         return next_active, next_seq
 
     prev_mat = np.column_stack([item["vec"] for item in active_items])
@@ -114,7 +138,26 @@ def match_subspace_orbitals(
         _align_degenerate_subspace_pairs(active_items, curr_items, prev_mat, curr_mat, s_cross, pi_type_keyword)
 
     Omega = prev_mat.T @ s_cross @ curr_mat
-    r_ind, c_ind = linear_sum_assignment(-np.abs(Omega))
+    cost = -np.abs(Omega)
+
+    # Delocalized Pi Frontier Continuity across fragment expansions/contractions:
+    # When a delocalized pi system expands (e.g. aromatic ring conjugates with acylium C=O+)
+    # or contracts (intermediate collapses to substituted ring), len(atoms_a) != len(atoms_c).
+    # Preserve continuity of reactive LUMO [π*1] -> [π*1] when significant overlap (>= threshold) holds.
+    if subspace == "deloc_pi":
+        for r, it_a in enumerate(active_items):
+            lbl_a = it_a.get("label", "")
+            atoms_a = set(it_a.get("atoms", []))
+            for c, it_c in enumerate(curr_items):
+                lbl_c = it_c.get("meta", {}).get("label", "")
+                atoms_c = set(it_c.get("meta", {}).get("atoms", []))
+                if len(atoms_a) != len(atoms_c) and abs(Omega[r, c]) >= threshold and (atoms_a & atoms_c):
+                    if "[π*1]" in lbl_a and "[π*1]" in lbl_c:
+                        cost[r, c] -= 2.0
+                    elif "[π*2]" in lbl_a and "[π*2]" in lbl_c:
+                        cost[r, c] -= 1.0
+
+    r_ind, c_ind = linear_sum_assignment(cost)
     matched_curr: Set[int] = set()
 
     for r, c in zip(r_ind, c_ind):
@@ -124,31 +167,13 @@ def match_subspace_orbitals(
             v = curr_mat[:, c].copy()
             if Omega[r, c] < 0.0:
                 v = -v
-            meta = curr_items[c]["meta"]
-            record_fn(
-                tid, v, curr_items[c]["pop"], meta.get("energy_ev", 0.0), meta.get("label", ""),
-                meta.get("type", subspace), meta.get("category", subspace),
-                meta.get("orbital_class", "bonding"), meta.get("atoms", []), subspace
-            )
-            next_active.append({
-                "tid": tid, "vec": v,
-                "atoms": meta.get("atoms", []), "type": meta.get("type", subspace)
-            })
+            _emit(tid, v, curr_items[c])
 
     for c in range(len(curr_items)):
         if c not in matched_curr:
-            tid = _fmt_tid(next_seq)
+            tid = f"{prefix}{next_seq:0{pad_zeros}d}"
             next_seq += 1
-            meta = curr_items[c]["meta"]
-            record_fn(
-                tid, curr_items[c]["vec"], curr_items[c]["pop"], meta.get("energy_ev", 0.0),
-                meta.get("label", ""), meta.get("type", subspace), meta.get("category", subspace),
-                meta.get("orbital_class", "bonding"), meta.get("atoms", []), subspace
-            )
-            next_active.append({
-                "tid": tid, "vec": curr_items[c]["vec"],
-                "atoms": meta.get("atoms", []), "type": meta.get("type", subspace)
-            })
+            _emit(tid, curr_items[c]["vec"], curr_items[c])
 
     return next_active, next_seq
 
@@ -216,8 +241,8 @@ def smooth_and_label_tracks(track_records: Dict[str, Dict[str, Any]], N: int) ->
                 filtered_runs = [(rec["type"], 1)]
 
         r_first, r_last = filtered_runs[0][0], filtered_runs[-1][0]
-        if rec["subspace"] == "deloc_pi" or len(filtered_runs) == 1:
-            summary_label = r_first if (r_first == r_last or len(filtered_runs) == 1) else f"{r_first} → {r_last}"
+        if len(filtered_runs) == 1:
+            summary_label = r_first
         elif len(filtered_runs) == 2:
             summary_label = f"{r_first} → {r_last}"
         else:

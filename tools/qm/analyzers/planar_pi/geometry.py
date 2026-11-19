@@ -150,9 +150,15 @@ def detect_planar_pi_fragments(
                 full_adj[j].append(i)
 
     # Candidate unsaturated backbone atoms (C, N with coordination <= 3, plus conjugated O, S)
+    # Exclude carboxylic acid / ester / amide carbons (carbons with >= 2 heteroatom neighbors like -C(=O)OR, -C(=O)Cl)
+    # to keep their carbonyl double bonds cleanly localized and prevent false flood-fill into adjacent rings.
+    hetero_neighbors = {
+        i: sum(1 for nbr in full_adj[i] if syms[nbr] in ("O", "S", "N", "Cl", "F", "Br"))
+        for i in range(n)
+    }
     core_unsat = {
         i for i, s in enumerate(syms)
-        if s in ("C", "N") and 1 <= len(full_adj[i]) <= 3
+        if s in ("C", "N") and 1 <= len(full_adj[i]) <= 3 and hetero_neighbors[i] < 2
     }
     cand = set(core_unsat)
     for i, s in enumerate(syms):
@@ -186,6 +192,8 @@ def detect_planar_pi_fragments(
     candidates.sort(key=lambda item: len(item[0]), reverse=True)
     final_frags: List[Tuple[List[int], np.ndarray, List[int]]] = []
     for s, norm in candidates:
+        if len(s) <= 3 and sum(1 for ai in s if syms[ai] in ("O", "S", "N")) >= 2:
+            continue
         if any(len(s & set(f)) >= 0.70 * len(s) for f, _, _ in final_frags):
             continue
         final_frags.append((sorted(list(s)), norm, sorted(list(s))))

@@ -16,7 +16,6 @@ from .constants import ROOT_DIR, OUT_DIR, CUBES_DIR
 
 _GRID_CACHE: Dict[str, Any] = {}
 _CUBE_CACHE: Dict[str, str] = {}
-_VOL_CACHE: Dict[str, np.ndarray] = {}
 _CACHE_LOCK = threading.Lock()
 
 
@@ -25,7 +24,6 @@ def clear_orbital_caches():
     with _CACHE_LOCK:
         _CUBE_CACHE.clear()
         _GRID_CACHE.clear()
-        _VOL_CACHE.clear()
         if os.path.exists(CUBES_DIR):
             for cf in os.listdir(CUBES_DIR):
                 if cf.endswith(".cube"):
@@ -121,19 +119,9 @@ def get_or_compute_cube(
             "message": f"Orbital '{tid}' not present at frame {frame_idx}"
         }
 
-    # 4. Evaluate volumetric grid and serialize cube text
+    # 4. Evaluate volumetric grid and serialize cube text (sign aligned deterministically in orbital_tracker)
     lo, step, npts = get_grid(megajson)
     v = orbital_engine.evaluate_mo_grid(mol, vec, lo, step, npts)
-
-    # Enforce volumetric phase continuity with preceding frame for the same track
-    prev_vol_key = f"{p_hash}_{frame_idx - 1}_{tid}"
-    if prev_vol_key in _VOL_CACHE:
-        dot = float(np.sum(_VOL_CACHE[prev_vol_key] * v))
-        if dot < 0.0:
-            v = -v
-    norm_v = float(np.linalg.norm(v))
-    if norm_v > 1e-9:
-        _VOL_CACHE[cache_key] = v / norm_v
 
     fr = megajson["frames"][frame_idx]
     syms = fr.get("symbols") or megajson.get("symbols", [])
@@ -200,17 +188,6 @@ def batch_precompute_cubes(
                 continue
 
             v = orbital_engine.evaluate_mo_grid(mol, vec, lo, step, npts)
-
-            # Enforce volumetric phase continuity with preceding frame for the same track
-            prev_vol_key = f"{p_hash}_{fi - 1}_{tid}"
-            if prev_vol_key in _VOL_CACHE:
-                dot = float(np.sum(_VOL_CACHE[prev_vol_key] * v))
-                if dot < 0.0:
-                    v = -v
-            norm_v = float(np.linalg.norm(v))
-            if norm_v > 1e-9:
-                _VOL_CACHE[cache_key] = v / norm_v
-
             cube_text = orbital_engine.generate_cube_text(header_expected, syms_i, coords, v, lo, step, npts)
             _CUBE_CACHE[cache_key] = cube_text
             batch_cubes[pub_key] = cube_text
