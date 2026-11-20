@@ -4,6 +4,7 @@ Computes volumetric orbital grids, serializes Gaussian .cube files, and manages 
 Keys strictly by invariant track_id with zero legacy key fallback.
 """
 
+import hashlib
 import os
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -12,7 +13,7 @@ import numpy as np
 from .ts_engine import orbital_engine
 from .orbital_tracker import get_track_vector_and_mol
 
-from .constants import ROOT_DIR, OUT_DIR, CUBES_DIR
+from .constants import ROOT_DIR, OUT_DIR, CUBES_DIR, REGISTRY_PATH
 
 _GRID_CACHE: Dict[str, Any] = {}
 _CUBE_CACHE: Dict[str, str] = {}
@@ -34,7 +35,7 @@ def clear_orbital_caches():
 
 
 def _get_pathway_hash(megajson: Dict[str, Any]) -> str:
-    """Resolve pathway hash from megajson or compute SHA-256 fingerprint."""
+    """Resolve composite pathway + orbital registry fingerprint so rebuilt tracks never collide with stale cubes."""
     h = megajson.get("pathway_hash")
     if not h:
         try:
@@ -43,7 +44,16 @@ def _get_pathway_hash(megajson: Dict[str, Any]) -> str:
             megajson["pathway_hash"] = h
         except Exception:
             h = ""
-    return str(h or "")
+    reg_sig = ""
+    try:
+        if os.path.exists(REGISTRY_PATH):
+            st = os.stat(REGISTRY_PATH)
+            sig_src = f"{st.st_mtime_ns}:{st.st_size}".encode("utf-8")
+            reg_sig = hashlib.sha256(sig_src).hexdigest()[:8]
+    except Exception:
+        reg_sig = ""
+    base = str(h or "")
+    return f"{base}_{reg_sig}" if reg_sig else base
 
 
 def get_grid(megajson: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

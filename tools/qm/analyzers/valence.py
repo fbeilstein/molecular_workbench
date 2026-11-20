@@ -126,7 +126,9 @@ class ValenceLocalizer:
             ev_f, U_f = np.linalg.eigh(F_sub)
             C_purified = C_pair @ U_f
 
-            # 3. Deterministic geometric gauge for 2D degenerate triple-bond π / π* subspace (m == 3)
+            # 3. Deterministic geometric gauge for 2D degenerate triple-bond π subspace (m == 3)
+            #    Pick the nearest non-collinear heavy neighbor (>7° off bond axis) so a nearly
+            #    linear bond (e.g. acylium ∠C5-C6-O8 ≈ 178°) never divides by sin(2°) noise.
             if C_purified.shape[1] == 3:
                 pi_sl = slice(0, 2) if is_virt else slice(1, 3)
                 dE_pi = abs(float(ev_f[pi_sl.stop - 1]) - float(ev_f[pi_sl.start])) * HARTREE_TO_EV
@@ -136,10 +138,14 @@ class ValenceLocalizer:
                     best_nb, best_d = None, 999.0
                     for nb in range(self.mol.natm):
                         if nb not in (a1, a2) and self.mol.atom_symbol(nb) != "H":
-                            d_nb = min(
-                                float(np.linalg.norm(coords_b[nb] - coords_b[a1])),
-                                float(np.linalg.norm(coords_b[nb] - coords_b[a2])),
-                            )
+                            rv = coords_b[nb] - coords_b[a1]
+                            rv_n = float(np.linalg.norm(rv))
+                            if rv_n < 1e-6:
+                                continue
+                            sin_ang = float(np.linalg.norm(np.cross(bond_hat, rv / rv_n)))
+                            if sin_ang < 0.12:
+                                continue
+                            d_nb = min(rv_n, float(np.linalg.norm(coords_b[nb] - coords_b[a2])))
                             if d_nb < best_d:
                                 best_d, best_nb = d_nb, nb
                     ref_v = (
@@ -152,7 +158,6 @@ class ValenceLocalizer:
                         plane_norm = np.cross(bond_hat, np.array([0.0, 1.0, 0.0]))
                     plane_norm /= np.linalg.norm(plane_norm)
                     probe_pt = (0.5 * (coords_b[a1] + coords_b[a2]) + 0.5 * plane_norm).reshape(1, 3)
-                    # Offset slightly from midpoint for antibonding π* so probe avoids perpendicular node
                     if is_virt:
                         probe_pt = (
                             0.25 * coords_b[a1] + 0.75 * coords_b[a2] + 0.5 * plane_norm
@@ -313,15 +318,16 @@ class ValenceLocalizer:
 
             # ------------------------------------------------------------
             # 2. Orthonormal Valence Virtual Orbitals (VVOs) via IAO + IBO
+            #    Note: Keep raw p=4 IBO virtuals diabatic (do NOT diagonalize
+            #    2x2 Fock blocks across π* pairs, which forces adiabatic
+            #    avoided-crossing 90° swaps when a reactive π* climbs past a
+            #    spectator π* into σ*). Raw p=4 IBOs already keep σ* pure.
             # ------------------------------------------------------------
             if virt_coeff is not None and virt_coeff.shape[1] > 0:
                 C_vvo = self._extract_vvo_subspace(virt_coeff, Q_iao)
                 if C_vvo.shape[1] > 0:
                     loc_vvo = lo.ibo.ibo(self.mol, C_vvo, iaos=iao_raw, verbose=0)
                     vvo_frac_pops = self._iao_atom_populations(loc_vvo, Q_iao, ref_ao_atom)
-                    loc_vvo, vvo_frac_pops = self._purify_multiple_bonds(
-                        loc_vvo, vvo_frac_pops, Q_iao, ref_ao_atom, is_virt=True
-                    )
 
                     for i in range(loc_vvo.shape[1]):
                         v_mo = loc_vvo[:, i]

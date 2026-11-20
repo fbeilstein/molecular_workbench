@@ -110,7 +110,7 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
 
     workers = min(8, max(1, os.cpu_count() or 4))
     precomputed_list = []
-    cache_file = f"/tmp/precomputed_v2_{p_hash}_{N}.pkl"
+    cache_file = f"/tmp/precomputed_v3_{p_hash}_{N}.pkl"
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "rb") as f:
@@ -331,6 +331,15 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
                 v_low, p_arr, pdict = _make_lowdin_info(v, scale=2.0)
                 curr_val_list.append({"vec": v, "vec_low": v_low, "pop": p_arr, "pop_dict": pdict, "meta": meta})
 
+        if t == 0:
+            curr_val_list.sort(
+                key=lambda it: (
+                    it["meta"].get("type", ""),
+                    tuple(it["meta"].get("atoms", [])),
+                    round(float(it["meta"].get("energy_ev", 0.0)), 1),
+                )
+            )
+
         active_valence, next_seq = match_subspace_orbitals(
             active_valence, curr_val_list, s_cross, t,
             subspace="valence_ibo", threshold=0.45, next_seq=next_seq,
@@ -355,6 +364,15 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
                 v = f_vecs[k].copy()
                 v_low, p_arr, pdict = _make_lowdin_info(v, scale=1.0)
                 curr_virt_list.append({"vec": v, "vec_low": v_low, "pop": p_arr, "pop_dict": pdict, "meta": meta})
+
+        if t == 0:
+            curr_virt_list.sort(
+                key=lambda it: (
+                    it["meta"].get("type", ""),
+                    tuple(it["meta"].get("atoms", [])),
+                    round(float(it["meta"].get("energy_ev", 0.0)), 1),
+                )
+            )
 
         active_antibond, next_seq = match_subspace_orbitals(
             active_antibond, curr_virt_list, s_cross, t,

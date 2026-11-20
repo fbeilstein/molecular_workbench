@@ -217,24 +217,47 @@ def enrich_timeline_tracks(
 
         if tid in catalog:
             c = catalog[tid]
-            trk["frame_map"] = c["frame_map"]
-            trk["label"] = trk["title"] = c["label"]
-            trk["role_transition"] = trk["short_label"] = c.get("role_transition", "")
-            trk["category"] = c["category"]
-            trk["orbital_class"] = c["orbital_class"]
-            trk["type"] = c.get("type", trk.get("type", ""))
-            trk["atoms"] = c.get("atoms", [])
-            continue
+            trk_atoms_old = set(trk.get("atoms") or [])
+            c_atoms = set(c.get("atoms") or [])
+            old_cls = trk.get("orbital_class")
+            # Verify the track_id still refers to the same chemical orbital (not shuffled by a rebuild)
+            id_still_matches = (
+                (not old_cls or old_cls == c.get("orbital_class"))
+                and (not trk_atoms_old or bool(trk_atoms_old & c_atoms))
+            )
+            if id_still_matches:
+                trk["frame_map"] = c["frame_map"]
+                trk["label"] = trk["title"] = c["label"]
+                trk["role_transition"] = trk["short_label"] = c.get("role_transition", "")
+                trk["category"] = c["category"]
+                trk["orbital_class"] = c["orbital_class"]
+                trk["type"] = c.get("type", trk.get("type", ""))
+                trk["atoms"] = c.get("atoms", [])
+                continue
 
-        # Migration lookup for legacy tracks (e.g. old IBO_xx or old track id by chemical match)
+        # Migration lookup for legacy or rebuild-shuffled track IDs by chemical identity
         migrated = None
-        trk_atoms = set(trk.get("atoms", []))
+        trk_atoms = set(trk.get("atoms") or [])
         trk_type = trk.get("type", "")
+        trk_cls = trk.get("orbital_class")
+        trk_lbl = trk.get("label") or ""
+        best_score = -1
         for c_tid, c in catalog.items():
-            if trk_atoms and set(c.get("atoms", [])) == trk_atoms:
-                if not trk_type or c.get("type") == trk_type or (("pi" in trk_type) == ("pi" in c.get("type", ""))):
-                    migrated = c
-                    break
+            if trk_cls and c.get("orbital_class") != trk_cls:
+                continue
+            if trk_lbl and c.get("label") == trk_lbl:
+                migrated = c
+                break
+            c_atoms = set(c.get("atoms") or [])
+            if trk_atoms and c_atoms:
+                overlap = len(trk_atoms & c_atoms)
+                if overlap > 0:
+                    type_bonus = 2 if (trk_type and c.get("type") == trk_type) else 0
+                    exact_bonus = 3 if c_atoms == trk_atoms else 0
+                    score = overlap + type_bonus + exact_bonus
+                    if score > best_score:
+                        best_score = score
+                        migrated = c
 
         if migrated:
             m_tid = migrated["track_id"]

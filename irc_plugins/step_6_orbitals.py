@@ -181,6 +181,8 @@ class Step6Orbitals(PipelineStep):
         megajson = self._get_megajson(global_state)
         if not megajson: return StepResult(success=False, error_message="Pathway data missing.")
         tl = user_input.get("timeline") or megajson.get("orbital_timeline") or {}
+        if isinstance(tl, dict) and isinstance(tl.get("tracks"), list):
+            tl["tracks"] = enrich_timeline_tracks(megajson, tl["tracks"])
         megajson["orbital_timeline"] = tl
         try:
             os.makedirs(TRAJECTORIES_DIR, exist_ok=True)
