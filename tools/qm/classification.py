@@ -194,3 +194,130 @@ def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     return 'pi' if is_pi else 'sigma'
 
 
+def _canonical_atom_sort_key(atom_id: str):
+    """Deterministic chemical sort order: C first, heteroatoms second, H last, then atom index."""
+    sym = "".join(ch for ch in atom_id if ch.isalpha())
+    digits = "".join(ch for ch in atom_id if ch.isdigit())
+    num = int(digits) if digits else 0
+    return (0 if sym == "C" else (2 if sym == "H" else 1), num, sym)
+
+
+def _classify_antibond_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
+    """Distinguish σ* vs π* using an offset-quarter-bond concentric nodal-plane scan.
+
+    Unlike bonding orbitals, BOTH σ* and π* have a perpendicular nodal plane near the
+    bond midpoint 0.5*(r_A + r_B). Sampling at 0.25*r_A + 0.75*r_B and 0.75*r_A + 0.25*r_B
+    avoids the perpendicular node: σ* has uniform sign around the bond axis at each end,
+    while π* retains opposite signs across the axial nodal plane.
+    """
+    coords_bohr = mol.atom_coords()
+    coords_ang = coords_bohr * BOHR_TO_ANG
+
+    if mol.atom_symbol(atom1_idx) == "H" or mol.atom_symbol(atom2_idx) == "H":
+        return "sigma_star"
+
+    # Strictly tetrahedral sp3 carbon/silicon (4 tight covalent neighbors < 1.75 Å)
+    for a_idx in (atom1_idx, atom2_idx):
+        if mol.atom_symbol(a_idx) in ("C", "Si"):
+            dists_ang = np.linalg.norm(coords_ang - coords_ang[a_idx], axis=1)
+            n_neighbors = int(np.sum((dists_ang > 0.2) & (dists_ang < 1.75)))
+            if n_neighbors >= 4:
+                return "sigma_star"
+
+    bond_vec = coords_bohr[atom2_idx] - coords_bohr[atom1_idx]
+    bond_len = float(np.linalg.norm(bond_vec))
+    if bond_len < 1e-6:
+        return "sigma_star"
+    bond_hat = bond_vec / bond_len
+
+    ref = np.array([1.0, 0.0, 0.0]) if abs(bond_hat[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    perp1 = np.cross(bond_hat, ref)
+    perp1 /= np.linalg.norm(perp1)
+    perp2 = np.cross(bond_hat, perp1)
+
+    angles = 2.0 * np.pi * np.arange(NODAL_SCAN_SAMPLE_POINTS) / NODAL_SCAN_SAMPLE_POINTS
+    circle_offsets = np.outer(np.cos(angles), perp1) + np.outer(np.sin(angles), perp2)
+
+    planes = (
+        0.25 * coords_bohr[atom1_idx] + 0.75 * coords_bohr[atom2_idx],
+        0.75 * coords_bohr[atom1_idx] + 0.25 * coords_bohr[atom2_idx],
+    )
+
+    best_amp = 0.0
+    best_vals = None
+    for center in planes:
+        for radius in NODAL_SCAN_RADII_BOHR:
+            sample_coords = center + radius * circle_offsets
+            mo_vals = mol.eval_gto("GTOval", sample_coords) @ mo_coeff
+            max_abs = float(np.max(np.abs(mo_vals)))
+            if max_abs > best_amp:
+                best_amp = max_abs
+                best_vals = mo_vals
+
+    if best_vals is None or best_amp < NODAL_AMPLITUDE_FLOOR:
+        return "sigma_star"
+
+    sig_mask = np.abs(best_vals) > best_amp * NODAL_SIGNIFICANT_AMP_RATIO
+    n_sig = int(np.sum(sig_mask))
+    if n_sig < NODAL_MIN_SIGNIFICANT_POINTS:
+        return "sigma_star"
+
+    n_pos = int(np.sum(best_vals[sig_mask] > 0.0))
+    n_neg = n_sig - n_pos
+    minority_frac = min(n_pos, n_neg) / n_sig
+
+    half = NODAL_SCAN_SAMPLE_POINTS // 2
+    opposite_inversions = 0
+    opposite_tested = 0
+    for j in range(half):
+        if sig_mask[j] and sig_mask[j + half]:
+            opposite_tested += 1
+            if best_vals[j] * best_vals[j + half] < 0.0:
+                opposite_inversions += 1
+
+    is_pi = (
+        (minority_frac > 0.25 and opposite_tested >= 3 and opposite_inversions >= 3)
+        or (minority_frac > 0.35 and opposite_inversions >= 2)
+    )
+    return "pi_star" if is_pi else "sigma_star"
+
+
+def _classify_virtual_orbital(mol, mo_coeff, pop, atom_labels, atom_ids, ovlp):
+    """Classify a localized valence virtual orbital as p_star (vacant p), sigma_star, or pi_star."""
+    abs_pop = np.abs(pop)
+    total = float(abs_pop.sum())
+    if total < 1e-6:
+        return {"type": "sigma_star", "atoms": [atom_ids[0]]}
+
+    frac = abs_pop / total
+    major = [(i, float(frac[i])) for i in range(mol.natm) if frac[i] > 0.04]
+    major.sort(key=lambda x: -x[1])
+    if not major:
+        idx0 = int(np.argmax(frac))
+        return {"type": "p_star", "atom": atom_ids[idx0], "atoms": [atom_ids[idx0]]}
+
+    top_idx, top_frac = major[0]
+    second_frac = major[1][1] if len(major) >= 2 else 0.0
+
+    # 1-center vacant orbital (e.g. BH3 2p_z, carbocation/acylium TS vacant p)
+    if atom_labels[top_idx] != "H":
+        if top_frac >= 0.72 or (top_frac >= 0.55 and second_frac < 0.20) or len(major) == 1:
+            return {"type": "p_star", "atom": atom_ids[top_idx], "atoms": [atom_ids[top_idx]]}
+
+    # 2-center antibond
+    if len(major) >= 2:
+        a1_idx, a2_idx = major[0][0], major[1][0]
+        v_type = _classify_antibond_sigma_pi(mol, mo_coeff, a1_idx, a2_idx)
+        pair_atoms = sorted([atom_ids[a1_idx], atom_ids[a2_idx]], key=_canonical_atom_sort_key)
+        return {"type": v_type, "atoms": pair_atoms}
+
+    # Fallback for H-centered transition orbital (e.g. mid proton transfer): pair with nearest heavy neighbor
+    coords = mol.atom_coords()
+    dists = np.linalg.norm(coords - coords[top_idx], axis=1)
+    dists[top_idx] = 999.9
+    closest_idx = int(np.argmin(dists))
+    pair_atoms = sorted([atom_ids[closest_idx], atom_ids[top_idx]], key=_canonical_atom_sort_key)
+    return {"type": "sigma_star", "atoms": pair_atoms}
+
+
+

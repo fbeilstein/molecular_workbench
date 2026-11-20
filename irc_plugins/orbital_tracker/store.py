@@ -203,7 +203,7 @@ def get_frame_pool_payload(megajson: Dict[str, Any], frame_idx: int) -> Dict[str
             frontier_orbitals[f_key] = item
         elif f_type in ("delocalized_pi", "delocalized_pistar"):
             canonical_pi.append(item)
-        elif f_type in ("sigma_star", "pi_star") or trk["orbital_class"] == "antibonding":
+        elif f_type in ("sigma_star", "pi_star", "p_star") or trk["orbital_class"] == "antibonding":
             antibonds.append(item)
         elif f_type != "core":
             all_ibos.append(item)

@@ -2,7 +2,7 @@ import os
 import sys
 import numpy as np
 from typing import Any, Dict, List, Optional, Tuple
-from pyscf import gto, lo
+from pyscf import gto
 from scipy.optimize import linear_sum_assignment
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -10,7 +10,8 @@ TOOLS_DIR = os.path.join(BASE_DIR, "tools")
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 
-from qm.classification import _classify_orbital
+from qm.analyzers.valence import ValenceLocalizer
+from qm.classification import count_core_orbitals
 from qm.constants import HARTREE_TO_EV
 
 
@@ -54,215 +55,184 @@ def compute_frame_ibos(
     non_pi_occ_coeff: Optional[np.ndarray] = None,
     non_pi_virt_coeff: Optional[np.ndarray] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, np.ndarray], np.ndarray, np.ndarray]:
-    """Compute non-conjugated localized IBOs (respecting Step-0 pi exclusion) and textbook antibonds."""
+    """
+    Thin adapter delegating occupied + valence virtual (VVO) localization to the
+    unified ValenceLocalizer shared with server.py (tools/qm/analyzers/valence.py).
+    """
     nocc = mol.nelectron // 2 if mol.spin == 0 else mol.nelec[0]
-    occ_mo = mf.mo_coeff[:, :nocc] if mol.spin == 0 else mf.mo_coeff[0][:, :nocc]
-    mo_e = (mf.mo_energy[:nocc] if mol.spin == 0 else mf.mo_energy[0][:nocc]) * HARTREE_TO_EV
-    core_mask = mo_e < -50.0
-    core_mo = occ_mo[:, core_mask]
-    val_mo = non_pi_occ_coeff.copy() if non_pi_occ_coeff is not None else occ_mo[:, ~core_mask]
-    ibo_val = lo.ibo.ibo(mol, val_mo, verbose=0) if val_mo.shape[1] > 0 else np.zeros((mol.nao, 0))
+    full_mo_coeff = mf.mo_coeff if mol.spin == 0 else mf.mo_coeff[0]
+    full_mo_energy = mf.mo_energy if mol.spin == 0 else mf.mo_energy[0]
+    occ_mo = full_mo_coeff[:, :nocc]
+
+    n_core = count_core_orbitals(mol, full_mo_energy, nocc)
+    core_mo = occ_mo[:, :n_core].copy()
+    val_mo = non_pi_occ_coeff.copy() if non_pi_occ_coeff is not None else occ_mo[:, n_core:].copy()
+    virt_mo = (
+        non_pi_virt_coeff.copy()
+        if non_pi_virt_coeff is not None
+        else full_mo_coeff[:, nocc:].copy()
+    )
+
     ovlp = mol.intor_symmetric("int1e_ovlp")
+    raw_fock = mf.get_fock()
+    fock = (
+        raw_fock[0]
+        if (mol.spin > 0 and isinstance(raw_fock, (tuple, list, np.ndarray)) and np.ndim(raw_fock) == 3)
+        else raw_fock
+    )
     ao_atom = [int(l.split()[0]) for l in mol.ao_labels()]
+    atom_ids = (
+        list(atom_labels)
+        if (atom_labels and len(atom_labels) == mol.natm)
+        else [f"{mol.atom_symbol(i)}{i}" for i in range(mol.natm)]
+    )
 
-    n_val = ibo_val.shape[1]
-    val_pops = np.zeros((n_val, mol.natm))
-    for k in range(n_val):
-        v = ibo_val[:, k]
-        ps = np.outer(v, v) @ ovlp
+    ev_s, U_s = np.linalg.eigh(ovlp)
+    S_half = U_s @ np.diag(np.sqrt(np.maximum(ev_s, 1e-12))) @ U_s.T
+
+    def _lowdin_pop(vec: np.ndarray, scale: float) -> np.ndarray:
+        v_low = S_half @ vec
+        sq = v_low ** 2
+        ap = np.zeros(mol.natm)
         for mu in range(mol.nao):
-            val_pops[k, ao_atom[mu]] += ps[mu, mu]
-        val_pops[k] *= 2.0
+            ap[ao_atom[mu]] += sq[mu]
+        s_tot = float(ap.sum())
+        if s_tot > 1e-10:
+            ap = (ap / s_tot) * scale
+        return ap
 
-    fock = mf.get_fock()
+    # Delegate localization to unified ValenceLocalizer (shared with server.py)
+    localizer = ValenceLocalizer(
+        mol,
+        full_mo_coeff,
+        fock=fock,
+        atom_labels=atom_ids,
+        occ_all_coeff=occ_mo,
+    )
+    localized_orbitals = localizer.localize(val_mo, virt_mo)
 
-    # Multiple-Bond σ/π Subspace Fock Purification
-    pair_groups = {}
-    for k in range(n_val):
-        top2 = np.argsort(-val_pops[k])[:2]
-        a1, a2 = int(min(top2)), int(max(top2))
-        if (mol.atom_symbol(a1) != "H" and mol.atom_symbol(a2) != "H" and
-                val_pops[k, a1] >= 0.30 and val_pops[k, a2] >= 0.30 and
-                (val_pops[k, a1] + val_pops[k, a2]) >= 1.45):
-            pair_groups.setdefault((a1, a2), []).append(k)
+    occ_orbs = []
+    virt_orbs = []
+    for orb in localized_orbitals:
+        if orb.type in ("sigma_star", "pi_star", "p_star") or "star" in orb.type:
+            virt_orbs.append(orb)
+        else:
+            occ_orbs.append(orb)
 
-    for (a1, a2), cols in pair_groups.items():
-        if len(cols) >= 2:
-            C_pair = ibo_val[:, cols]
-            # 1. Exact S_ao Löwdin orthonormalization within pair subspace
-            S_sub = C_pair.T @ ovlp @ C_pair
-            ev_s, U_s = np.linalg.eigh(S_sub)
-            C_pair = C_pair @ (U_s @ np.diag(1.0 / np.sqrt(np.maximum(ev_s, 1e-10))) @ U_s.T)
+    ibo_val = (
+        np.column_stack([orb.mo_coeff for orb in occ_orbs])
+        if occ_orbs
+        else np.zeros((mol.nao, 0))
+    )
+    n_val = ibo_val.shape[1]
 
-            # 2. Diagonalize m x m Fock block: lowest root = pure sigma, upper roots = pure pi!
-            F_sub = C_pair.T @ fock @ C_pair
-            ev_f, U_f = np.linalg.eigh(F_sub)
-            C_purified = C_pair @ U_f
-
-            # 3. Deterministic geometric gauge for 2D degenerate triple-bond pi subspace (m == 3)
-            if C_purified.shape[1] == 3 and abs(ev_f[2] - ev_f[1]) * HARTREE_TO_EV < 3.0:
-                coords_b = mol.atom_coords()
-                bond_v = coords_b[a2] - coords_b[a1]
-                bond_hat = bond_v / max(np.linalg.norm(bond_v), 1e-8)
-                best_nb, best_d = None, 999.0
-                for nb in range(mol.natm):
-                    if nb not in (a1, a2) and mol.atom_symbol(nb) != "H":
-                        d_nb = min(np.linalg.norm(coords_b[nb] - coords_b[a1]), np.linalg.norm(coords_b[nb] - coords_b[a2]))
-                        if d_nb < best_d:
-                            best_d, best_nb = d_nb, nb
-                ref_v = (coords_b[best_nb] - coords_b[a1]) if best_nb is not None else np.array([1.0, 0.0, 0.0])
-                plane_norm = np.cross(bond_hat, ref_v)
-                if np.linalg.norm(plane_norm) < 1e-4:
-                    plane_norm = np.cross(bond_hat, np.array([0.0, 1.0, 0.0]))
-                plane_norm /= np.linalg.norm(plane_norm)
-                probe_pt = (0.5 * (coords_b[a1] + coords_b[a2]) + 0.5 * plane_norm).reshape(1, 3)
-                vals_n = (mol.eval_gto("GTOval", probe_pt) @ C_purified[:, 1:3])[0]
-                theta = np.arctan2(vals_n[0], vals_n[1])
-                R2 = np.array([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]])
-                C_purified[:, 1:3] = C_purified[:, 1:3] @ R2
-
-            ibo_val[:, cols] = C_purified
-            for idx_c, col_k in enumerate(cols):
-                v = ibo_val[:, col_k]
-                ps = np.outer(v, v) @ ovlp
-                val_pops[col_k, :] = 0.0
-                for mu in range(mol.nao):
-                    val_pops[col_k, ao_atom[mu]] += ps[mu, mu]
-                val_pops[col_k] *= 2.0
-
+    # Optional backward-compatible ordering against prev_data if directly supplied
     if prev_data and "mol" in prev_data and "ibo_coeff" in prev_data:
         n_prev_core = prev_data.get("n_core", core_mo.shape[1])
-        if (prev_data["mol"].natm == mol.natm and core_mo.shape[1] == n_prev_core and
-                prev_data["ibo_coeff"].shape[1] - n_prev_core == n_val):
+        if (
+            prev_data["mol"].natm == mol.natm
+            and core_mo.shape[1] == n_prev_core
+            and prev_data["ibo_coeff"].shape[1] - n_prev_core == n_val
+        ):
             s_cross = gto.intor_cross("int1e_ovlp", prev_data["mol"], mol)
             if n_prev_core > 0:
                 prev_core = prev_data["ibo_coeff"][:, :n_prev_core]
                 ovlp_core = prev_core.T @ s_cross @ core_mo
-                rc, cc = linear_sum_assignment(-np.abs(ovlp_core))
+                _, cc = linear_sum_assignment(-np.abs(ovlp_core))
                 core_mo = core_mo[:, cc]
                 for k in range(core_mo.shape[1]):
                     if ovlp_core[k, cc[k]] < 0.0:
                         core_mo[:, k] = -core_mo[:, k]
+            if n_val > 0:
+                prev_val = prev_data["ibo_coeff"][:, n_prev_core:]
+                ovlp_val = prev_val.T @ s_cross @ ibo_val
+                _, c = linear_sum_assignment(-np.abs(ovlp_val))
+                ibo_val = ibo_val[:, c]
+                occ_orbs = [occ_orbs[idx] for idx in c]
+                for k in range(n_val):
+                    if float(prev_val[:, k].T @ s_cross @ ibo_val[:, k]) < 0.0:
+                        ibo_val[:, k] = -ibo_val[:, k]
+                        occ_orbs[k].mo_coeff = ibo_val[:, k]
 
-            prev_val = prev_data["ibo_coeff"][:, n_prev_core:]
-            ovlp_val = prev_val.T @ s_cross @ ibo_val
-            r, c = linear_sum_assignment(-np.abs(ovlp_val))
-            ibo_val = ibo_val[:, c]
-            val_pops = val_pops[c]
-
-            for k in range(n_val):
-                if float(prev_val[:, k].T @ s_cross @ ibo_val[:, k]) < 0.0:
-                    ibo_val[:, k] = -ibo_val[:, k]
-
-    ibo_coeff = np.hstack([core_mo, ibo_val])
+    ibo_coeff = np.hstack([core_mo, ibo_val]) if (core_mo.shape[1] > 0 or n_val > 0) else np.zeros((mol.nao, 0))
+    n_c = core_mo.shape[1]
     n_ibo_tot = ibo_coeff.shape[1]
     pops = np.zeros((n_ibo_tot, mol.natm))
-    n_c = core_mo.shape[1]
+
+    ibo_dict: Dict[str, Dict[str, Any]] = {}
+    star_dict: Dict[str, Dict[str, Any]] = {}
+    vec_dict: Dict[str, np.ndarray] = {}
+
+    # 1. Core orbitals
     for k in range(n_c):
-        v = core_mo[:, k]
-        ps = np.outer(v, v) @ ovlp
-        for mu in range(mol.nao):
-            pops[k, ao_atom[mu]] += ps[mu, mu]
-        pops[k] *= 2.0
-    pops[n_c:] = val_pops
-
-    fock = mf.get_fock()
-    ibo_fock = ibo_coeff.T @ fock @ ibo_coeff
-    energies_ev = np.diag(ibo_fock) * HARTREE_TO_EV
-    elem_symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
-    atom_ids = atom_labels if (atom_labels and len(atom_labels) == mol.natm) else [f"{mol.atom_symbol(i)}{i}" for i in range(mol.natm)]
-    ao_labels = mol.ao_labels(fmt=False)
-    virt_coeff = (
-        non_pi_virt_coeff
-        if non_pi_virt_coeff is not None
-        else (mf.mo_coeff[:, nocc:] if mol.spin == 0 else mf.mo_coeff[0][:, nocc:])
-    )
-
-    ibo_dict, star_dict, vec_dict = {}, {}, {}
-    for k in range(n_ibo_tot):
         key = f"IBO_{k:02d}"
-        vec = ibo_coeff[:, k]
-        e_ev = float(energies_ev[k])
-        if k < n_c:
-            ai = int(np.argmax(pops[k]))
-            typ, cat = "core", "core"
-            lbl = f"Core({atom_ids[ai]})"
-            atoms = [atom_ids[ai]]
-            c_key = f"core_{atom_ids[ai]}_{k}"
-        else:
-            info = _classify_orbital(mol, vec, pops[k], elem_symbols, atom_ids, ovlp)
-            typ = info.get("type", "unknown")
-            atoms = info.get("atoms", [info.get("atom", "?")])
-            if len(atoms) >= 2:
-                def _ask(at):
-                    sym = "".join(filter(str.isalpha, at))
-                    num = int("".join(filter(str.isdigit, at)) or 0)
-                    return (0 if sym == "C" else (2 if sym == "H" else 1), num, sym)
-                atoms = sorted(atoms, key=_ask)
-            if typ == "lone_pair":
-                cat, lbl = "non_bonding", f"LP({atoms[0]})"
-                c_key = f"lp_{atoms[0]}"
-            elif typ in ("sigma", "delocalized_sigma"):
-                cat, lbl = "bonding", f"σ({'-'.join(atoms)})"
-                c_key = f"sigma_{'-'.join(atoms)}"
-            elif typ in ("pi", "delocalized_pi"):
-                cat, lbl = "bonding", f"π({'-'.join(atoms)})"
-                c_key = f"pi_{'-'.join(atoms)}"
-            else:
-                cat, lbl = "other", f"{typ}({'-'.join(atoms)})"
-                c_key = f"{typ}_{'-'.join(atoms)}"
-
+        vec = core_mo[:, k].copy()
+        pop_k = _lowdin_pop(vec, scale=2.0)
+        pops[k] = pop_k
+        ai = int(np.argmax(pop_k))
+        e_ev = float(vec.T @ fock @ vec) * HARTREE_TO_EV
         ibo_dict[key] = {
-            "key": key, "name": key, "index": k, "type": typ, "category": cat,
-            "label": lbl, "atoms": atoms, "chem_key": c_key,
-            "energy_ev": round(e_ev, 2), "pop": pops[k].round(2).tolist()
+            "key": key, "name": key, "index": k, "type": "core", "category": "core",
+            "label": f"Core({atom_ids[ai]})", "atoms": [atom_ids[ai]],
+            "chem_key": f"core_{atom_ids[ai]}_{k}",
+            "energy_ev": round(e_ev, 2), "pop": pop_k.round(2).tolist(),
         }
         vec_dict[key] = vec
 
-        cand_atoms = atoms if (typ != "lone_pair" and len(atoms) >= 2) else []
+    # 2. Occupied valence IBOs
+    for idx_v, orb in enumerate(occ_orbs):
+        k = n_c + idx_v
+        key = f"IBO_{k:02d}"
+        vec = orb.mo_coeff.copy()
+        pop_k = _lowdin_pop(vec, scale=2.0)
+        pops[k] = pop_k
+        typ = orb.type
+        atoms = list(orb.atoms)
+        if typ == "lone_pair":
+            cat, lbl = "non_bonding", f"LP({atoms[0]})"
+            c_key = f"lp_{atoms[0]}"
+        elif typ in ("sigma", "delocalized_sigma"):
+            cat, lbl = "bonding", f"σ({'-'.join(atoms)})"
+            c_key = f"sigma_{'-'.join(atoms)}"
+        elif typ in ("pi", "delocalized_pi"):
+            cat, lbl = "bonding", f"π({'-'.join(atoms)})"
+            c_key = f"pi_{'-'.join(atoms)}"
+        else:
+            cat, lbl = "other", f"{typ}({'-'.join(atoms)})"
+            c_key = f"{typ}_{'-'.join(atoms)}"
 
-        if virt_coeff is not None and len(cand_atoms) >= 2:
-            a1, a2 = cand_atoms[0], cand_atoms[1]
-            if a1 in atom_ids and a2 in atom_ids:
-                idx1, idx2 = atom_ids.index(a1), atom_ids.index(a2)
-                cA, cB = np.zeros_like(vec), np.zeros_like(vec)
-                for mu, (ai, *_) in enumerate(ao_labels):
-                    if ai == idx1:
-                        cA[mu] = vec[mu]
-                    elif ai == idx2:
-                        cB[mu] = vec[mu]
-                c_star = virt_coeff @ (virt_coeff.T @ ovlp @ (cA - cB))
-                norm = np.sqrt(float(c_star.T @ ovlp @ c_star))
-                if norm > 0.15:
-                    c_star /= norm
-                    star_key = f"STAR_{k:02d}"
-                    star_type = "sigma_star" if "sigma" in typ else "pi_star"
-                    star_sym = "σ*" if "sigma" in typ else "π*"
-                    e_star = float(c_star.T @ fock @ c_star) * HARTREE_TO_EV
-                    star_dict[star_key] = {
-                        "key": star_key, "name": star_key, "index": 100 + k, "type": star_type,
-                        "category": "antibonding", "label": f"{star_sym}({a1}-{a2})",
-                        "atoms": [a1, a2], "chem_key": f"{star_type}_{a1}-{a2}",
-                        "energy_ev": round(e_star, 2), "pop": []
-                    }
-                    vec_dict[star_key] = c_star
+        e_ev = orb.energy_ev if orb.energy_ev is not None else round(float(vec.T @ fock @ vec) * HARTREE_TO_EV, 2)
+        ibo_dict[key] = {
+            "key": key, "name": key, "index": k, "type": typ, "category": cat,
+            "label": lbl, "atoms": atoms, "chem_key": c_key,
+            "energy_ev": round(float(e_ev), 2), "pop": pop_k.round(2).tolist(),
+        }
+        vec_dict[key] = vec
 
-    # Löwdin-orthogonalize pairs of pi_star on the same atom pair
-    pistar_groups = {}
-    for sk, sd in star_dict.items():
-        if sd.get("type") == "pi_star" and len(sd.get("atoms", [])) >= 2:
-            ats_t = tuple(sorted(sd["atoms"][:2]))
-            pistar_groups.setdefault(ats_t, []).append(sk)
+    # 3. Orthonormal Valence Virtual Orbitals (VVOs)
+    for idx_s, orb in enumerate(virt_orbs):
+        star_key = f"STAR_{idx_s:02d}"
+        vec = orb.mo_coeff.copy()
+        pop_s = _lowdin_pop(vec, scale=1.0)
+        v_type = orb.type
+        v_atoms = list(orb.atoms)
+        if v_type == "p_star":
+            lbl = f"p*({v_atoms[0]})" if v_atoms else "p*"
+            c_key = f"p_star_{v_atoms[0]}" if v_atoms else f"p_star_{idx_s}"
+        elif v_type == "pi_star":
+            lbl = f"π*({'-'.join(v_atoms)})"
+            c_key = f"pi_star_{'-'.join(v_atoms)}"
+        else:
+            lbl = f"σ*({'-'.join(v_atoms)})"
+            c_key = f"sigma_star_{'-'.join(v_atoms)}"
 
-    for ats_t, sk_list in pistar_groups.items():
-        if len(sk_list) >= 2:
-            C_ps = np.column_stack([vec_dict[sk] for sk in sk_list])
-            S_ps = C_ps.T @ ovlp @ C_ps
-            ev_ps, U_ps = np.linalg.eigh(S_ps)
-            C_ps = C_ps @ (U_ps @ np.diag(1.0 / np.sqrt(np.maximum(ev_ps, 1e-8))) @ U_ps.T)
-            for idx_s, sk in enumerate(sk_list):
-                v_s = C_ps[:, idx_s]
-                vec_dict[sk] = v_s
-                star_dict[sk]["energy_ev"] = round(float(v_s.T @ fock @ v_s) * HARTREE_TO_EV, 2)
+        e_star = orb.energy_ev if orb.energy_ev is not None else round(float(vec.T @ fock @ vec) * HARTREE_TO_EV, 2)
+        star_dict[star_key] = {
+            "key": star_key, "name": star_key, "index": 100 + idx_s, "type": v_type,
+            "category": "antibonding", "label": lbl, "atoms": v_atoms,
+            "chem_key": c_key, "energy_ev": round(float(e_star), 2),
+            "pop": pop_s.round(2).tolist(),
+        }
+        vec_dict[star_key] = vec
 
     return ibo_dict, star_dict, vec_dict, pops, ibo_coeff

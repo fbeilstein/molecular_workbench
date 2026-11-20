@@ -21,7 +21,7 @@ from .common import (
     REGISTRY_PATH,
     TRAJECTORIES_DIR,
 )
-from .matcher import match_subspace_orbitals, smooth_and_label_tracks
+from .matcher import match_subspace_orbitals, prepare_lowdin_common_rows, smooth_and_label_tracks
 
 
 _CALC_PROGRESS: Dict[str, Any] = {
@@ -110,7 +110,7 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
 
     workers = min(8, max(1, os.cpu_count() or 4))
     precomputed_list = []
-    cache_file = f"/tmp/precomputed_{N}.pkl"
+    cache_file = f"/tmp/precomputed_v2_{p_hash}_{N}.pkl"
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "rb") as f:
@@ -153,16 +153,17 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
     prev_mol: Optional[Any] = None
     prev_atom_labels: Optional[List[str]] = None
     prev_ao_atom: Optional[List[int]] = None
+    prev_ao_keys: Optional[List[Tuple[str, str]]] = None
+    prev_coords_bohr: Optional[np.ndarray] = None
     active_core: List[Dict[str, Any]] = []
     active_valence: List[Dict[str, Any]] = []
     active_antibond: List[Dict[str, Any]] = []
-    active_deloc_pi: List[Dict[str, Any]] = []
-    prev_frontier_vecs: Dict[str, np.ndarray] = {}
+    prev_frontier_low: Dict[str, np.ndarray] = {}
 
     next_seq = 1
     next_core_seq = 0
 
-    # Step 2: Sequential cross-frame propagation across subspaces
+    # Step 2: Sequential cross-frame propagation across conserved subspaces
     for t in range(N):
         pct = 85 + int(((t + 1) / N) * 12)
         _CALC_PROGRESS.update({
@@ -180,19 +181,29 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
         atom_str = "; ".join(f"{s} {p[0]} {p[1]} {p[2]}" for s, p in zip(symbols, coords))
         mol = gto.M(atom=atom_str, basis="sto-3g", charge=charge, spin=0, verbose=0)
         ovlp = mol.intor_symmetric("int1e_ovlp")
-        ao_atom = [int(l.split()[0]) for l in mol.ao_labels()]
+        ao_lbls_raw = mol.ao_labels()
+        ao_atom = [int(l.split()[0]) for l in ao_lbls_raw]
+        ao_keys = [(curr_atom_labels[int(l.split()[0])], l.split()[2]) for l in ao_lbls_raw]
+        coords_bohr = mol.atom_coords()
+
+        ev_s, U_s = np.linalg.eigh(ovlp)
+        S_half = U_s @ np.diag(np.sqrt(np.maximum(ev_s, 1e-12))) @ U_s.T
 
         _, mull, ibos_dict, star_dict, vecs_dict, pops, f_meta, c_meta, f_vecs = precomputed_list[t]
 
-        def _calc_pop(v: np.ndarray, is_virt: bool = False) -> np.ndarray:
-            p_mat = np.outer(v, v) @ ovlp
-            ap = np.zeros(mol.natm, dtype=np.float32)
+        def _make_lowdin_info(v: np.ndarray, scale: float) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
+            v_low = S_half @ v
+            sq = v_low ** 2
+            ap = np.zeros(mol.natm, dtype=np.float64)
             for mu in range(mol.nao):
-                ap[ao_atom[mu]] += p_mat[mu, mu]
-            ap *= (1.0 if is_virt else 2.0)
-            return ap
+                ap[ao_atom[mu]] += sq[mu]
+            tot = float(ap.sum())
+            ap_frac = ap / tot if tot > 1e-10 else ap
+            pdict = {curr_atom_labels[i]: float(ap_frac[i]) for i in range(mol.natm)}
+            return v_low, (ap_frac * scale).astype(np.float32), pdict
 
         s_cross = None
+        lowdin_map = None
         if t > 0 and prev_mol is not None:
             s_cross = gto.intor_cross("int1e_ovlp", prev_mol, mol)
             if (
@@ -208,6 +219,9 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
                 for nu, at_j in enumerate(ao_atom):
                     if curr_atom_labels[at_j] not in prev_set:
                         s_cross[:, nu] = 0.0
+            lowdin_map = prepare_lowdin_common_rows(
+                prev_ao_keys, ao_keys, prev_coords_bohr, coords_bohr, prev_atom_labels, curr_atom_labels
+            )
 
         frame_tids: List[str] = []
         frame_vecs: List[np.ndarray] = []
@@ -258,29 +272,31 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
             rec["atoms_set"].update(atoms)
 
         # ----------------------------------------------------
-        # Subspace A: Frontier Orbitals
+        # Subspace A: Frontier Orbitals (phase-aligned via Löwdin common overlap)
         # ----------------------------------------------------
-        curr_frontier_vecs: Dict[str, np.ndarray] = {}
+        curr_frontier_low: Dict[str, np.ndarray] = {}
         for fk in FRONTIER_KEYS:
             if fk in f_meta and fk in f_vecs:
                 tid = FRONTIER_TRACK_MAP[fk]
                 v = f_vecs[fk].copy()
-                if s_cross is not None and tid in prev_frontier_vecs:
-                    if float(prev_frontier_vecs[tid] @ s_cross @ v) < 0.0:
-                        v = -v
-                curr_frontier_vecs[tid] = v
-                meta = f_meta[fk]
                 is_virt = "LUMO" in fk
-                p_arr = _calc_pop(v, is_virt=is_virt)
+                v_low, p_arr, _ = _make_lowdin_info(v, scale=(1.0 if is_virt else 2.0))
+                if lowdin_map is not None and tid in prev_frontier_low:
+                    cp, cc, _ = lowdin_map
+                    if cp and float(np.dot(prev_frontier_low[tid][cp], v_low[cc])) < 0.0:
+                        v = -v
+                        v_low = -v_low
+                curr_frontier_low[tid] = v_low
+                meta = f_meta[fk]
                 e_ev = float(meta.get("energy_ev", 0.0))
                 _record_track_instance(
                     tid, v, p_arr, e_ev, fk, "frontier", meta.get("category", "frontier"),
                     meta.get("orbital_class", "bonding"), meta.get("atoms", []), "frontier"
                 )
-        prev_frontier_vecs = curr_frontier_vecs
+        prev_frontier_low = curr_frontier_low
 
         # ----------------------------------------------------
-        # Subspace B: Core Orbitals
+        # Subspace B: Core Orbitals (Conserved Bijection)
         # ----------------------------------------------------
         core_keys = [k for k, v in ibos_dict.items() if v.get("type") == "core"]
         core_keys.sort(key=lambda k: ibos_dict[k]["energy_ev"])
@@ -288,13 +304,15 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
         for k in core_keys:
             v = vecs_dict[k].copy()
             meta = ibos_dict[k]
-            p_arr = pops[meta["index"]] if meta["index"] < len(pops) else _calc_pop(v)
-            curr_core_list.append({"vec": v, "pop": p_arr, "meta": meta})
+            v_low, p_arr, pdict = _make_lowdin_info(v, scale=2.0)
+            curr_core_list.append({"vec": v, "vec_low": v_low, "pop": p_arr, "pop_dict": pdict, "meta": meta})
 
         active_core, next_core_seq = match_subspace_orbitals(
             active_core, curr_core_list, s_cross, t,
             subspace="core", threshold=0.60, next_seq=next_core_seq,
-            record_fn=_record_track_instance, prefix="trk_core_", pad_zeros=2
+            record_fn=_record_track_instance, prefix="trk_core_", pad_zeros=2,
+            conserved=True, prev_atom_labels=prev_atom_labels, curr_atom_labels=curr_atom_labels,
+            lowdin_map=lowdin_map, prev_ao_keys=prev_ao_keys,
         )
 
         # ----------------------------------------------------
@@ -305,54 +323,46 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
         for k in val_keys:
             v = vecs_dict[k].copy()
             meta = ibos_dict[k]
-            p_arr = pops[meta["index"]] if meta["index"] < len(pops) else _calc_pop(v)
-            curr_val_list.append({"vec": v, "pop": p_arr, "meta": meta})
+            v_low, p_arr, pdict = _make_lowdin_info(v, scale=2.0)
+            curr_val_list.append({"vec": v, "vec_low": v_low, "pop": p_arr, "pop_dict": pdict, "meta": meta})
         for k, meta in c_meta.items():
             if k in f_vecs and "pistar" not in meta.get("type", ""):
                 v = f_vecs[k].copy()
-                p_arr = _calc_pop(v, is_virt=False)
-                curr_val_list.append({"vec": v, "pop": p_arr, "meta": meta})
+                v_low, p_arr, pdict = _make_lowdin_info(v, scale=2.0)
+                curr_val_list.append({"vec": v, "vec_low": v_low, "pop": p_arr, "pop_dict": pdict, "meta": meta})
 
         active_valence, next_seq = match_subspace_orbitals(
             active_valence, curr_val_list, s_cross, t,
             subspace="valence_ibo", threshold=0.45, next_seq=next_seq,
             record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
-            pi_type_keyword="pi"
+            pi_type_keyword="pi", conserved=True,
+            prev_atom_labels=prev_atom_labels, curr_atom_labels=curr_atom_labels,
+            lowdin_map=lowdin_map, prev_ao_keys=prev_ao_keys,
         )
 
         # ----------------------------------------------------
-        # Subspace D: Localized Antibonds
+        # Subspace D: Unified Virtual Valence Space (Localized VVOs + Step-0 Delocalized Pi*)
         # ----------------------------------------------------
         star_keys = list(star_dict.keys())
-        curr_star_list = []
+        curr_virt_list = []
         for k in star_keys:
             v = vecs_dict[k].copy()
             meta = star_dict[k]
-            p_arr = _calc_pop(v, is_virt=True)
-            curr_star_list.append({"vec": v, "pop": p_arr, "meta": meta})
-
-        active_antibond, next_seq = match_subspace_orbitals(
-            active_antibond, curr_star_list, s_cross, t,
-            subspace="antibond", threshold=0.45, next_seq=next_seq,
-            record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
-            pi_type_keyword="pi_star"
-        )
-
-        # ----------------------------------------------------
-        # Subspace E: Delocalized Virtual Pi* Systems
-        # ----------------------------------------------------
-        curr_deloc_list = []
+            v_low, p_arr, pdict = _make_lowdin_info(v, scale=1.0)
+            curr_virt_list.append({"vec": v, "vec_low": v_low, "pop": p_arr, "pop_dict": pdict, "meta": meta})
         for k, meta in c_meta.items():
             if k in f_vecs and "pistar" in meta.get("type", ""):
                 v = f_vecs[k].copy()
-                p_arr = _calc_pop(v, is_virt=True)
-                curr_deloc_list.append({"vec": v, "pop": p_arr, "meta": meta})
+                v_low, p_arr, pdict = _make_lowdin_info(v, scale=1.0)
+                curr_virt_list.append({"vec": v, "vec_low": v_low, "pop": p_arr, "pop_dict": pdict, "meta": meta})
 
-        active_deloc_pi, next_seq = match_subspace_orbitals(
-            active_deloc_pi, curr_deloc_list, s_cross, t,
-            subspace="deloc_pi", threshold=0.45, next_seq=next_seq,
+        active_antibond, next_seq = match_subspace_orbitals(
+            active_antibond, curr_virt_list, s_cross, t,
+            subspace="antibond", threshold=0.45, next_seq=next_seq,
             record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
-            pi_type_keyword="delocalized_pistar"
+            pi_type_keyword="pi_star", conserved=True,
+            prev_atom_labels=prev_atom_labels, curr_atom_labels=curr_atom_labels,
+            lowdin_map=lowdin_map, prev_ao_keys=prev_ao_keys,
         )
 
         frame_outputs.append({
@@ -366,6 +376,8 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
         prev_mol = mol
         prev_atom_labels = curr_atom_labels
         prev_ao_atom = ao_atom
+        prev_ao_keys = ao_keys
+        prev_coords_bohr = coords_bohr
 
     # Step 3: Track smoothing and disambiguated role labeling
     _CALC_PROGRESS.update({

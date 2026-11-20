@@ -74,8 +74,9 @@ class Renderer:
             self.manifest['localized']['pi'].append(orb.to_dict(cube_name))
             return cube_name
 
-        if orb.type in ('pi_star', 'delocalized_pistar'):
-            cube_name = f"{self.name}_pistar_{atoms_str}_{idx}.cube"
+        if orb.type in ('pi_star', 'delocalized_pistar', 'p_star'):
+            prefix = 'pstar' if orb.type == 'p_star' else 'pistar'
+            cube_name = f"{self.name}_{prefix}_{atoms_str}_{idx}.cube"
             self.manifest['localized']['pi_star'].append(orb.to_dict(cube_name))
             return cube_name
 

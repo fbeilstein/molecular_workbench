@@ -120,6 +120,8 @@ def clean_role_label(meta: Optional[Dict[str, Any]]) -> Optional[str]:
     atoms_str = "-".join(atoms) if atoms else ""
     if typ == "lone_pair":
         return f"LP({atoms[0]})" if atoms else "LP"
+    elif typ == "p_star":
+        return f"p*({atoms[0]})" if atoms else "p*"
     elif "sigma_star" in typ or "sigmastar" in typ:
         return f"σ*({atoms_str})" if atoms_str else "σ*"
     elif "pistar" in typ or "pi_star" in typ or typ == "delocalized_pistar":

@@ -180,8 +180,14 @@ class QuantumPipeline:
                 )
             )
 
-        # 2. Valence Localizer (IBO on non-pi subspaces) with diagonal Fock energies on ALL orbitals
-        valence_loc = ValenceLocalizer(self.mol, raw_coeff, fock=fock)
+        # 2. Valence Localizer (Unified Occupied + Valence Virtual IBO on non-pi subspaces)
+        valence_loc = ValenceLocalizer(
+            self.mol,
+            raw_coeff,
+            fock=fock,
+            atom_labels=all_atom_ids,
+            occ_all_coeff=raw_coeff[:, :nocc],
+        )
         for orb in valence_loc.localize(C_non_pi_occ, C_non_pi_virt):
             vec = orb.mo_coeff.copy()
             nrm = np.sqrt(float(vec.T @ ovlp @ vec))
