@@ -2,6 +2,7 @@ import numpy as np
 from qm.constants import (
     BOHR_TO_ANG,
     CORE_ELECTRONS,
+    COVALENT_RADII_ANG,
     HARTREE_TO_EV,
     LP_DOMINANT_POPULATION_THRESHOLD,
     LP_HYPERCONJUGATION_PRIMARY_MIN,
@@ -116,6 +117,20 @@ def count_core_orbitals(mol, mo_energy: np.ndarray, nocc: int, cutoff_ev: float 
 
 
 
+def _count_covalent_neighbors(mol, coords_ang: np.ndarray, a_idx: int) -> int:
+    """Count genuinely bonded covalent neighbors of atom a_idx using element-aware covalent radii."""
+    r_a = COVALENT_RADII_ANG.get(mol.atom_symbol(a_idx), 0.80)
+    n_nb = 0
+    for j in range(mol.natm):
+        if j == a_idx:
+            continue
+        r_j = COVALENT_RADII_ANG.get(mol.atom_symbol(j), 0.80)
+        d = float(np.linalg.norm(coords_ang[j] - coords_ang[a_idx]))
+        if 0.2 < d <= (r_a + r_j) * 1.25:
+            n_nb += 1
+    return n_nb
+
+
 def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     """Distinguish σ vs π using a nodal-plane test.
 
@@ -134,10 +149,7 @@ def _classify_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     # Tetrahedral / 4-coordinate atoms (like sp3 carbon) cannot form pi bonds without violating octet rules.
     for a_idx in (atom1_idx, atom2_idx):
         if mol.atom_symbol(a_idx) in ('C', 'Si'):
-            dists_ang = np.linalg.norm(coords_ang - coords_ang[a_idx], axis=1)
-            # count bonded neighbors within 1.95 A (excluding self)
-            n_neighbors = int(np.sum((dists_ang > 0.2) & (dists_ang < SP3_MAX_NEIGHBOR_DIST_ANG)))
-            if n_neighbors >= 4:
+            if _count_covalent_neighbors(mol, coords_ang, a_idx) >= 4:
                 return 'sigma'
 
     bond_vec = coords_bohr[atom2_idx] - coords_bohr[atom1_idx]
@@ -216,12 +228,10 @@ def _classify_antibond_sigma_pi(mol, mo_coeff, atom1_idx, atom2_idx):
     if mol.atom_symbol(atom1_idx) == "H" or mol.atom_symbol(atom2_idx) == "H":
         return "sigma_star"
 
-    # Strictly tetrahedral sp3 carbon/silicon (4 tight covalent neighbors < 1.75 Å)
+    # Strictly tetrahedral sp3 carbon/silicon (4 genuine covalent neighbors by covalent radii)
     for a_idx in (atom1_idx, atom2_idx):
         if mol.atom_symbol(a_idx) in ("C", "Si"):
-            dists_ang = np.linalg.norm(coords_ang - coords_ang[a_idx], axis=1)
-            n_neighbors = int(np.sum((dists_ang > 0.2) & (dists_ang < 1.75)))
-            if n_neighbors >= 4:
+            if _count_covalent_neighbors(mol, coords_ang, a_idx) >= 4:
                 return "sigma_star"
 
     bond_vec = coords_bohr[atom2_idx] - coords_bohr[atom1_idx]

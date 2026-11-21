@@ -172,6 +172,85 @@ class ValenceLocalizer:
 
         return C_out, pops_out
 
+    def _decouple_virtual_sigma_star(
+        self,
+        C_loc: np.ndarray,
+        frac_pops: np.ndarray,
+        Q_iao: Optional[np.ndarray],
+        ref_ao_atom: Optional[List[int]],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Decouple pure σ* from π* on 2-atom virtual multiple-bond groups via minimal rotation.
+
+        On homonuclear multiple bonds (e.g. N≡N, C≡C), σ* and π* share identical 50/50 IAO
+        populations, leaving the Pipek-Mezey IBO objective invariant to σ*/π* mixing.
+        Projecting out ONLY the highest-energy σ* Fock eigenvector via Löwdin minimal-rotation
+        projection yields pure σ* and pure π* while preserving diabatic π* orientation
+        (no 2x2 Fock diagonalization inside the π* plane).
+        """
+        if self.fock is None or C_loc.shape[1] < 2:
+            return C_loc, frac_pops
+
+        C_out = C_loc.copy()
+        pops_out = frac_pops.copy()
+        n_orb = C_out.shape[1]
+
+        pair_groups = {}
+        for k in range(n_orb):
+            top2 = np.argsort(-pops_out[k])[:2]
+            if len(top2) < 2:
+                continue
+            a1, a2 = int(min(top2)), int(max(top2))
+            if (
+                self.mol.atom_symbol(a1) != "H"
+                and self.mol.atom_symbol(a2) != "H"
+                and pops_out[k, a1] >= 0.15
+                and pops_out[k, a2] >= 0.15
+                and (pops_out[k, a1] + pops_out[k, a2]) >= 0.72
+            ):
+                pair_groups.setdefault((a1, a2), []).append(k)
+
+        for _, cols in pair_groups.items():
+            m = len(cols)
+            if m < 2 or m > 3:
+                continue
+            C_pair = C_out[:, cols]
+            S_sub = C_pair.T @ self.ovlp @ C_pair
+            ev_s, U_s = np.linalg.eigh(S_sub)
+            C_pair = C_pair @ (U_s @ np.diag(1.0 / np.sqrt(np.maximum(ev_s, 1e-10))) @ U_s.T)
+
+            F_sub = C_pair.T @ self.fock @ C_pair
+            ev_f, U_f = np.linalg.eigh(F_sub)
+            gap_ev = (float(ev_f[-1]) - float(ev_f[-2])) * HARTREE_TO_EV
+            if gap_ev < 3.0:
+                continue
+
+            u_sig = U_f[:, -1].copy()
+            j_sig = int(np.argmax(np.abs(u_sig)))
+            if u_sig[j_sig] < 0.0:
+                u_sig = -u_sig
+
+            # Skip if σ* is already decoupled to machine precision
+            if float(abs(u_sig[j_sig])) > 1.0 - 1e-6:
+                continue
+
+            keep = [j for j in range(m) if j != j_sig]
+            I_keep = np.eye(m)[:, keep]
+            V = I_keep - np.outer(u_sig, u_sig[keep])
+            G = V.T @ V
+            ev_g, U_g = np.linalg.eigh(G)
+            V_orth = V @ (U_g @ np.diag(1.0 / np.sqrt(np.maximum(ev_g, 1e-10))) @ U_g.T)
+
+            U_rot = np.zeros((m, m))
+            U_rot[:, j_sig] = u_sig
+            for idx_k, orig_j in enumerate(keep):
+                U_rot[:, orig_j] = V_orth[:, idx_k]
+
+            C_decoupled = C_pair @ U_rot
+            C_out[:, cols] = C_decoupled
+            pops_out[cols, :] = self._iao_atom_populations(C_decoupled, Q_iao, ref_ao_atom)
+
+        return C_out, pops_out
+
     def _extract_vvo_subspace(
         self,
         virt_coeff: np.ndarray,
@@ -318,16 +397,21 @@ class ValenceLocalizer:
 
             # ------------------------------------------------------------
             # 2. Orthonormal Valence Virtual Orbitals (VVOs) via IAO + IBO
-            #    Note: Keep raw p=4 IBO virtuals diabatic (do NOT diagonalize
-            #    2x2 Fock blocks across π* pairs, which forces adiabatic
-            #    avoided-crossing 90° swaps when a reactive π* climbs past a
-            #    spectator π* into σ*). Raw p=4 IBOs already keep σ* pure.
+            #    Note: Keep π* virtuals diabatic (do NOT diagonalize 2x2 Fock
+            #    blocks inside a degenerate π* pair, which causes adiabatic
+            #    avoided-crossing swaps during reactions). Only decouple the
+            #    highest-energy σ* Fock eigenvector from π* on 2-atom multiple
+            #    bonds via minimal-rotation orthogonal projection (fixes 50/50
+            #    homonuclear σ*/π* mixing such as N≡N without rotating π*).
             # ------------------------------------------------------------
             if virt_coeff is not None and virt_coeff.shape[1] > 0:
                 C_vvo = self._extract_vvo_subspace(virt_coeff, Q_iao)
                 if C_vvo.shape[1] > 0:
                     loc_vvo = lo.ibo.ibo(self.mol, C_vvo, iaos=iao_raw, verbose=0)
                     vvo_frac_pops = self._iao_atom_populations(loc_vvo, Q_iao, ref_ao_atom)
+                    loc_vvo, vvo_frac_pops = self._decouple_virtual_sigma_star(
+                        loc_vvo, vvo_frac_pops, Q_iao, ref_ao_atom
+                    )
 
                     for i in range(loc_vvo.shape[1]):
                         v_mo = loc_vvo[:, i]
