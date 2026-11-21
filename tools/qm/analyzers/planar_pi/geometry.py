@@ -170,33 +170,110 @@ def detect_planar_pi_fragments(
                 cand.add(i)
 
     adj: Dict[int, Set[int]] = {u: set(v for v in full_adj[u] if v in cand) for u in cand}
-    if not adj:
-        return []
-
-    # Precompute local normal vector for each atom
-    local_normals: Dict[int, np.ndarray] = {}
-    for i in adj:
-        n_vec = get_local_normal(coords_b, i, list(adj[i]))
-        if n_vec is not None:
-            local_normals[i] = n_vec
-
-    # Form 3-atom seeds & BFS flood-fill
-    seeds = _find_planar_seeds(adj, coords_b, local_normals, min_cos_align)
-    candidates: List[Tuple[Set[int], np.ndarray]] = []
-    for seed in seeds:
-        res = _expand_seed_bfs(seed, adj, coords_b, local_normals, max_plane_dist_bohr, min_cos_align)
-        if res is not None:
-            candidates.append(res)
-
-    # Deduplicate & select maximal non-overlapping planar fragments
-    candidates.sort(key=lambda item: len(item[0]), reverse=True)
     final_frags: List[Tuple[List[int], np.ndarray, List[int]]] = []
-    for s, norm in candidates:
-        if len(s) <= 3 and sum(1 for ai in s if syms[ai] in ("O", "S", "N")) >= 2:
+
+    if adj:
+        # Precompute local normal vector for each atom
+        local_normals: Dict[int, np.ndarray] = {}
+        for i in adj:
+            n_vec = get_local_normal(coords_b, i, list(adj[i]))
+            if n_vec is not None:
+                local_normals[i] = n_vec
+
+        # Form 3-atom seeds & BFS flood-fill
+        seeds = _find_planar_seeds(adj, coords_b, local_normals, min_cos_align)
+        candidates: List[Tuple[Set[int], np.ndarray]] = []
+        for seed in seeds:
+            res = _expand_seed_bfs(seed, adj, coords_b, local_normals, max_plane_dist_bohr, min_cos_align)
+            if res is not None:
+                candidates.append(res)
+
+        # Deduplicate & select maximal non-overlapping planar fragments
+        candidates.sort(key=lambda item: len(item[0]), reverse=True)
+        for s, norm in candidates:
+            if len(s) <= 3 and sum(1 for ai in s if syms[ai] in ("O", "S", "N")) >= 2:
+                continue
+            if any(len(s & set(f)) >= 0.70 * len(s) for f, _, _ in final_frags):
+                continue
+            final_frags.append((sorted(list(s)), norm, sorted(list(s))))
+
+    # 2. Dedicated planar 3-center (or 4-center) O=C-X (X = O, N) carbonyl conjugation detector
+    #    Captures esters (-C(=O)-OR), carboxylic acids (-C(=O)-OH), carboxylates (-COO-),
+    #    amides (-C(=O)-NR2), ureas, and carbonates as standalone conjugated pi systems without
+    #    allowing them to falsely flood-fill into sterically twisted adjacent aromatic rings.
+    used_atoms: Set[int] = set()
+    for f_atoms, _, _ in final_frags:
+        used_atoms.update(f_atoms)
+
+    def _angle_sum_deg(center_idx: int, nbrs_list: List[int]) -> float:
+        total = 0.0
+        m = len(nbrs_list)
+        for ii in range(m):
+            for jj in range(ii + 1, m):
+                v1 = coords_a[nbrs_list[ii]] - coords_a[center_idx]
+                v2 = coords_a[nbrs_list[jj]] - coords_a[center_idx]
+                n1, n2 = float(np.linalg.norm(v1)), float(np.linalg.norm(v2))
+                if n1 > 1e-6 and n2 > 1e-6:
+                    total += float(np.degrees(np.arccos(np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0))))
+        return total
+
+    for c_idx in range(n):
+        if syms[c_idx] != "C" or c_idx in used_atoms:
             continue
-        if any(len(s & set(f)) >= 0.70 * len(s) for f, _, _ in final_frags):
+        c_nbrs = full_adj[c_idx]
+        if len(c_nbrs) != 3:
             continue
-        final_frags.append((sorted(list(s)), norm, sorted(list(s))))
+        # Must be planar trigonal sp2 carbon (not a pyramidal tetrahedral intermediate)
+        if _angle_sum_deg(c_idx, c_nbrs) < 350.0:
+            continue
+        c_norm = get_local_normal(coords_b, c_idx, c_nbrs)
+        if c_norm is None:
+            continue
+
+        term_o = [
+            nb for nb in c_nbrs
+            if syms[nb] == "O"
+            and len(full_adj[nb]) == 1
+            and float(np.linalg.norm(coords_a[c_idx] - coords_a[nb])) < 1.32
+        ]
+        if not term_o:
+            continue
+
+        conj_x = []
+        for nb in c_nbrs:
+            if nb in term_o:
+                continue
+            d_cx = float(np.linalg.norm(coords_a[c_idx] - coords_a[nb]))
+            if d_cx >= 1.42:
+                continue
+            if syms[nb] == "O":
+                # 1-coord carboxylate O- or 2-coord neutral ester/acid -OR/-OH (excludes 3-coord protonated oxonium!)
+                if len(full_adj[nb]) not in (1, 2):
+                    continue
+            elif syms[nb] == "N":
+                if len(full_adj[nb]) not in (2, 3):
+                    continue
+                if len(full_adj[nb]) == 3 and _angle_sum_deg(nb, full_adj[nb]) < 345.0:
+                    continue
+            else:
+                continue
+
+            # Check coplanarity of X's local plane with the carbonyl plane
+            if len(full_adj[nb]) >= 2:
+                x_norm = get_local_normal(coords_b, nb, full_adj[nb])
+                if x_norm is None or abs(float(np.dot(c_norm, x_norm))) < min_cos_align:
+                    continue
+            conj_x.append(nb)
+
+        # Require at least 2 conjugated O/N atoms on C (e.g. 1 carbonyl =O + >=1 ester/acid/amide O/N, or 2 carboxylate O's)
+        conj_atoms = sorted(set([c_idx] + term_o + conj_x))
+        if len(conj_atoms) >= 3 and not (set(conj_atoms) & used_atoms):
+            norm_out = c_norm.copy()
+            if norm_out[2] < 0 or (abs(norm_out[2]) < 1e-6 and norm_out[1] < 0):
+                norm_out = -norm_out
+            # Note: pass empty cycle list [] so frag_short uses atom labels (e.g. C6-O8-O24)
+            final_frags.append((conj_atoms, norm_out, []))
+            used_atoms.update(conj_atoms)
 
     return final_frags
 

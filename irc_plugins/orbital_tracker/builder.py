@@ -110,7 +110,7 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
 
     workers = min(8, max(1, os.cpu_count() or 4))
     precomputed_list = []
-    cache_file = f"/tmp/precomputed_v3_{p_hash}_{N}.pkl"
+    cache_file = f"/tmp/precomputed_v4_{p_hash}_{N}.pkl"
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "rb") as f:
