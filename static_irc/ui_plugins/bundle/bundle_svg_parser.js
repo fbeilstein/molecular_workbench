@@ -80,25 +80,47 @@ export function parseLabeledElements(rootSvg) {
     return topNodes;
 }
 
-export function resolveEventTarget(el, wiring) {
-    if (!el || el.tagName.toLowerCase() === 'svg') return null;
+export function resolveEventTarget(el, wiring, mode = 'interactive') {
+    if (!el || !el.tagName || el.tagName.toLowerCase() === 'svg') return null;
 
+    // Resolve external hit-cushion rects attached for standalone <path> elements
+    const hitFor = el.getAttribute && el.getAttribute('data-hit-for');
+    if (hitFor) {
+        const rootSvg = el.ownerSVGElement || el.closest('svg');
+        if (rootSvg) {
+            const ref = rootSvg.getElementById(hitFor) ||
+                        rootSvg.querySelector(`[inkscape\\:label="${hitFor}"], [label="${hitFor}"]`);
+            if (ref) el = ref;
+        }
+    }
+
+    if (mode === 'interactive') {
+        let cur = el;
+        while (cur && cur.tagName && cur.tagName.toLowerCase() !== 'svg') {
+            const id = cur.getAttribute('id');
+            const lbl = getElementLabel(cur);
+            const cfg = (id && wiring[id]) || (lbl && wiring[lbl]);
+            if (cfg && cfg.role && cfg.role !== 'none' && cfg.role !== 'push_arrow') {
+                return cur;
+            }
+            cur = cur.parentElement;
+        }
+        return null;
+    }
+
+    // Edit / Wiring mode: prefer an ancestor that is wired or explicitly labeled over unnamed inner Inkscape <g> sub-groups
     let cur = el;
+    let fallbackGroup = null;
     while (cur && cur.tagName && cur.tagName.toLowerCase() !== 'svg') {
         const id = cur.getAttribute('id');
-        const lbl = cur.getAttribute('inkscape:label') || cur.getAttribute('label');
-        if (lbl || (id && wiring[id]) || (lbl && wiring[lbl]) ||
-            cur.classList.contains('svg-clickable-arrow') ||
-            cur.classList.contains('svg-clickable-state') ||
-            cur.classList.contains('svg-clickable-molecule') ||
-            cur.classList.contains('svg-wired-push-arrow') ||
-            cur.classList.contains('svg-push-active')) {
+        const lbl = getElementLabel(cur);
+        if ((id && wiring[id]) || (lbl && wiring[lbl]) || lbl) {
             return cur;
         }
-        if (id && cur.tagName.toLowerCase() === 'g') {
-            return cur;
+        if (!fallbackGroup && id && cur.tagName.toLowerCase() === 'g') {
+            fallbackGroup = cur;
         }
         cur = cur.parentElement;
     }
-    return el;
+    return fallbackGroup || el;
 }

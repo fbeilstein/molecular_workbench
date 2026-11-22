@@ -33,9 +33,9 @@ export function bindBundleEvents(container, ui) {
     const tabInteractive = container.querySelector('#tab-mode-interactive'), tabWiring = container.querySelector('#tab-mode-wiring');
     const hint = container.querySelector('#label-wiring-hint'), wiringStatus = container.querySelector('#label-wiring-status');
     const setMode = (isWiring) => {
-        tabWiring.className = isWiring ? 'btn-primary active' : 'btn-secondary';
-        tabInteractive.className = !isWiring ? 'btn-primary active' : 'btn-secondary';
-        hint.textContent = isWiring ? 'Click element in tree/canvas to wire' : 'Click arrows to play • Right-click molecules';
+        tabWiring.className = isWiring ? 'btn btn-xxs btn-primary active' : 'btn btn-xxs btn-secondary';
+        tabInteractive.className = !isWiring ? 'btn btn-xxs btn-primary active' : 'btn btn-xxs btn-secondary';
+        hint.textContent = isWiring ? 'Click element in tree/canvas to wire' : 'Click arrows/states to navigate • Double-click or Right-click molecules';
         if (wiringStatus) { wiringStatus.textContent = isWiring ? 'Wiring Mode' : 'Hierarchy'; wiringStatus.className = isWiring ? 'chip amber' : 'chip blue'; }
         s.svgManager.setMode(isWiring ? 'edit' : 'interactive');
         if (isWiring) ui.renderGroupsTree();

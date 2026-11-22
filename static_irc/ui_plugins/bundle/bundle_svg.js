@@ -2,7 +2,7 @@
  * Interactive SVG Reaction Mechanism & Hierarchical Group Wiring Manager.
  */
 
-import { parseLabeledElements, resolveEventTarget } from './bundle_svg_parser.js?v=2.0.3';
+import { getElementLabel, parseLabeledElements, resolveEventTarget } from './bundle_svg_parser.js?v=2.0.4';
 import { renderSvgPaperCard } from './bundle_svg_view.js?v=2.0.3';
 
 export class SvgMechanismManager {
@@ -88,6 +88,11 @@ export class SvgMechanismManager {
             zoom: (factor) => this.zoom(factor),
             resetZoom: () => this.resetZoom()
         });
+        const paper = this.containerEl.querySelector('#svg-paper-card');
+        if (paper) {
+            paper.classList.toggle('mode-wiring', this.mode === 'edit');
+            paper.classList.toggle('mode-interactive', this.mode === 'interactive');
+        }
         this.applyClassesToWiredElements();
     }
 
@@ -118,35 +123,146 @@ export class SvgMechanismManager {
         this.updatePushArrows(this.currentFrame, this.playDirection);
     }
 
+    _findSvgElement(svg, key) {
+        if (!svg || !key) return null;
+        let el = typeof svg.getElementById === 'function' ? svg.getElementById(key) : null;
+        if (!el) {
+            try {
+                el = svg.querySelector(`[inkscape\\:label="${key}"], [label="${key}"]`);
+            } catch (e) {}
+        }
+        if (!el) {
+            for (const elem of svg.querySelectorAll('*')) {
+                if (elem.getAttribute('id') === key || getElementLabel(elem) === key) {
+                    return elem;
+                }
+            }
+        }
+        return el;
+    }
+
+    _addArrowHitCushion(el, key) {
+        if (!el) return;
+        const isGroup = el.tagName && el.tagName.toLowerCase() === 'g';
+        const paths = isGroup ? Array.from(el.querySelectorAll('path')) : (el.tagName?.toLowerCase() === 'path' ? [el] : []);
+        let shaftPath = paths.find(p => {
+            try { return p.getBBox().width > 20; } catch (_) { return false; }
+        }) || paths[0] || el;
+
+        const insertCushion = (node) => {
+            node.classList.add('svg-hit-cushion');
+            if (isGroup) {
+                el.insertBefore(node, el.firstChild);
+            } else if (el.parentNode) {
+                node.setAttribute('data-hit-for', key);
+                el.parentNode.insertBefore(node, el);
+            }
+        };
+
+        try {
+            const b = shaftPath.getBBox();
+            if (b && (b.width > 0 || b.height > 0)) {
+                const padX = Math.max(2.5, b.width * 0.03);
+                const padY = Math.max(4.0, (b.height || 0) * 0.6);
+                const rectH = Math.max(8.0, (b.height || 0) + padY * 2);
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('x', (b.x - padX).toFixed(2));
+                rect.setAttribute('y', (b.y - padY).toFixed(2));
+                rect.setAttribute('width', (b.width + padX * 2).toFixed(2));
+                rect.setAttribute('height', rectH.toFixed(2));
+                rect.setAttribute('rx', '3.5');
+                rect.setAttribute('ry', '3.5');
+                rect.setAttribute('fill', 'rgba(0,0,0,0.001)');
+                rect.setAttribute('stroke', 'none');
+                rect.setAttribute('pointer-events', 'all');
+                insertCushion(rect);
+            }
+        } catch (_) {}
+
+        paths.forEach(path => {
+            const ghost = path.cloneNode(false);
+            ghost.removeAttribute('id');
+            ghost.removeAttribute('inkscape:label');
+            ghost.removeAttribute('marker-end');
+            ghost.removeAttribute('marker-start');
+            ghost.removeAttribute('style');
+            ghost.setAttribute('style', 'fill:none !important; stroke:rgba(0,0,0,0.001) !important; stroke-width:7.0 !important; stroke-linecap:round !important; stroke-linejoin:round !important; pointer-events:stroke !important;');
+            insertCushion(ghost);
+        });
+    }
+
+    _addBoundingHitCushion(el, key) {
+        if (!el) return;
+        const isGroup = el.tagName && el.tagName.toLowerCase() === 'g';
+        try {
+            const bbox = el.getBBox();
+            if (bbox && (bbox.width > 0 || bbox.height > 0)) {
+                const padX = 3.5;
+                const padY = 3.5;
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('x', (bbox.x - padX).toFixed(2));
+                rect.setAttribute('y', (bbox.y - padY).toFixed(2));
+                rect.setAttribute('width', (Math.max(bbox.width, 4) + padX * 2).toFixed(2));
+                rect.setAttribute('height', (Math.max(bbox.height, 4) + padY * 2).toFixed(2));
+                rect.setAttribute('rx', '4.0');
+                rect.setAttribute('ry', '4.0');
+                rect.setAttribute('fill', 'rgba(0,0,0,0.001)');
+                rect.setAttribute('stroke', 'none');
+                rect.setAttribute('pointer-events', 'all');
+                rect.classList.add('svg-hit-cushion');
+                if (isGroup) {
+                    el.insertBefore(rect, el.firstChild);
+                } else if (el.parentNode) {
+                    rect.setAttribute('data-hit-for', key);
+                    el.parentNode.insertBefore(rect, el);
+                }
+            }
+        } catch (_) {}
+    }
+
     applyClassesToWiredElements() {
         const svg = this.containerEl.querySelector('#active-mechanism-svg');
         if (!svg) return;
 
+        svg.querySelectorAll('.svg-hit-cushion').forEach(c => c.remove());
         svg.querySelectorAll('.svg-clickable-arrow, .svg-clickable-state, .svg-clickable-molecule, .svg-edit-selectable, .svg-wired-push-arrow').forEach(el => {
             el.classList.remove('svg-clickable-arrow', 'svg-clickable-state', 'svg-clickable-molecule', 'svg-edit-selectable', 'svg-wired-push-arrow');
         });
 
         Object.entries(this.wiring).forEach(([key, cfg]) => {
-            const el = svg.getElementById(key) ||
-                       svg.querySelector(`[inkscape\\:label="${key}"]`) ||
-                       svg.querySelector(`[label="${key}"]`);
+            const el = this._findSvgElement(svg, key);
             if (!el) return;
 
             if (this.mode === 'interactive') {
                 if (cfg.role === 'arrow') {
                     el.classList.add('svg-clickable-arrow');
                     el.title = `Reaction Arrow: Play frames ${cfg.startFrame || 0} → ${cfg.endFrame || 0} (${cfg.direction || 'forward'})`;
+                    this._addArrowHitCushion(el, key);
                 } else if (cfg.role === 'state' || cfg.role === 'state_molecule') {
-                    el.classList.add('svg-clickable-state');
-                    if (cfg.role === 'state_molecule' || cfg.moleculeName) {
-                        el.classList.add('svg-clickable-molecule');
-                        el.title = `${cfg.moleculeName || 'Intermediate'} (Frame ${cfg.targetFrame || 0}): Click to jump, Right-click for orbitals`;
-                    } else {
-                        el.title = `State: Jump to frame ${cfg.targetFrame || 0}`;
+                    let isContainer = false;
+                    if (cfg.role === 'state') {
+                        isContainer = Object.keys(this.wiring).some(childKey => {
+                            if (childKey === key) return false;
+                            const childCfg = this.wiring[childKey];
+                            if (!childCfg || (childCfg.role !== 'molecule' && childCfg.role !== 'state_molecule')) return false;
+                            const childEl = this._findSvgElement(el, childKey);
+                            return childEl && childEl !== el;
+                        });
+                    }
+                    if (!isContainer) {
+                        el.classList.add('svg-clickable-state');
+                        if (cfg.role === 'state_molecule' || cfg.moleculeName) {
+                            el.classList.add('svg-clickable-molecule');
+                            el.title = `${cfg.moleculeName || 'Intermediate'} (Frame ${cfg.targetFrame || 0}): Click to jump, Double-click or Right-click for orbitals`;
+                        } else {
+                            el.title = `State: Jump to frame ${cfg.targetFrame || 0}`;
+                        }
+                        this._addBoundingHitCushion(el, key);
                     }
                 } else if (cfg.role === 'molecule') {
                     el.classList.add('svg-clickable-molecule');
-                    el.title = `${cfg.moleculeName || 'Molecule'}: Right-click for orbitals`;
+                    el.title = `${cfg.moleculeName || 'Molecule'}: Click or Right-click for orbitals`;
+                    this._addBoundingHitCushion(el, key);
                 } else if (cfg.role === 'push_arrow') {
                     el.classList.add('svg-wired-push-arrow');
                     el.title = `Push Arrow: Active frames ${cfg.startFrame || 0} → ${cfg.endFrame || 0} (${cfg.direction || 'both'})`;
@@ -161,12 +277,19 @@ export class SvgMechanismManager {
         const svg = this.containerEl.querySelector('#active-mechanism-svg');
         if (!svg) return;
 
+        // Prevent native browser text selection when clicking or slightly dragging inside the SVG
+        svg.addEventListener('mousedown', (e) => {
+            if (e.button === 0) {
+                e.preventDefault();
+            }
+        });
+
         svg.addEventListener('click', (e) => {
-            const target = resolveEventTarget(e.target, this.wiring);
+            const target = resolveEventTarget(e.target, this.wiring, this.mode);
             if (!target) return;
 
             const grpId = target.getAttribute('id');
-            const lbl = target.getAttribute('inkscape:label') || target.getAttribute('label') || grpId;
+            const lbl = getElementLabel(target) || grpId;
             const cfg = this.wiring[grpId] || this.wiring[lbl];
 
             if (this.mode === 'interactive') {
@@ -182,7 +305,7 @@ export class SvgMechanismManager {
                     const tf = cfg.targetFrame !== undefined ? parseInt(cfg.targetFrame, 10) : 0;
                     this.onJumpFrame(tf);
                 } else if (cfg.role === 'molecule') {
-                    this.onOpenMolecule(grpId, cfg);
+                    this.onOpenMolecule(grpId || lbl, cfg);
                 }
             } else {
                 e.stopPropagation();
@@ -190,18 +313,34 @@ export class SvgMechanismManager {
             }
         });
 
-        svg.addEventListener('contextmenu', (e) => {
-            const target = resolveEventTarget(e.target, this.wiring);
+        svg.addEventListener('dblclick', (e) => {
+            if (this.mode !== 'interactive') return;
+            const target = resolveEventTarget(e.target, this.wiring, 'interactive');
             if (!target) return;
 
             const grpId = target.getAttribute('id');
-            const lbl = target.getAttribute('inkscape:label') || target.getAttribute('label') || grpId;
+            const lbl = getElementLabel(target) || grpId;
             const cfg = this.wiring[grpId] || this.wiring[lbl];
 
             if (cfg && (cfg.role === 'molecule' || cfg.role === 'state_molecule' || (cfg.role === 'state' && cfg.moleculeName))) {
                 e.preventDefault();
                 e.stopPropagation();
-                this.onOpenMolecule(grpId, cfg);
+                this.onOpenMolecule(grpId || lbl, cfg);
+            }
+        });
+
+        svg.addEventListener('contextmenu', (e) => {
+            const target = resolveEventTarget(e.target, this.wiring, 'interactive');
+            if (!target) return;
+
+            const grpId = target.getAttribute('id');
+            const lbl = getElementLabel(target) || grpId;
+            const cfg = this.wiring[grpId] || this.wiring[lbl];
+
+            if (cfg && (cfg.role === 'molecule' || cfg.role === 'state_molecule' || (cfg.role === 'state' && cfg.moleculeName))) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.onOpenMolecule(grpId || lbl, cfg);
             }
         });
     }
@@ -296,6 +435,9 @@ export class SvgMechanismManager {
 
     getExportSvg() {
         const svg = this.containerEl.querySelector('#active-mechanism-svg');
-        return svg ? svg.outerHTML : '';
+        if (!svg) return '';
+        const clone = svg.cloneNode(true);
+        clone.querySelectorAll('.svg-hit-cushion').forEach(c => c.remove());
+        return clone.outerHTML;
     }
 }

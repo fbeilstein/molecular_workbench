@@ -137,27 +137,64 @@
 }
 
 /* SVG Interactive Dynamic Classes */
+#svg-paper-wrapper,
+#svg-paper-viewport,
+#svg-paper-card,
+#active-mechanism-svg,
+#active-mechanism-svg text,
+#active-mechanism-svg tspan,
+#btn-step-prev,
+#btn-play-rev,
+#btn-playback-pause,
+#btn-play-fwd,
+#btn-step-next,
+#tab-mode-interactive,
+#tab-mode-wiring {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#btn-step-prev:focus-visible,
+#btn-play-rev:focus-visible,
+#btn-playback-pause:focus-visible,
+#btn-play-fwd:focus-visible,
+#btn-step-next:focus-visible,
+#tab-mode-interactive:focus-visible,
+#tab-mode-wiring:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+}
+
 .svg-clickable-arrow {
     cursor: pointer !important;
-    transition: all 0.2s ease;
+    transition: filter 0.15s ease, opacity 0.15s ease;
 }
 .svg-clickable-arrow:hover {
     filter: drop-shadow(0 0 8px #38bdf8);
     opacity: 0.95;
 }
+.svg-clickable-arrow:active {
+    filter: drop-shadow(0 0 12px #0284c7);
+}
 .svg-clickable-state {
     cursor: pointer !important;
-    transition: all 0.2s ease;
+    transition: filter 0.15s ease, opacity 0.15s ease;
 }
 .svg-clickable-state:hover {
     filter: drop-shadow(0 0 8px #10b981);
 }
+.svg-clickable-state:active {
+    filter: drop-shadow(0 0 12px #059669);
+}
 .svg-clickable-molecule {
     cursor: pointer !important;
-    transition: all 0.2s ease;
+    transition: filter 0.15s ease, opacity 0.15s ease;
 }
 .svg-clickable-molecule:hover {
     filter: drop-shadow(0 0 8px #a855f7);
+}
+.svg-clickable-molecule:active {
+    filter: drop-shadow(0 0 12px #7c3aed);
 }
 
 /* Directional Push Arrow State & Visibility (SVG colors strictly preserved) */
@@ -171,6 +208,13 @@
     transition: opacity 0.2s ease-in-out;
 }
 
+/* In Interactive mode, push arrows are purely visual overlays and must never swallow clicks */
+#svg-paper-card.mode-interactive .svg-wired-push-arrow,
+#svg-paper-card.mode-interactive .svg-push-active,
+#svg-paper-card.mode-interactive .svg-push-inactive {
+    pointer-events: none !important;
+}
+
 /* In Wiring / Edit mode, keep all elements 100% visible and interactive */
 .mode-wiring .svg-push-inactive,
 .bundle-svg-container.mode-wiring .svg-push-inactive,
@@ -181,7 +225,7 @@
     cursor: pointer !important;
 }
 
-.svg-group-selected {
+#svg-paper-card.mode-wiring .svg-group-selected {
     outline: 2px dashed #38bdf8 !important;
     outline-offset: 4px;
 }
