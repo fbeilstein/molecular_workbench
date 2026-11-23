@@ -18,7 +18,7 @@ from .common import (
     SUBSCRIPTS,
 )
 from .matcher import _add_subscript
-from .builder import _build_orbital_store
+from .builder import _build_orbital_store, get_calc_progress
 
 _MEMORY_STORE: Optional[Dict[str, Any]] = None
 _STORE_LOCK = threading.Lock()
@@ -62,6 +62,8 @@ def clear_orbital_store():
 def get_existing_orbital_store(megajson: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Retrieve in-memory or on-disk orbital store if valid, without building if missing."""
     global _MEMORY_STORE
+    if get_calc_progress().get("is_calculating"):
+        return None
     p_hash = compute_pathway_fingerprint(megajson)
     with _STORE_LOCK:
         if _MEMORY_STORE is not None:
@@ -108,11 +110,6 @@ def get_or_build_orbital_store(megajson: Dict[str, Any], force_rebuild: bool = F
 def get_frame_pool_payload(megajson: Dict[str, Any], frame_idx: int) -> Dict[str, Any]:
     """Return instant get_frame_orbitals dictionary for the given frame index."""
     store = get_existing_orbital_store(megajson)
-    if not store:
-        try:
-            store = get_or_build_orbital_store(megajson, force_rebuild=False)
-        except Exception:
-            store = None
     if not store:
         return {
             "success": False,

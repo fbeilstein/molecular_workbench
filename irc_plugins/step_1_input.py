@@ -104,6 +104,18 @@ class Step1Input(PipelineStep):
                 "raw_rxnfile": subreactions[0]["rxnfile"]
             })
 
+        # Single-step reaction: if raw_smiles changed, remove stale trajectory file for active step
+        prev_smiles = global_state.get(self.step_id, {}).get("raw_smiles", "")
+        if prev_smiles and prev_smiles != smiles:
+            try:
+                proj = init_project()
+                active_id = proj.get("active_step_id", "step_1")
+                t_path = _step_traj_path(active_id)
+                if os.path.exists(t_path):
+                    os.remove(t_path)
+            except Exception:
+                pass
+
         return StepResult(success=True, data={
             "raw_smiles": smiles,
             "raw_rxnfile": rxnfile

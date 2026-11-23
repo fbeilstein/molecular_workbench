@@ -45,12 +45,12 @@ export class OrbitalsPool {
         if (bar) bar.style.width = `${pct}%`;
         if (pctEl) pctEl.textContent = `${pct}%`;
         if (stageEl) {
-            if (progress.completed_frames && progress.total_frames) {
-                stageEl.textContent = `Frame ${progress.completed_frames} / ${progress.total_frames}`;
-            } else if (progress.stage === 'tracking') {
+            if (progress.stage === 'tracking') {
                 stageEl.textContent = 'Propagating Tracks';
             } else if (progress.stage === 'saving') {
                 stageEl.textContent = 'Finalizing';
+            } else if (progress.completed_frames && progress.total_frames) {
+                stageEl.textContent = `Frame ${progress.completed_frames} / ${progress.total_frames}`;
             } else {
                 stageEl.textContent = 'Computing';
             }
@@ -190,7 +190,7 @@ export class OrbitalsPool {
         if (this.isCalculating) {
             const p = this.calcProgress || { percent: 0, completed_frames: 0, total_frames: 0, message: 'Starting parallel PySCF calculations...' };
             const pct = Math.min(100, Math.max(0, p.percent || 0));
-            const frameTxt = (p.completed_frames && p.total_frames) ? `Frame ${p.completed_frames} / ${p.total_frames}` : (p.stage === 'tracking' ? 'Propagating Tracks' : 'Initializing');
+            const frameTxt = p.stage === 'tracking' ? 'Propagating Tracks' : (p.stage === 'saving' ? 'Finalizing' : ((p.completed_frames && p.total_frames) ? `Frame ${p.completed_frames} / ${p.total_frames}` : 'Initializing'));
             this.containerEl.innerHTML = `<div class="empty-state" style="padding: 2rem 1rem; text-align: center; color: #0284c7; font-size: 0.85rem;">
                 <div style="font-size: 1.6rem; margin-bottom: 0.5rem; animation: pulse 1.5s infinite;">⚡</div>
                 <strong style="color: #0369a1; font-size: 0.9rem;">Calculating Solvated Orbitals (PySCF ddCOSMO)...</strong>

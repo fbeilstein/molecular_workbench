@@ -4,6 +4,7 @@ Orbital Store Builder — Parallel Frame SCF, Sequential Cross-Frame Assignment 
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
+import multiprocessing as mp
 import os
 import pickle
 from typing import Any, Dict, List, Optional, Tuple
@@ -37,6 +38,17 @@ _CALC_PROGRESS: Dict[str, Any] = {
 def get_calc_progress() -> Dict[str, Any]:
     """Return a snapshot of current orbital calculation progress."""
     return dict(_CALC_PROGRESS)
+
+
+def _init_worker() -> None:
+    """Clamp OpenMP/BLAS threads to 1 in each spawned worker process."""
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    try:
+        pyscf_lib.num_threads(1)
+    except Exception:
+        pass
 
 
 def _worker_compute_frame(
@@ -121,19 +133,33 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
             precomputed_list = []
 
     if not precomputed_list:
-        with ProcessPoolExecutor(max_workers=workers) as ex:
-            futures = {ex.submit(_worker_compute_frame, task): task[0] for task in tasks}
-            completed = 0
-            for fut in as_completed(futures):
-                res = fut.result()
-                precomputed_list.append(res)
-                completed += 1
-                pct = int((completed / N) * 85)
-                _CALC_PROGRESS.update({
-                    "completed_frames": completed,
-                    "percent": pct,
-                    "message": f"Evaluated PySCF SCF + IBO for frame {res[0] + 1}/{N} ({completed}/{N} done, {pct}%)",
-                })
+        prev_env = {
+            k: os.environ.get(k)
+            for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS")
+        }
+        for k in prev_env:
+            os.environ[k] = "1"
+        try:
+            ctx = mp.get_context("spawn")
+            with ProcessPoolExecutor(max_workers=workers, mp_context=ctx, initializer=_init_worker) as ex:
+                futures = {ex.submit(_worker_compute_frame, task): task[0] for task in tasks}
+                completed = 0
+                for fut in as_completed(futures):
+                    res = fut.result()
+                    precomputed_list.append(res)
+                    completed += 1
+                    pct = int((completed / N) * 85)
+                    _CALC_PROGRESS.update({
+                        "completed_frames": completed,
+                        "percent": pct,
+                        "message": f"Evaluated PySCF SCF + IBO for frame {res[0] + 1}/{N} ({completed}/{N} done, {pct}%)",
+                    })
+        finally:
+            for k, v in prev_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
         precomputed_list.sort(key=lambda x: x[0])
         try:
             with open(cache_file, "wb") as f:

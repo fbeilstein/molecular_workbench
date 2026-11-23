@@ -1,5 +1,12 @@
 import os
 import sys
+
+# Prevent OpenMP/BLAS thread oversubscription in spawned worker pools
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import http.server
 import socketserver
 import json
@@ -87,9 +94,6 @@ def _client_safe_state(state):
     return {k: _client_safe_step_data(k, v) for k, v in state.items()}
 
 
-load_saved_state()
-
-
 class IRCHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         # Prevent caching for development
@@ -165,53 +169,58 @@ class IRCHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        try:
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
 
-        if path == '/' or path.startswith(('/ketcher/', '/static_irc/', '/static_viewer/', '/out/', '/irc_cache/', '/bundles/', '/output/')) or path.endswith('.html'):
-            return super().do_GET()
+            if path == '/' or path.startswith(('/ketcher/', '/static_irc/', '/static_viewer/', '/out/', '/irc_cache/', '/bundles/', '/output/')) or path.endswith('.html'):
+                return super().do_GET()
 
-        if path == '/favicon.ico':
-            fav_path = os.path.join(ROOT_DIR, '.ketcher', 'favicon.ico')
-            if os.path.exists(fav_path):
+            if path == '/favicon.ico':
+                fav_path = os.path.join(ROOT_DIR, '.ketcher', 'favicon.ico')
+                if os.path.exists(fav_path):
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'image/x-icon')
+                    with open(fav_path, 'rb') as f:
+                        data = f.read()
+                    self.send_header('Content-Length', str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                else:
+                    self.send_response(204)
+                    self.end_headers()
+                return
+
+            if path == '/api/log':
+                return self._handle_get_log()
+
+            if path == '/api/plugins':
+                return self._handle_get_plugins()
+
+            if path == '/api/state':
+                return self._send_json(_client_safe_state(pipeline_state))
+
+            if path == '/api/project':
+                return self._send_json(project_manager.get_project_summary())
+
+            if path == '/api/project/archive/export':
+                save_current_state()
+                from irc_plugins import project_archive
+                zip_bytes, filename = project_archive.export_project_archive()
                 self.send_response(200)
-                self.send_header('Content-Type', 'image/x-icon')
-                with open(fav_path, 'rb') as f:
-                    data = f.read()
-                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Content-Type', 'application/zip')
+                self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+                self.send_header('Content-Length', str(len(zip_bytes)))
                 self.end_headers()
-                self.wfile.write(data)
-            else:
-                self.send_response(204)
-                self.end_headers()
-            return
+                self.wfile.write(zip_bytes)
+                return
 
-        if path == '/api/log':
-            return self._handle_get_log()
-
-        if path == '/api/plugins':
-            return self._handle_get_plugins()
-
-        if path == '/api/state':
-            return self._send_json(_client_safe_state(pipeline_state))
-
-        if path == '/api/project':
-            return self._send_json(project_manager.get_project_summary())
-
-        if path == '/api/project/archive/export':
-            save_current_state()
-            from irc_plugins import project_archive
-            zip_bytes, filename = project_archive.export_project_archive()
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/zip')
-            self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
-            self.send_header('Content-Length', str(len(zip_bytes)))
+            self.send_response(404)
             self.end_headers()
-            self.wfile.write(zip_bytes)
-            return
-
-        self.send_response(404)
-        self.end_headers()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._send_json({"success": False, "error": str(e)}, 500)
 
     # -----------------------------------------------------------------------
     # POST Handlers

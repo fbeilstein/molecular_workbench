@@ -34,6 +34,24 @@ from .constants import ROOT_DIR, CASCADE_DIR, PROLONGED_PATH
 TRAJECTORIES_DIR = CASCADE_DIR
 
 _SCF_CACHE: Dict[int, Dict[str, Any]] = {}
+_PROLONGED_CACHE: Dict[str, Any] = {"sig": None, "data": None}
+
+
+def _load_prolonged_cached() -> Optional[Dict[str, Any]]:
+    if not os.path.exists(PROLONGED_PATH):
+        return None
+    try:
+        st = os.stat(PROLONGED_PATH)
+        sig = (st.st_mtime_ns, st.st_size)
+        if _PROLONGED_CACHE["sig"] == sig and _PROLONGED_CACHE["data"] is not None:
+            return _PROLONGED_CACHE["data"]
+        with open(PROLONGED_PATH, "r") as pf:
+            data = json.load(pf)
+        _PROLONGED_CACHE["sig"] = sig
+        _PROLONGED_CACHE["data"] = data
+        return data
+    except Exception:
+        return None
 
 
 class Step6Orbitals(PipelineStep):
@@ -48,25 +66,22 @@ class Step6Orbitals(PipelineStep):
     def _get_megajson(self, current_state: Dict[str, Any]) -> Dict[str, Any]:
         s6, s5 = current_state.get(self.step_id, {}), current_state.get("step_5_cascade", {})
         mj = s6.get("megajson") or s5.get("megajson")
-        if not mj and os.path.exists(PROLONGED_PATH):
-            try: mj = json.load(open(PROLONGED_PATH, "r"))
-            except Exception: mj = {}
-        if mj and os.path.exists(PROLONGED_PATH):
-            try:
-                disk = json.load(open(PROLONGED_PATH, "r"))
-                if disk.get("global_electron_tracks"):
-                    mj["global_electron_tracks"] = disk["global_electron_tracks"]
-                if disk.get("orbital_timeline"):
-                    mj["orbital_timeline"] = disk["orbital_timeline"]
-                if disk.get("trajectory_atom_labels"):
-                    mj["trajectory_atom_labels"] = disk["trajectory_atom_labels"]
-                if disk.get("step_atom_labels"):
-                    mj["step_atom_labels"] = disk["step_atom_labels"]
-                if disk.get("frames"):
-                    mj["frames"] = disk["frames"]
-                if disk.get("solvent") and "solvent" not in mj:
-                    mj["solvent"] = disk["solvent"]
-            except Exception: pass
+        disk = _load_prolonged_cached()
+        if not mj and disk:
+            mj = dict(disk)
+        elif mj and disk:
+            if disk.get("global_electron_tracks"):
+                mj["global_electron_tracks"] = disk["global_electron_tracks"]
+            if disk.get("orbital_timeline"):
+                mj["orbital_timeline"] = disk["orbital_timeline"]
+            if disk.get("trajectory_atom_labels"):
+                mj["trajectory_atom_labels"] = disk["trajectory_atom_labels"]
+            if disk.get("step_atom_labels"):
+                mj["step_atom_labels"] = disk["step_atom_labels"]
+            if disk.get("frames"):
+                mj["frames"] = disk["frames"]
+            if disk.get("solvent") and "solvent" not in mj:
+                mj["solvent"] = disk["solvent"]
         if mj and current_state.get("solvent"):
             mj["solvent"] = current_state["solvent"]
         return mj or {}
@@ -115,13 +130,13 @@ class Step6Orbitals(PipelineStep):
         }
 
     def custom_action(self, user_input: Dict[str, Any], global_state: Dict[str, Any] = None) -> Dict[str, Any]:
-        megajson = self._get_megajson(global_state or {})
-        if not megajson:
-            return {"error": "Pathway data is missing. Please complete Step 5."}
-
         action = user_input.get("action_type") or user_input.get("action")
         if action in ["get_calc_progress", "get_progress"]:
             return {"success": True, "progress": get_calc_progress()}
+
+        megajson = self._get_megajson(global_state or {})
+        if not megajson:
+            return {"error": "Pathway data is missing. Please complete Step 5."}
 
         if action in ["clear_cache", "purge_cache"]:
             clear_orbital_caches()

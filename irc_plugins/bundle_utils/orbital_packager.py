@@ -82,10 +82,23 @@ def convert_and_pack_trajectory_orbitals(
 
     missing_targets = list(needed_targets)
     sources: Dict[str, str] = {}
+    cur_phash = ""
+    try:
+        from ..orbital_cube_mesher import _get_pathway_hash
+        cur_phash = _get_pathway_hash(megajson)
+    except Exception:
+        cur_phash = ""
     if os.path.exists(CUBE_DIR):
+        prefix = f"{cur_phash}_" if cur_phash else ""
         for f in os.listdir(CUBE_DIR):
-            if f.endswith(".cube"):
-                sources[f[:-5]] = os.path.join(CUBE_DIR, f)
+            if not f.endswith(".cube"):
+                continue
+            stem = f[:-5]
+            full_p = os.path.join(CUBE_DIR, f)
+            if prefix and stem.startswith(prefix):
+                sources[stem[len(prefix):]] = full_p
+            elif stem not in sources:
+                sources[stem] = full_p
 
     for k, text in _HIGHRES_CUBE_CACHE.items():
         if isinstance(text, str) and "\n" in text:
@@ -164,13 +177,23 @@ def get_or_extract_surface_mesh(frame_idx: int, ok: str, iso: float, megajson: D
             pass
 
     if not cube_text:
-        disk_cube = os.path.join(root_dir, "irc_cache", "cubes", f"{frame_idx}_{ok}.cube")
-        if os.path.exists(disk_cube):
-            try:
-                with open(disk_cube, "r", encoding="utf-8") as cf:
-                    cube_text = cf.read()
-            except Exception:
-                pass
+        disk_candidates = []
+        try:
+            from ..orbital_cube_mesher import _get_pathway_hash
+            ph = _get_pathway_hash(megajson)
+            if ph:
+                disk_candidates.append(os.path.join(root_dir, "irc_cache", "cubes", f"{ph}_{frame_idx}_{ok}.cube"))
+        except Exception:
+            pass
+        disk_candidates.append(os.path.join(root_dir, "irc_cache", "cubes", f"{frame_idx}_{ok}.cube"))
+        for disk_cube in disk_candidates:
+            if os.path.exists(disk_cube):
+                try:
+                    with open(disk_cube, "r", encoding="utf-8") as cf:
+                        cube_text = cf.read()
+                    break
+                except Exception:
+                    pass
 
     if cube_text:
         try:

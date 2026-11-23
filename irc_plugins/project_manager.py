@@ -52,8 +52,13 @@ def get_project_summary() -> Dict[str, Any]:
         st = read_json_file(step_state_path(sid), {})
         has_input = bool(st.get("step_1_input", {}).get("raw_smiles"))
         has_mapping = bool(st.get("step_2_mapping", {}).get("final_mapping"))
-        has_ts = bool(st.get("step_3_ts", {}).get("ts_geometry") or st.get("step_3_ts", {}).get("ts_guess") or st.get("step_3_ts", {}).get("docked_reactants") or has_irc)
-        has_irc = os.path.exists(step_traj_path(sid))
+        has_irc = os.path.exists(step_traj_path(sid)) and bool(st.get("step_4_irc"))
+        has_ts = bool(
+            st.get("step_3_ts", {}).get("ts_geometry")
+            or st.get("step_3_ts", {}).get("ts_guess")
+            or st.get("step_3_ts", {}).get("docked_reactants")
+            or has_irc
+        )
 
         status = "Completed" if has_irc else "In Progress" if has_ts else "Configured" if has_input else "Empty"
         steps_meta.append({
@@ -80,9 +85,9 @@ def load_active_state() -> Dict[str, Any]:
     if "solvent" not in state and proj.get("solvent"):
         state["solvent"] = proj.get("solvent", "water")
 
-    traj_data = read_json_file(t_path)
+    traj_data = read_json_file(t_path) if "step_4_irc" in state else None
     if traj_data and traj_data.get("frames") and traj_data.get("n_steps", 1) == 1 and traj_data.get("title") != "Master Multistep IRC Trajectory":
-        state.setdefault("step_4_irc", {})["trajectory"] = traj_data
+        state["step_4_irc"]["trajectory"] = traj_data
         sync_legacy_files(active_id, s_path, t_path)
     else:
         if "step_4_irc" in state:
@@ -116,6 +121,11 @@ def save_step_state(step_id: str, state: Dict[str, Any]):
     write_json_file(s_path, state_to_save)
 
     t_path = step_traj_path(step_id)
+    if "step_4_irc" not in state_to_save and os.path.exists(t_path):
+        try:
+            os.remove(t_path)
+        except OSError:
+            pass
     if traj and traj.get("n_steps", 1) == 1 and traj.get("title") != "Master Multistep IRC Trajectory":
         write_json_file(t_path, traj)
         if step_id == proj.get("active_step_id"):
