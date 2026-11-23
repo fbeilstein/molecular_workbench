@@ -18,19 +18,27 @@ _COV_RADII = COVALENT_RADII_ANG
 
 
 def get_local_normal(coords_bohr: np.ndarray, atom_idx: int, neighbors: List[int]) -> Optional[np.ndarray]:
-    """Compute unit normal vector of local coordination plane at atom_idx."""
+    """Compute unit normal vector of local coordination plane at atom_idx (returns None for sp linear centers)."""
     if len(neighbors) < 2:
         return None
-    best_norm, best_l = None, 0.0
+    best_norm, best_sin = None, 0.0
     for i in range(len(neighbors)):
         for j in range(i + 1, len(neighbors)):
             v1 = coords_bohr[neighbors[i]] - coords_bohr[atom_idx]
             v2 = coords_bohr[neighbors[j]] - coords_bohr[atom_idx]
+            n1 = float(np.linalg.norm(v1))
+            n2 = float(np.linalg.norm(v2))
+            if n1 < 1e-6 or n2 < 1e-6:
+                continue
             norm = np.cross(v1, v2)
             l = float(np.linalg.norm(norm))
-            if l > best_l:
-                best_l = l
+            sin_ang = l / (n1 * n2)
+            if sin_ang > best_sin and l > 1e-6:
+                best_sin = sin_ang
                 best_norm = norm / l
+    # Linear sp centers (∠ ~ 180°, sin(θ) < 0.15) do not define a unique local plane normal
+    if best_sin < 0.15:
+        return None
     return best_norm
 
 
@@ -46,7 +54,10 @@ def _find_planar_seeds(
     def _check_and_add_triad(triad: List[int]) -> None:
         pts = coords_b[triad]
         centered = pts - pts.mean(axis=0)
-        _, evecs = np.linalg.eigh(centered.T @ centered)
+        evals, evecs = np.linalg.eigh(centered.T @ centered)
+        # Collinear triads (e.g. O=C=O, C-C≡N, C-C≡C) span only 1D and do not define a 2D plane seed
+        if float(evals[1]) < 0.15:
+            return
         fnorm = evecs[:, 0]
         for a in triad:
             if a in local_normals and abs(float(np.dot(local_normals[a], fnorm))) < min_cos_align:

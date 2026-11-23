@@ -277,7 +277,7 @@ def extract_step0_planar_pi(
     loc_pistar_vecs = _extract_localized_pistar_projections(mol, C_non_pi_occ, C_virt, ovlp, ao_labels, all_atom_ids)
     if loc_pistar_vecs:
         V_loc = np.column_stack(loc_pistar_vecs)
-        P_perp_loc = np.eye(mol.nao) - V_loc @ np.linalg.inv(V_loc.T @ ovlp @ V_loc) @ V_loc.T @ ovlp
+        P_perp_loc = np.eye(mol.nao) - V_loc @ np.linalg.pinv(V_loc.T @ ovlp @ V_loc, rcond=1e-6) @ V_loc.T @ ovlp
         C_virt_deloc_raw = P_perp_loc @ C_virt
         metric = C_virt_deloc_raw.T @ ovlp @ C_virt_deloc_raw
         ev, U_m = np.linalg.eigh(metric)
@@ -347,7 +347,7 @@ def extract_step0_planar_pi(
     # 4. Project ONLY delocalized pi* out of C_virt to get C_non_pi_virt for ValenceLocalizer
     if all_deloc_pi_virt:
         V_deloc = np.column_stack(all_deloc_pi_virt)
-        P_perp_deloc = np.eye(mol.nao) - V_deloc @ np.linalg.inv(V_deloc.T @ ovlp @ V_deloc) @ V_deloc.T @ ovlp
+        P_perp_deloc = np.eye(mol.nao) - V_deloc @ np.linalg.pinv(V_deloc.T @ ovlp @ V_deloc, rcond=1e-6) @ V_deloc.T @ ovlp
         C_non_pi_virt_raw = P_perp_deloc @ C_virt
         metric2 = C_non_pi_virt_raw.T @ ovlp @ C_non_pi_virt_raw
         ev2, U_m2 = np.linalg.eigh(metric2)
