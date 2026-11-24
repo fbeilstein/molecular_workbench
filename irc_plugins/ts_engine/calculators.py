@@ -183,14 +183,88 @@ def build_reaction_eigenvector(atoms, model):
     return v / norm if norm > 1e-6 else None
 
 
-def guard_saddle_polish(atoms, model, log, max_steps=50, max_drift=0.35):
-    """Safely polish a candidate saddle point with Sella DLC while guarding the reaction coordinate.
+def _xtb_hess_imaginary_modes(atoms, charge, multiplicity, solvent=None, imag_cutoff=25.0):
+    """Run fast native xTB Hessian and return imaginary modes [(abs_freq_cm, vec_nx3), ...] > imag_cutoff."""
+    if not os.path.isfile(XTB_BIN):
+        return []
+    syms = atoms.get_chemical_symbols()
+    pos = atoms.get_positions()
+    n = len(syms)
+    try:
+        with tempfile.TemporaryDirectory(prefix="xtb_ts_hess_") as td:
+            xyz = os.path.join(td, "ts.xyz")
+            with open(xyz, "w") as f:
+                f.write(f"{n}\n\n")
+                for s, (x, y, z) in zip(syms, pos):
+                    f.write(f"{s} {x:.8f} {y:.8f} {z:.8f}\n")
+            cmd = [XTB_BIN, "ts.xyz", "--hess", "--chrg", str(int(charge)), "--uhf", str(max(0, int(multiplicity) - 1))]
+            if solvent and str(solvent).lower() not in ("gas", "none", "vacuum", ""):
+                cmd += ["--alpb", str(solvent).lower()]
+            env = os.environ.copy()
+            env.setdefault("OMP_NUM_THREADS", "4")
+            env.setdefault("MKL_NUM_THREADS", "1")
+            subprocess.run(cmd, cwd=td, env=env, capture_output=True, text=True, timeout=120)
+            g98 = os.path.join(td, "g98.out")
+            if not os.path.exists(g98):
+                return []
+            with open(g98, "r") as f:
+                lines = f.readlines()
+    except Exception:
+        return []
 
-    If Sella drifts away from the transition state (> max_drift A on reacting bonds),
-    Sella is immediately aborted and the best geometry within the TS trust zone is restored.
-    """
-    target_dists = {(i, j): float(np.linalg.norm(atoms.positions[i] - atoms.positions[j]))
-                    for i, j in model.formed + model.broken}
+    imags = []
+    i = 0
+    while i < len(lines):
+        if "Frequencies --" in lines[i]:
+            freqs = [float(x) for x in lines[i].split("--")[1].split()]
+            n_m = len(freqs)
+            while i < len(lines) and "Atom AN" not in lines[i]:
+                i += 1
+            i += 1
+            if i + n > len(lines):
+                break
+            vecs = [np.zeros((n, 3), dtype=float) for _ in range(n_m)]
+            for a in range(n):
+                parts = lines[i + a].split()
+                for m in range(n_m):
+                    vecs[m][a] = [
+                        float(parts[2 + 3 * m]),
+                        float(parts[3 + 3 * m]),
+                        float(parts[4 + 3 * m]),
+                    ]
+            for fv, v in zip(freqs, vecs):
+                if fv < -float(imag_cutoff):
+                    imags.append((abs(fv), v))
+            i += n
+        else:
+            i += 1
+    imags.sort(key=lambda item: -item[0])
+    return imags
+
+
+def _pick_spurious_secondary_mode(atoms, model, imag_modes):
+    """Given >=2 imaginary modes [(abs_freq, vec), ...], identify the primary reaction mode and return the strongest spurious secondary mode."""
+    pos = atoms.get_positions()
+    reacting = list(getattr(model, "formed", []) or []) + list(getattr(model, "broken", []) or [])
+    if reacting:
+        def _react_score(item):
+            freq, vec = item
+            stretch = sum(abs(float(np.dot(_unit(pos[j] - pos[i]), vec[j] - vec[i]))) for i, j in reacting)
+            return (stretch, freq)
+        primary_idx = int(np.argmax([_react_score(m)[0] for m in imag_modes]))
+        # Guard: if stretch scores are degenerate/near-zero, fall back to highest imaginary frequency
+        if _react_score(imag_modes[primary_idx])[0] < 1e-4:
+            primary_idx = 0
+    else:
+        primary_idx = 0
+
+    secondary = [m for idx, m in enumerate(imag_modes) if idx != primary_idx]
+    secondary.sort(key=lambda item: -item[0])
+    return secondary[0]
+
+
+def _run_sella_pass(atoms, model, log, target_dists, max_steps=50, max_drift=0.35):
+    """Run a single guarded Sella (order=1) polish pass and restore best in-trust-zone geometry."""
     best_pos = atoms.positions.copy()
     atoms.calc = make_xtb(model.charge, model.multiplicity, solvent=getattr(model, "solvent", None))
     try:
@@ -236,5 +310,44 @@ def guard_saddle_polish(atoms, model, log, max_steps=50, max_drift=0.35):
         log(f"  Sella polish note: {e}")
 
     atoms.set_positions(best_pos)
+    return profile
+
+
+def guard_saddle_polish(atoms, model, log, max_steps=50, max_drift=0.35):
+    """Safely polish a candidate saddle point with Sella DLC while guarding the reaction coordinate,
+    and deterministically escape higher-order saddle points via native xTB Hessian check.
+    """
+    target_dists = {(i, j): float(np.linalg.norm(atoms.positions[i] - atoms.positions[j]))
+                    for i, j in model.formed + model.broken}
+    profile = _run_sella_pass(atoms, model, log, target_dists, max_steps=max_steps, max_drift=max_drift)
+
+    # Deterministic Hessian check: only act if >=2 imaginary modes (> 25i cm^-1) reveal a higher-order saddle
+    if len(atoms) <= 60:
+        solvent = getattr(model, "solvent", None)
+        for esc_pass in range(2):
+            imags = _xtb_hess_imaginary_modes(atoms, model.charge, model.multiplicity, solvent=solvent, imag_cutoff=25.0)
+            if len(imags) <= 1:
+                break
+            freq_str = ", ".join(f"{f:.0f}i" for f, _ in imags)
+            sec_f, sec_vec = _pick_spurious_secondary_mode(atoms, model, imags)
+            max_disp = float(np.max(np.linalg.norm(sec_vec, axis=1)))
+            if max_disp <= 1e-6:
+                break
+            log(f"  Higher-order saddle detected ({freq_str} cm-1); escaping along spurious {sec_f:.0f}i mode (pass {esc_pass + 1}/2)...")
+            pre_pos = atoms.positions.copy()
+            atoms.set_positions(pre_pos + (0.25 / max_disp) * sec_vec)
+            esc_targets = {(i, j): float(np.linalg.norm(pre_pos[i] - pre_pos[j]))
+                           for i, j in model.formed + model.broken}
+            esc_profile = _run_sella_pass(
+                atoms, model, log, esc_targets,
+                max_steps=max(max_steps, 50),
+                max_drift=max(max_drift, 0.35),
+            )
+            if not check_geometry_sanity(atoms, model, log):
+                log("  Secondary saddle escape distorted spectator bonds; restoring prior TS geometry.")
+                atoms.set_positions(pre_pos)
+                break
+            profile.extend(esc_profile)
+
     return profile
 
