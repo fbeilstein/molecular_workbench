@@ -130,9 +130,20 @@ class Step5Cascade(PipelineStep):
         step_state = current_state.get(self.step_id, {})
         megajson = step_state.get("megajson")
 
-        # Validate cached prolonged_pathway.json against available sequence
+        # Validate cached prolonged_pathway.json against available sequence, mtime, and solvent
+        prolonged_stale = False
+        if os.path.exists(PROLONGED_PATH):
+            p_mtime = os.path.getmtime(PROLONGED_PATH)
+            for a in available:
+                if a.get("path") and os.path.exists(a["path"]) and os.path.getmtime(a["path"]) > p_mtime:
+                    prolonged_stale = True
+                    break
+        cur_solv = current_state.get("solvent")
+        if megajson and (prolonged_stale or (cur_solv and megajson.get("solvent") and megajson.get("solvent") != cur_solv)):
+            megajson = None
+
         has_coords = bool(megajson and megajson.get("stitching_alignment_report") and "prev_symbols" in megajson["stitching_alignment_report"][0])
-        if (not megajson or not has_coords) and os.path.exists(PROLONGED_PATH):
+        if (not megajson or not has_coords) and not prolonged_stale and os.path.exists(PROLONGED_PATH):
             try:
                 with open(PROLONGED_PATH, "r") as f:
                     cand_mj = json.load(f)
@@ -140,7 +151,8 @@ class Step5Cascade(PipelineStep):
                     boundaries = cand_mj.get("step_boundaries", [])
                     b_smiles = [b.get("reaction_smiles") or b.get("step_name") for b in boundaries]
                     a_smiles = [a.get("reaction_smiles") or a.get("step_name") for a in available]
-                    if len(boundaries) == len(available) and (b_smiles == a_smiles or not any(b_smiles)):
+                    solv_ok = (not cur_solv) or (not cand_mj.get("solvent")) or (cand_mj.get("solvent") == cur_solv)
+                    if solv_ok and len(boundaries) == len(available) and (b_smiles == a_smiles or not any(b_smiles)):
                         megajson = cand_mj
             except Exception:
                 pass
@@ -225,12 +237,27 @@ class Step5Cascade(PipelineStep):
 
     def run(self, global_state: Dict[str, Any], user_input: Dict[str, Any]) -> StepResult:
         megajson = user_input.get("megajson")
-        if not megajson and os.path.exists(PROLONGED_PATH):
+        available = self._discover_trajectories()
+        prolonged_stale = False
+        if os.path.exists(PROLONGED_PATH):
+            p_mtime = os.path.getmtime(PROLONGED_PATH)
+            for a in available:
+                if a.get("path") and os.path.exists(a["path"]) and os.path.getmtime(a["path"]) > p_mtime:
+                    prolonged_stale = True
+                    break
+        cur_solv = (global_state or {}).get("solvent")
+        if not megajson and not prolonged_stale and os.path.exists(PROLONGED_PATH):
             try:
                 with open(PROLONGED_PATH, "r") as f:
-                    megajson = json.load(f)
+                    cand = json.load(f)
+                if not (cur_solv and cand.get("solvent") and cand.get("solvent") != cur_solv):
+                    megajson = cand
             except Exception:
                 pass
+        if not megajson and available:
+            res = self._handle_stitch_cascade(global_state or {}, user_input or {})
+            if res.get("success") and res.get("megajson"):
+                megajson = res["megajson"]
         return StepResult(success=True, data={"megajson": megajson})
 
     def validate(self, step_data: Dict[str, Any]) -> bool:

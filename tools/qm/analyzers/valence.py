@@ -466,7 +466,34 @@ class ValenceLocalizer:
 
         from qm.analyzers.planar_pi.geometry import detect_planar_pi_fragments
         frags = detect_planar_pi_fragments(self.mol)
-        ref_normal = frags[0][1] if frags else np.array([0.0, 1.0, 0.0])
+        fallback_normal = frags[0][1] if frags else np.array([0.0, 1.0, 0.0])
+        coords_bohr = self.mol.atom_coords()
+
+        def _local_out_normal(c_i: int, a_i: int, b_i: int) -> np.ndarray:
+            vA = coords_bohr[a_i] - coords_bohr[c_i]
+            vB = coords_bohr[b_i] - coords_bohr[c_i]
+            nA, nB = float(np.linalg.norm(vA)), float(np.linalg.norm(vB))
+            if nA > 1e-6 and nB > 1e-6:
+                cross = np.cross(vA / nA, vB / nB)
+                cn = float(np.linalg.norm(cross))
+                if cn > 0.05:
+                    return cross / cn
+            v_ax = coords_bohr[b_i] - coords_bohr[a_i]
+            ax_n = float(np.linalg.norm(v_ax))
+            if ax_n > 1e-6:
+                v_ax = v_ax / ax_n
+                heavy_others = [
+                    i for i in range(self.mol.natm)
+                    if i not in (c_i, a_i, b_i) and self.mol.atom_charge(i) > 1
+                ]
+                others = heavy_others or [i for i in range(self.mol.natm) if i not in (c_i, a_i, b_i)]
+                if others:
+                    nearest = min(others, key=lambda i: float(np.linalg.norm(coords_bohr[i] - coords_bohr[c_i])))
+                    cross = np.cross(v_ax, coords_bohr[nearest] - coords_bohr[c_i])
+                    cn = float(np.linalg.norm(cross))
+                    if cn > 1e-4:
+                        return cross / cn
+            return fallback_normal
 
         by_center = {}
         used_idx = set()
@@ -495,6 +522,7 @@ class ValenceLocalizer:
                 if n1 > 1e-6 and n2 > 1e-6 and abs(float(np.dot(u1 / n1, u2 / n2))) > 0.70:
                     used_idx.add(idx1)
                     used_idx.add(idx2)
+                    ref_normal = _local_out_normal(c_idx, min(x1, x2), max(x1, x2))
                     out_align = abs(float(np.dot(u1 / n1, ref_normal)))
                     pair = (
                         ((idx1, x1), (idx2, x2), out_align)
@@ -511,7 +539,8 @@ class ValenceLocalizer:
                 p_mat = self._iao_atom_populations(
                     np.column_stack([orbitals[iA].mo_coeff, orbitals[iB].mo_coeff]), Q_iao, ref_ao_atom
                 )
-                if p_mat[0, c_idx] >= p_mat[1, c_idx]:
+                # Prefer xA (lower index) when symmetric within 1% so in-plane choice stays frame-invariant
+                if p_mat[0, c_idx] >= p_mat[1, c_idx] - 0.01:
                     assignments.append((iA, xA, iB, xB))
                 else:
                     assignments.append((iB, xB, iA, xA))
@@ -522,7 +551,8 @@ class ValenceLocalizer:
                 p_out = self._iao_atom_populations(
                     np.column_stack([orbitals[iA_out].mo_coeff, orbitals[iB_out].mo_coeff]), Q_iao, ref_ao_atom
                 )
-                if p_out[0, c_idx] > p_out[1, c_idx]:
+                # Prefer xB (higher index) for out-of-plane and xA for in-plane when symmetric within 1%
+                if p_out[0, c_idx] > p_out[1, c_idx] + 0.01:
                     assignments.append((iA_out, xA, iB_out, xB))
                     assignments.append((iB_in, xB, iA_in, xA))
                 else:

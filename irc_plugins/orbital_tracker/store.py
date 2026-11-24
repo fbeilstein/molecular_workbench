@@ -227,11 +227,6 @@ def get_track_vector_and_mol(
     """Retrieve lightweight PySCF Mol, orbital vector, and metadata without recomputing SCF."""
     store = get_existing_orbital_store(megajson)
     if not store:
-        try:
-            store = get_or_build_orbital_store(megajson, force_rebuild=False)
-        except Exception:
-            store = None
-    if not store:
         return None, None, None
     npz = store["npz"]
     key_tids = f"f{frame_idx}_tids"

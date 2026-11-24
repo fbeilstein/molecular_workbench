@@ -182,10 +182,8 @@ def enrich_timeline_tracks(
         return tracks
     catalog = None
     try:
-        from .orbital_tracker import get_existing_orbital_store, get_or_build_orbital_store
+        from .orbital_tracker import get_existing_orbital_store
         store = get_existing_orbital_store(megajson)
-        if not store:
-            store = get_or_build_orbital_store(megajson, force_rebuild=False)
         catalog = store.get("registry", {}).get("tracks", {}) if store else {}
     except Exception:
         catalog = {}
