@@ -111,7 +111,7 @@ function computeBonds(symbols, coords) {
 
     if (ringDoubleBonds.has(pairKey)) targetOrder = 2;
     else if (!ringBondsAll.has(pairKey)) {
-      if (pair === 'C-O') targetOrder = c.d < 1.16 ? 3 : (c.d < 1.265 ? 2 : 1);
+      if (pair === 'C-O') targetOrder = c.d < 1.14 ? 3 : (c.d < 1.265 ? 2 : 1);
       else if (pair === 'C-C') targetOrder = c.d < 1.24 ? 3 : (c.d < 1.39 ? 2 : 1);
       else if (pair === 'C-N') targetOrder = c.d < 1.18 ? 3 : (c.d < 1.32 ? 2 : 1);
       else if (pair === 'N-N') targetOrder = c.d < 1.14 ? 3 : (c.d < 1.28 ? 2 : 1);
@@ -124,21 +124,23 @@ function computeBonds(symbols, coords) {
   }
 
   bonds.sort((a, b) => {
-    const prioA = a.target === 3 ? 0 : (ringDoubleBonds.has(a.pairKey) ? 1 : (a.target === 2 ? 2 : 3));
-    const prioB = b.target === 3 ? 0 : (ringDoubleBonds.has(b.pairKey) ? 1 : (b.target === 2 ? 2 : 3));
+    const prioA = ringDoubleBonds.has(a.pairKey) ? 0 : (a.target === 3 ? 1 : (a.target === 2 ? 2 : 3));
+    const prioB = ringDoubleBonds.has(b.pairKey) ? 0 : (b.target === 3 ? 1 : (b.target === 2 ? 2 : 3));
     return prioA !== prioB ? prioA - prioB : a.d - b.d;
   });
 
-  for (const b of bonds) {
-    if (b.target > 1) {
-      const v1Cap = MAX_VALENCE[b.s1] || 4;
-      const v2Cap = MAX_VALENCE[b.s2] || 4;
-      const maxBoost = Math.min(v1Cap - valences[b.a1], v2Cap - valences[b.a2]);
-      const boost = Math.max(0, Math.min(b.target - 1, maxBoost));
-      if (boost > 0) {
-        b.order += boost;
-        valences[b.a1] += boost;
-        valences[b.a2] += boost;
+  // Two-pass promotion: satisfy all double bonds (1 -> 2) before promoting any triple bonds (2 -> 3)
+  // so cumulated systems (e.g. O=C=O, C=C=O, N=C=O) never collapse into a triple + single bond.
+  for (const stepTarget of [2, 3]) {
+    for (const b of bonds) {
+      if (b.target >= stepTarget && b.order < stepTarget) {
+        const v1Cap = MAX_VALENCE[b.s1] || 4;
+        const v2Cap = MAX_VALENCE[b.s2] || 4;
+        if (valences[b.a1] < v1Cap && valences[b.a2] < v2Cap) {
+          b.order += 1;
+          valences[b.a1] += 1;
+          valences[b.a2] += 1;
+        }
       }
     }
   }
