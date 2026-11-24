@@ -338,7 +338,7 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
             subspace="core", threshold=0.60, next_seq=next_core_seq,
             record_fn=_record_track_instance, prefix="trk_core_", pad_zeros=2,
             conserved=True, prev_atom_labels=prev_atom_labels, curr_atom_labels=curr_atom_labels,
-            lowdin_map=lowdin_map, prev_ao_keys=prev_ao_keys,
+            lowdin_map=lowdin_map, prev_ao_keys=prev_ao_keys, curr_ao_atom=ao_atom,
         )
 
         # ----------------------------------------------------
@@ -372,7 +372,7 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
             record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
             pi_type_keyword="pi", conserved=True,
             prev_atom_labels=prev_atom_labels, curr_atom_labels=curr_atom_labels,
-            lowdin_map=lowdin_map, prev_ao_keys=prev_ao_keys,
+            lowdin_map=lowdin_map, prev_ao_keys=prev_ao_keys, curr_ao_atom=ao_atom,
         )
 
         # ----------------------------------------------------
@@ -406,7 +406,7 @@ def _do_build_orbital_store(megajson: Dict[str, Any], p_hash: str) -> Dict[str, 
             record_fn=_record_track_instance, prefix="trk_", pad_zeros=4,
             pi_type_keyword="pi_star", conserved=True,
             prev_atom_labels=prev_atom_labels, curr_atom_labels=curr_atom_labels,
-            lowdin_map=lowdin_map, prev_ao_keys=prev_ao_keys,
+            lowdin_map=lowdin_map, prev_ao_keys=prev_ao_keys, curr_ao_atom=ao_atom,
         )
 
         frame_outputs.append({

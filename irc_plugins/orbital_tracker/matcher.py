@@ -184,17 +184,44 @@ def _align_degenerate_subspace_clusters(
     overlap_fn: Callable[[np.ndarray, np.ndarray], np.ndarray],
     pi_type_keyword: Optional[str],
     subspace: str,
+    curr_ao_atom: Optional[List[int]] = None,
+    curr_atom_labels: Optional[List[str]] = None,
 ) -> None:
     """
-    Detect and O(k)-Procrustes-align degenerate orbital clusters across frames:
-      - 6-atom aromatic delocalized π / π* pairs (k=2, |ΔE| < 0.25 eV)
+    Detect and O(k)-Procrustes-align degenerate or avoided-crossing orbital clusters across frames:
+      - Multi-atom (>=3) conjugated delocalized π / π* manifolds (near-degenerate |ΔE| < 0.25 eV or
+        avoided-crossing pairs with |ΔE| < 1.0 eV sharing >=0.12 cross-overlap with a previous track)
       - 2-atom linear/cylindrical π / π* pairs (2->2 if |ΔE| < 0.08 eV, 1->2 if |ΔE| < 0.18 eV)
       - 1-atom degenerate lone-pair (e.g. Cl⁻ 3p) or core (e.g. Cl 2p) clusters (k=2,3, |ΔE| < 0.08 / 0.15 eV)
-    Rotates BOTH curr_mat (AO basis) and curr_ov_mat (Löwdin basis) identically.
+    Rotates BOTH curr_mat (AO basis) and curr_ov_mat (Löwdin basis) identically and updates populations.
     """
     Q = len(curr_items)
     if Q < 2 or not prev_items:
         return
+
+    def _apply_cluster_rotation(cl: List[int], R_w: np.ndarray) -> None:
+        orig_energies = np.array([float(curr_items[c]["meta"].get("energy_ev", 0.0)) for c in cl], dtype=np.float64)
+        rot_energies = (R_w ** 2).T @ orig_energies
+        curr_mat[:, cl] = curr_mat[:, cl] @ R_w
+        curr_ov_mat[:, cl] = curr_ov_mat[:, cl] @ R_w
+        natm = len(curr_atom_labels) if curr_atom_labels else 0
+        for j, c_idx in enumerate(cl):
+            curr_items[c_idx]["vec"] = curr_mat[:, c_idx].copy()
+            curr_items[c_idx]["meta"] = dict(curr_items[c_idx]["meta"])
+            curr_items[c_idx]["meta"]["energy_ev"] = round(float(rot_energies[j]), 2)
+            if "vec_low" in curr_items[c_idx]:
+                v_low = curr_ov_mat[:, c_idx].copy()
+                curr_items[c_idx]["vec_low"] = v_low
+                if curr_ao_atom is not None and curr_atom_labels is not None and natm > 0:
+                    scale = 1.0 if subspace == "antibond" else 2.0
+                    sq = v_low ** 2
+                    ap = np.zeros(natm, dtype=np.float64)
+                    for mu, at_i in enumerate(curr_ao_atom):
+                        ap[at_i] += sq[mu]
+                    tot = float(ap.sum())
+                    ap_frac = ap / tot if tot > 1e-10 else ap
+                    curr_items[c_idx]["pop"] = (ap_frac * scale).astype(np.float32)
+                    curr_items[c_idx]["pop_dict"] = {curr_atom_labels[i]: float(ap_frac[i]) for i in range(natm)}
 
     # 1. Group current items by (family, sorted_atoms_tuple)
     groups: Dict[Tuple[str, Tuple[str, ...]], List[int]] = {}
@@ -204,7 +231,7 @@ def _align_degenerate_subspace_clusters(
         ats = tuple(sorted(meta.get("atoms", [])))
         if len(ats) == 1 and (typ == "lone_pair" or typ == "core"):
             groups.setdefault((typ, ats), []).append(idx)
-        elif pi_type_keyword is not None and len(ats) in (2, 6):
+        elif pi_type_keyword is not None and len(ats) >= 2:
             # Support unified virtual pool containing both localized pi_star and delocalized_pistar
             is_pi_match = (
                 pi_type_keyword in typ
@@ -212,17 +239,59 @@ def _align_degenerate_subspace_clusters(
                 or (subspace == "valence_ibo" and typ in ("pi", "delocalized_pi"))
             )
             if is_pi_match:
-                fam = "deloc_pi" if len(ats) == 6 else "local_pi"
+                fam = "deloc_pi" if (len(ats) >= 3 or "deloc" in typ) else "local_pi"
                 groups.setdefault((fam, ats), []).append(idx)
 
     for (fam, ats), idxs in groups.items():
         if len(idxs) < 2:
             continue
-        # Cluster by energy degeneracy
-        idxs_sorted = sorted(idxs, key=lambda c: float(curr_items[c]["meta"].get("energy_ev", 0.0)))
+
         if fam == "deloc_pi":
-            max_dE = 0.25
-        elif fam == "local_pi":
+            # Build coupled clusters among delocalized pi orbitals on the same planar fragment
+            W_frag = overlap_fn(prev_ov_mat, curr_ov_mat[:, idxs])
+            m = len(idxs)
+            adj: Dict[int, Set[int]] = {u: set() for u in range(m)}
+            for u in range(m):
+                eu = float(curr_items[idxs[u]]["meta"].get("energy_ev", 0.0))
+                for v in range(u + 1, m):
+                    ev = float(curr_items[idxs[v]]["meta"].get("energy_ev", 0.0))
+                    de = abs(eu - ev)
+                    if de < 0.25 or (
+                        de < 1.00 and bool(np.any((np.abs(W_frag[:, u]) >= 0.12) & (np.abs(W_frag[:, v]) >= 0.12)))
+                    ):
+                        adj[u].add(v)
+                        adj[v].add(u)
+
+            visited: Set[int] = set()
+            for u in range(m):
+                if u in visited or not adj[u]:
+                    continue
+                comp_local: List[int] = []
+                q = deque([u])
+                visited.add(u)
+                while q:
+                    cur = q.popleft()
+                    comp_local.append(cur)
+                    for nxt in adj[cur]:
+                        if nxt not in visited:
+                            visited.add(nxt)
+                            q.append(nxt)
+                comp_local.sort()
+                cl = [idxs[c] for c in comp_local]
+                k = len(cl)
+                if k >= 2 and prev_ov_mat.shape[1] >= k:
+                    W_col = W_frag[:, comp_local]
+                    row_scores = np.linalg.norm(W_col, axis=1)
+                    prev_matches = sorted(np.argsort(-row_scores)[:k].tolist())
+                    W_sub = W_col[prev_matches, :]
+                    R_w = _align_degenerate_ok(W_sub)
+                    if R_w is not None:
+                        _apply_cluster_rotation(cl, R_w)
+            continue
+
+        # Cluster 1-atom / 2-atom families by energy degeneracy
+        idxs_sorted = sorted(idxs, key=lambda c: float(curr_items[c]["meta"].get("energy_ev", 0.0)))
+        if fam == "local_pi":
             max_dE = 0.18
         elif fam == "core":
             max_dE = 0.15
@@ -254,11 +323,9 @@ def _align_degenerate_subspace_clusters(
                     continue
                 if fam in ("lone_pair", "core") and av_typ != fam:
                     continue
-                if fam == "deloc_pi" and av_typ not in ("delocalized_pi", "delocalized_pistar"):
-                    continue
                 if fam == "local_pi" and av_typ not in ("pi", "pi_star"):
                     continue
-                if fam in ("deloc_pi", "lone_pair", "core"):
+                if fam in ("lone_pair", "core"):
                     if abs(float(av.get("energy_ev", 0.0)) - e_mid) >= 1.0:
                         continue
                 prev_matches.append(r)
@@ -272,12 +339,7 @@ def _align_degenerate_subspace_clusters(
                 R_w = _align_1to2_degenerate_pair(w)
 
             if R_w is not None:
-                curr_mat[:, cl] = curr_mat[:, cl] @ R_w
-                curr_ov_mat[:, cl] = curr_ov_mat[:, cl] @ R_w
-                for j, c_idx in enumerate(cl):
-                    curr_items[c_idx]["vec"] = curr_mat[:, c_idx].copy()
-                    if "vec_low" in curr_items[c_idx]:
-                        curr_items[c_idx]["vec_low"] = curr_ov_mat[:, c_idx].copy()
+                _apply_cluster_rotation(cl, R_w)
 
 
 def match_subspace_orbitals(
@@ -297,6 +359,7 @@ def match_subspace_orbitals(
     curr_atom_labels: Optional[List[str]] = None,
     lowdin_map: Optional[Tuple[List[int], List[int], Dict[str, np.ndarray]]] = None,
     prev_ao_keys: Optional[List[Tuple[str, str]]] = None,
+    curr_ao_atom: Optional[List[int]] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
     Subspace-specific orbital assignment and track propagation.
@@ -398,7 +461,8 @@ def match_subspace_orbitals(
 
             _align_degenerate_subspace_clusters(
                 persisting_items, continuing_items, prev_mat, curr_mat,
-                prev_low_rot, curr_low_full, _ov_fn, pi_type_keyword, subspace
+                prev_low_rot, curr_low_full, _ov_fn, pi_type_keyword, subspace,
+                curr_ao_atom=curr_ao_atom, curr_atom_labels=curr_atom_labels,
             )
             Omega = _ov_fn(prev_low_rot, curr_low_full)
         else:
@@ -408,7 +472,8 @@ def match_subspace_orbitals(
 
             _align_degenerate_subspace_clusters(
                 persisting_items, continuing_items, prev_mat, curr_mat,
-                prev_mat, curr_mat, _ov_ao, pi_type_keyword, subspace
+                prev_mat, curr_mat, _ov_ao, pi_type_keyword, subspace,
+                curr_ao_atom=curr_ao_atom, curr_atom_labels=curr_atom_labels,
             )
             Omega = _ov_ao(prev_mat, curr_mat)
             curr_low_full = None
@@ -458,6 +523,12 @@ def _role_prefix(lbl: Optional[str]) -> str:
         if lbl.startswith(pfx):
             return pfx
     return lbl.split("(")[0]
+
+
+def _deloc_frag_prefix(lbl: Optional[str]) -> str:
+    if not lbl or not (lbl.startswith("π_deloc(") or lbl.startswith("π*_deloc(")):
+        return ""
+    return lbl.split(" [", 1)[0]
 
 
 def smooth_and_label_tracks(track_records: Dict[str, Dict[str, Any]], N: int) -> Dict[str, Dict[str, Any]]:
@@ -519,9 +590,13 @@ def smooth_and_label_tracks(track_records: Dict[str, Dict[str, Any]], N: int) ->
         elif len(filtered_runs) == 2:
             summary_label = f"{r_first} → {r_last}"
         else:
+            df_first = _deloc_frag_prefix(r_first)
+            df_last = _deloc_frag_prefix(r_last)
             mid_candidates = [
                 (r_m, l_m) for (r_m, l_m) in filtered_runs[1:-1]
-                if r_m != r_first and r_m != r_last and (
+                if r_m != r_first and r_m != r_last
+                and not (_deloc_frag_prefix(r_m) and _deloc_frag_prefix(r_m) in (df_first, df_last))
+                and (
                     _role_prefix(r_m) != _role_prefix(r_first) or l_m >= 5
                 )
             ]

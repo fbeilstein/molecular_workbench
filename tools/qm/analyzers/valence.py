@@ -395,6 +395,12 @@ class ValenceLocalizer:
                             orbitals[k].mo_coeff = C_pur[:, j].copy()
                             orbitals[k].energy_ev = round(float(ev_f[j] * HARTREE_TO_EV), 2)
 
+                # Cumulated 3c-4e Coplanar π / Lone-Pair Decoupling (e.g. O=C=O):
+                # A central atom C only has one 2p orbital per π plane, so two coplanar π-classified
+                # IBOs on (C-A) and (C-B) represent 1 covalent π bond + 1 terminal lone pair LP,
+                # never two coplanar π bonds (which would create triple bonds on both A and B).
+                self._decouple_coplanar_3c4e_pi(orbitals, Q_iao, ref_ao_atom)
+
             # ------------------------------------------------------------
             # 2. Orthonormal Valence Virtual Orbitals (VVOs) via IAO + IBO
             #    Note: Keep π* virtuals diabatic (do NOT diagonalize 2x2 Fock
@@ -431,8 +437,148 @@ class ValenceLocalizer:
                                 sym_score=1.0,
                             )
                         )
+                    self._align_coplanar_pistar_atoms(orbitals)
 
         except Exception as e:
             print(f"Valence localization failed: {e}")
 
         return orbitals
+
+    def _decouple_coplanar_3c4e_pi(
+        self,
+        orbitals: List[Orbital],
+        Q_iao: Optional[np.ndarray],
+        ref_ao_atom: Optional[List[int]],
+    ) -> None:
+        """Decouple coplanar 3c-4e π IBO pairs sharing a central atom into 1 π bond + 1 lone pair."""
+        ao_lbls = self.mol.ao_labels()
+        pi_entries = []
+        for idx_o, orb in enumerate(orbitals):
+            if orb.type == "pi" and len(orb.atoms) == 2:
+                try:
+                    i0 = self.atom_ids.index(orb.atoms[0])
+                    i1 = self.atom_ids.index(orb.atoms[1])
+                    pi_entries.append((idx_o, i0, i1))
+                except ValueError:
+                    continue
+        if len(pi_entries) < 2:
+            return
+
+        from qm.analyzers.planar_pi.geometry import detect_planar_pi_fragments
+        frags = detect_planar_pi_fragments(self.mol)
+        ref_normal = frags[0][1] if frags else np.array([0.0, 1.0, 0.0])
+
+        by_center = {}
+        used_idx = set()
+        for a_i in range(len(pi_entries)):
+            idx1, a1, b1 = pi_entries[a_i]
+            if idx1 in used_idx:
+                continue
+            for b_i in range(a_i + 1, len(pi_entries)):
+                idx2, a2, b2 = pi_entries[b_i]
+                if idx2 in used_idx:
+                    continue
+                shared = {a1, b1} & {a2, b2}
+                if len(shared) != 1:
+                    continue
+                c_idx = list(shared)[0]
+                x1 = b1 if a1 == c_idx else a1
+                x2 = b2 if a2 == c_idx else a2
+                if x1 == x2:
+                    continue
+                c_p = [i for i, l in enumerate(ao_lbls) if int(l.split()[0]) == c_idx and "2p" in l]
+                if len(c_p) != 3:
+                    continue
+                u1 = orbitals[idx1].mo_coeff[c_p]
+                u2 = orbitals[idx2].mo_coeff[c_p]
+                n1, n2 = float(np.linalg.norm(u1)), float(np.linalg.norm(u2))
+                if n1 > 1e-6 and n2 > 1e-6 and abs(float(np.dot(u1 / n1, u2 / n2))) > 0.70:
+                    used_idx.add(idx1)
+                    used_idx.add(idx2)
+                    out_align = abs(float(np.dot(u1 / n1, ref_normal)))
+                    pair = (
+                        ((idx1, x1), (idx2, x2), out_align)
+                        if x1 < x2
+                        else ((idx2, x2), (idx1, x1), out_align)
+                    )
+                    by_center.setdefault((c_idx, min(x1, x2), max(x1, x2)), []).append(pair)
+                    break
+
+        for (c_idx, xA, xB), pairs in by_center.items():
+            assignments = []
+            if len(pairs) == 1:
+                (iA, _), (iB, _), _ = pairs[0]
+                p_mat = self._iao_atom_populations(
+                    np.column_stack([orbitals[iA].mo_coeff, orbitals[iB].mo_coeff]), Q_iao, ref_ao_atom
+                )
+                if p_mat[0, c_idx] >= p_mat[1, c_idx]:
+                    assignments.append((iA, xA, iB, xB))
+                else:
+                    assignments.append((iB, xB, iA, xA))
+            elif len(pairs) == 2:
+                pairs_sorted = sorted(pairs, key=lambda item: -item[2])
+                (iA_out, _), (iB_out, _), _ = pairs_sorted[0]
+                (iA_in, _), (iB_in, _), _ = pairs_sorted[1]
+                p_out = self._iao_atom_populations(
+                    np.column_stack([orbitals[iA_out].mo_coeff, orbitals[iB_out].mo_coeff]), Q_iao, ref_ao_atom
+                )
+                if p_out[0, c_idx] > p_out[1, c_idx]:
+                    assignments.append((iA_out, xA, iB_out, xB))
+                    assignments.append((iB_in, xB, iA_in, xA))
+                else:
+                    assignments.append((iB_out, xB, iA_out, xA))
+                    assignments.append((iA_in, xA, iB_in, xB))
+
+            th = np.radians(10.0)
+            for i_bond, x_bond, i_lp, x_lp in assignments:
+                vb0 = orbitals[i_bond].mo_coeff.copy()
+                vl0 = orbitals[i_lp].mo_coeff.copy()
+                cands = np.column_stack([
+                    np.cos(th) * vb0 + np.sin(th) * vl0,
+                    np.cos(-th) * vb0 + np.sin(-th) * vl0,
+                ])
+                c_pops = self._iao_atom_populations(cands, Q_iao, ref_ao_atom)[:, c_idx]
+                best_th = th if c_pops[0] >= c_pops[1] else -th
+                vb = np.cos(best_th) * vb0 + np.sin(best_th) * vl0
+                vlp = -np.sin(best_th) * vb0 + np.cos(best_th) * vl0
+                orbitals[i_bond].mo_coeff = vb
+                orbitals[i_bond].energy_ev = self._eval_energy_ev(vb)
+                orbitals[i_bond].atoms = sorted([self.atom_ids[c_idx], self.atom_ids[x_bond]], key=_canonical_atom_sort_key)
+                orbitals[i_lp].mo_coeff = vlp
+                orbitals[i_lp].energy_ev = self._eval_energy_ev(vlp)
+                orbitals[i_lp].type = "lone_pair"
+                orbitals[i_lp].atoms = [self.atom_ids[x_lp]]
+
+    def _align_coplanar_pistar_atoms(self, orbitals: List[Orbital]) -> None:
+        """Match perpendicular π* antibonds on cumulated A=C=B centers to their coplanar occupied π bond atoms."""
+        ao_lbls = self.mol.ao_labels()
+        occ_pi = [o for o in orbitals if o.type == "pi" and len(o.atoms) == 2]
+        virt_pi = [o for o in orbitals if o.type == "pi_star" and len(o.atoms) == 2]
+        if len(occ_pi) < 2 or len(virt_pi) < 2:
+            return
+        for vp in virt_pi:
+            for c_id in vp.atoms:
+                try:
+                    c_idx = self.atom_ids.index(c_id)
+                except ValueError:
+                    continue
+                c_p = [i for i, l in enumerate(ao_lbls) if int(l.split()[0]) == c_idx and "2p" in l]
+                if len(c_p) != 3:
+                    continue
+                uv = vp.mo_coeff[c_p]
+                nv = float(np.linalg.norm(uv))
+                if nv < 1e-6:
+                    continue
+                cand_occ = [o for o in occ_pi if c_id in o.atoms]
+                if len(cand_occ) == 2 and cand_occ[0].atoms != cand_occ[1].atoms:
+                    best_o, best_dot = None, -1.0
+                    for o in cand_occ:
+                        uo = o.mo_coeff[c_p]
+                        no = float(np.linalg.norm(uo))
+                        if no > 1e-6:
+                            d = abs(float(np.dot(uv / nv, uo / no)))
+                            if d > best_dot:
+                                best_dot, best_o = d, o
+                    if best_o is not None and best_dot > 0.70:
+                        vp.atoms = list(best_o.atoms)
+                        break
