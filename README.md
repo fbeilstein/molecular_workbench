@@ -84,6 +84,9 @@ A standalone client-side viewer that unpacks `.rxnbundle.zip` archives directly 
 |---|---|
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/reactions/tetrahedral_intermediate_CO.svg)|[View Reaction](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/reactions/tetrahedral_intermediate_CO.zip&download)
 |![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/reactions/SN1_acyl_intermediate.svg)|[View Reaction](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/reactions/SN1_acyl_intermediate.zip&download)
+|**in water (protic)**<br>![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/reactions/kemp_decarboxylation.svg)|[View Reaction](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/reactions/kemp_decarboxylation_water.zip&download)|
+|**in acetonitrile (aprotic)**<br>![](https://github.com/fbeilstein/molecular_workbench/blob/master/bundles/reactions/kemp_decarboxylation.svg)|[View Reaction](https://fbeilstein.github.io/molecular_workbench/viewer.html?bundle=bundles/reactions/kemp_decarboxylation_acetonitrile.zip&download)|
+
 
 </details>
 
